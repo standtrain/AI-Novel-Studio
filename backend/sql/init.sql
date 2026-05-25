@@ -275,3 +275,7 @@ INSERT INTO `site_config` (`config_key`, `config_value`, `description`) VALUES
 ('openai_base_url', 'https://api.openai.com/v1', '单Provider API地址'),
 ('default_model', 'gpt-4o', '单Provider默认模型'),
 ('openai_providers', '', '多Provider JSON配置');
+
+-- ---------- 3.3 默认 MCP 服务器 ----------
+INSERT INTO `mcp_servers` (`name`, `transport`, `url`, `headers`, `enabled`, `description`) VALUES
+('anysearch', 'http', 'https://api.anysearch.com/mcp', '{"Authorization": "Bearer ${ANYSEARCH_API_KEY}"}', 1, '统一实时搜索引擎，为AI代理提供网页、新闻、图片等搜索能力。免费API Key申请: https://anysearch.com/console/api-keys');

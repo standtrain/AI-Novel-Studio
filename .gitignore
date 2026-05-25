@@ -1,0 +1,49 @@
+# 敏感配置文件
+.env
+*.pem
+*.key
+*-secret*.json
+
+# 依赖包
+node_modules/
+
+# 编译产物
+dist/
+build/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# 日志文件
+*.log
+logs/
+
+# IDE 配置文件
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# 临时文件
+*.tmp
+*.temp
+tmp/
+
+# 数据库文件
+*.sqlite
+*.db
+
+# 测试覆盖报告
+coverage/
+.nyc_output/
+
+# 环境特定配置
+.env.local
+.env.*.local

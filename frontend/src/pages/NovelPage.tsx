@@ -578,8 +578,10 @@ const NovelPage: React.FC = () => {
         />
       )}
 
-      {/* 流式输出 */}
-      {(isStreaming || streamText) && <StreamOutput text={streamText} isStreaming={isStreaming} />}
+      {/* 流式输出（第四步有专属输出区，此处在其他步骤时显示） */}
+      {(isStreaming || streamText) && viewStep !== STEP.WRITING && (
+        <StreamOutput text={streamText} isStreaming={isStreaming} />
+      )}
 
       {/* ====== 整书大纲 ====== */}
       {userInputSet && viewStep === STEP.OUTLINE && (
@@ -683,6 +685,15 @@ const NovelPage: React.FC = () => {
       {/* ====== 逐章写作 ====== */}
       {viewStep === STEP.WRITING && (
         <div>
+          {/* 写作中：实时流式输出嵌入第四步 */}
+          {isStreaming && (
+            <Card
+              title="🔄 正在写作..."
+              style={{ marginBottom: 16, borderColor: 'rgba(99,102,241,0.3)' }}
+            >
+              <StreamOutput text={streamText} isStreaming={isStreaming} />
+            </Card>
+          )}
           {chapters.filter((c: Chapter) => !!c.content).map((ch: Chapter) => (
             <ChapterCard
               key={ch.chapter_number}

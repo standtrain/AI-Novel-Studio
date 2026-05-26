@@ -8,9 +8,10 @@ interface ChapterOutlineListProps {
   chapters: any[];
   onWriteChapter?: (chapterNumber: number) => void;
   writtenChapterNumbers?: Set<number>;
+  disabled?: boolean;
 }
 
-const ChapterOutlineList: React.FC<ChapterOutlineListProps> = ({ chapters, onWriteChapter, writtenChapterNumbers }) => {
+const ChapterOutlineList: React.FC<ChapterOutlineListProps> = ({ chapters, onWriteChapter, writtenChapterNumbers, disabled }) => {
   if (!chapters || chapters.length === 0) return null;
 
   return (
@@ -32,7 +33,7 @@ const ChapterOutlineList: React.FC<ChapterOutlineListProps> = ({ chapters, onWri
                     <Tag color="green" style={{ cursor: 'default' }}>已写</Tag>
                   ) : (
                     <Button size="small" type="primary" ghost icon={<PlayCircleOutlined />}
-                      onClick={() => onWriteChapter(chNum)}>
+                      onClick={() => onWriteChapter(chNum)} disabled={disabled}>
                       写此章
                     </Button>
                   )

@@ -380,6 +380,7 @@ const NovelPage: React.FC = () => {
     abortRef.current = startChapterOutlinesStream(novelId, handleSSEEvent, startChapter, autoMode);
   };
   const startPhase4 = (cn: number, autoMode?: boolean) => {
+    if (isStreaming && !autoPaused) { message.warning('请等待当前操作完成'); return; }
     abortRef.current?.abort();
     setStreamText(''); setIsStreaming(true);
     activeNovelIdRef.current = novelId;
@@ -611,6 +612,7 @@ const NovelPage: React.FC = () => {
                 startPhase4(chNum);
               }}
               writtenChapterNumbers={new Set(chapters.filter((c: Chapter) => !!c.content).map((c: Chapter) => c.chapter_number))}
+              disabled={isStreaming}
             />
             {/* 自动生成控制区 */}
             {!isStreaming && (() => {

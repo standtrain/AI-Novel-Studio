@@ -166,11 +166,20 @@ const NovelPage: React.FC = () => {
     // 守卫：如果 SSE 事件对应的 novelId 与当前页面不匹配，忽略该事件
     if (activeNovelIdRef.current !== novelId) return;
     switch (event) {
-      case 'progress': message.info(data.message); break;
+      case 'progress':
+        message.info(data.message);
+        // 写作流程的步骤进度同步追加到流式输出区，让用户看到写入阶段
+        if (data.step) {
+          appendStreamText(`\n\n📌 ${data.message}\n`);
+        }
+        break;
       case 'chunk': appendStreamText(data.text || ''); break;
       case 'context_brief':
         // 写作任务书生成完毕（Step 1），显示提示
-        if (data.brief) message.success('写作任务书已生成，正在起草正文...');
+        if (data.brief) {
+          message.success('写作任务书已生成，正在起草正文...');
+          appendStreamText('写作任务书已生成，开始起草正文...\n\n');
+        }
         break;
       case 'review_result':
         // 审查结果弹出报告窗口

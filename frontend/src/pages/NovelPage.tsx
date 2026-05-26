@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useBlocker } from 'react-router-dom';
 import { Steps, Button, Input, Typography, App, Space, Card, List, Tag, Modal, Popconfirm, Collapse, Badge } from 'antd';
-import { PlayCircleOutlined, ArrowLeftOutlined, EditOutlined, SendOutlined, RobotOutlined, ReloadOutlined, WarningOutlined, NodeIndexOutlined, AuditOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, ArrowLeftOutlined, EditOutlined, SendOutlined, RobotOutlined, ReloadOutlined, WarningOutlined, NodeIndexOutlined, AuditOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { getNovelApi } from '../api/novels';
 import client from '../api/client';
 import {
@@ -109,7 +109,35 @@ const NovelPage: React.FC = () => {
       activeNovelIdRef.current = novelId;
     }
     loadNovel();
+    // 组件卸载时清理：中止流式操作并重置 store 中的流式状态
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+      chatAbortRef.current?.abort();
+      chatAbortRef.current = null;
+      setAutoOutlines(false);
+      setAutoWriting(false);
+      setAutoPaused(false);
+      // 安全清理 store 中的流式状态，防止残留状态影响其他页面
+      useNovelStore.getState().safeAbort(novelId);
+    };
   }, [novelId]);
+
+  // 路由拦截：流式操作进行中时阻止离开页面
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      isStreaming && currentLocation.pathname !== nextLocation.pathname
+  );
+
+  // 离开确认弹窗
+  const [leaveModalOpen, setLeaveModalOpen] = useState(false);
+
+  // 监听 blocker 状态变化，自动弹出确认弹窗
+  useEffect(() => {
+    if (blocker.state === 'blocked') {
+      setLeaveModalOpen(true);
+    }
+  }, [blocker.state]);
 
   const loadNovel = async () => {
     setLoading(true);
@@ -336,12 +364,14 @@ const NovelPage: React.FC = () => {
     abortRef.current?.abort();
     setUserInputSet(true); setStreamText(''); setIsStreaming(true);
     activeNovelIdRef.current = novelId;
+    useNovelStore.getState().setActiveNovelId(novelId);
     abortRef.current = startOutlineStream(novelId, prompt, handleSSEEvent);
   };
   const startPhase2 = () => {
     abortRef.current?.abort();
     setStreamText(''); setIsStreaming(true);
     activeNovelIdRef.current = novelId;
+    useNovelStore.getState().setActiveNovelId(novelId);
     abortRef.current = startCharactersStream(novelId, handleSSEEvent);
   };
   const startPhase3 = (startChapter?: number, autoMode?: boolean) => {
@@ -350,12 +380,14 @@ const NovelPage: React.FC = () => {
     setNextBatchStart(null);
     if (autoMode) { setAutoOutlines(true); setAutoPaused(false); }
     activeNovelIdRef.current = novelId;
+    useNovelStore.getState().setActiveNovelId(novelId);
     abortRef.current = startChapterOutlinesStream(novelId, handleSSEEvent, startChapter, autoMode);
   };
   const startPhase4 = (cn: number, autoMode?: boolean) => {
     abortRef.current?.abort();
     setStreamText(''); setIsStreaming(true);
     activeNovelIdRef.current = novelId;
+    useNovelStore.getState().setActiveNovelId(novelId);
     abortRef.current = startWriteChapterStream(novelId, cn, handleSSEEvent, autoMode);
   };
   const startReview = (cn: number) => {
@@ -363,6 +395,7 @@ const NovelPage: React.FC = () => {
     abortRef.current?.abort();
     setIsStreaming(true);
     activeNovelIdRef.current = novelId;
+    useNovelStore.getState().setActiveNovelId(novelId);
     abortRef.current = startReviewStream(novelId, cn, handleSSEEvent);
   };
   const startExtract = (cn: number) => {
@@ -370,6 +403,7 @@ const NovelPage: React.FC = () => {
     abortRef.current?.abort();
     setIsStreaming(true);
     activeNovelIdRef.current = novelId;
+    useNovelStore.getState().setActiveNovelId(novelId);
     abortRef.current = startExtractStream(novelId, cn, handleSSEEvent);
   };
 
@@ -872,6 +906,41 @@ const NovelPage: React.FC = () => {
         )}
         {chatting && <Text style={{ color: '#94a3b8', display: 'block', marginTop: 8 }}>AI 正在修订中...</Text>}
         {chatDone && !chatting && <Text style={{ color: '#34d399', display: 'block', marginTop: 8 }}>修订完成，点击「确定更新」保存，或关闭继续修改。</Text>}
+      </Modal>
+
+      {/* 流式操作中离开页面确认弹窗 */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <ExclamationCircleOutlined style={{ color: '#fbbf24', fontSize: 22 }} />
+            <span style={{ color: '#f1f5f9' }}>确认离开</span>
+          </div>
+        }
+        open={leaveModalOpen}
+        onOk={() => {
+          setLeaveModalOpen(false);
+          blocker.proceed?.();
+        }}
+        onCancel={() => {
+          setLeaveModalOpen(false);
+          blocker.reset?.();
+        }}
+        okText="确认离开（操作将中断）"
+        cancelText="继续当前操作"
+        okButtonProps={{ danger: true }}
+        styles={{
+          content: {
+            background: 'rgba(30,41,59,0.95)',
+            border: '1px solid rgba(245,158,11,0.3)',
+            borderRadius: 20,
+          },
+          header: { background: 'transparent', borderBottom: '1px solid rgba(245,158,11,0.15)' },
+          body: { padding: '24px' },
+        }}
+      >
+        <div style={{ color: '#fca5a5', fontSize: 14, lineHeight: 1.8 }}>
+          当前小说 <strong>《{currentNovel?.title}》</strong> 正在进行 AI 生成操作，离开页面将中断当前操作，已生成的内容将保留。
+        </div>
       </Modal>
     </div>
   );

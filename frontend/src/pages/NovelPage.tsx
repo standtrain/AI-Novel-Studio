@@ -161,7 +161,7 @@ const NovelPage: React.FC = () => {
     if (step === STEP.OUTLINE) return !!(outline || currentNovel?.setting);
     if (step === STEP.CHARACTERS) return characters.length > 0;
     if (step === STEP.CHAPTERS) return chapterOutlines.length > 0;
-    if (step === STEP.WRITING) return chapters.some((c: Chapter) => !!c.content);
+    if (step === STEP.WRITING) return chapterOutlines.length > 0;
     return false;
   };
 

@@ -421,6 +421,11 @@ const DashboardPage: React.FC = () => {
       planReviseAbortRef.current.abort();
       planReviseAbortRef.current = null;
     }
+    // 取消时如果后端已创建小说，需删除以避免残留空记录
+    if (planCreatedRef.current) {
+      deleteNovelApi(planCreatedRef.current.id).catch(() => {});
+      planCreatedRef.current = null;
+    }
     setPlanInput('');
     setPlanning(false);
     setPlanMessages([]);
@@ -429,7 +434,6 @@ const DashboardPage: React.FC = () => {
     setCreatedNovelId(null);
     setCreatedNovelTitle('');
     setPlanError(null);
-    planCreatedRef.current = null;
     setPlanReviseInput('');
     setPlanRevising(false);
     setPlanReviseStreamContent('');
@@ -490,6 +494,13 @@ const DashboardPage: React.FC = () => {
       planAbortRef.current = null;
     }
     setPlanning(false);
+    // 取消时如果后端已创建小说，需删除以避免残留空记录
+    if (planCreatedRef.current) {
+      deleteNovelApi(planCreatedRef.current.id).catch(() => {});
+      planCreatedRef.current = null;
+      setCreatedNovelId(null);
+      setCreatedNovelTitle('');
+    }
   };
 
   const handleGoToNovel = () => {

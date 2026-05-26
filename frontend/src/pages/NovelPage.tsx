@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams, useNavigate, useBlocker } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Steps, Button, Input, Typography, App, Space, Card, List, Tag, Modal, Popconfirm, Collapse, Badge } from 'antd';
-import { PlayCircleOutlined, ArrowLeftOutlined, EditOutlined, SendOutlined, RobotOutlined, ReloadOutlined, WarningOutlined, NodeIndexOutlined, AuditOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, ArrowLeftOutlined, EditOutlined, SendOutlined, RobotOutlined, ReloadOutlined, WarningOutlined, NodeIndexOutlined, AuditOutlined } from '@ant-design/icons';
 import { getNovelApi } from '../api/novels';
 import client from '../api/client';
 import {
@@ -123,21 +123,17 @@ const NovelPage: React.FC = () => {
     };
   }, [novelId]);
 
-  // 路由拦截：流式操作进行中时阻止离开页面
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) =>
-      isStreaming && currentLocation.pathname !== nextLocation.pathname
-  );
-
-  // 离开确认弹窗
-  const [leaveModalOpen, setLeaveModalOpen] = useState(false);
-
-  // 监听 blocker 状态变化，自动弹出确认弹窗
+  // 流式操作时阻止浏览器刷新/关闭页面
   useEffect(() => {
-    if (blocker.state === 'blocked') {
-      setLeaveModalOpen(true);
-    }
-  }, [blocker.state]);
+    const handler = (e: BeforeUnloadEvent) => {
+      if (isStreaming) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isStreaming]);
 
   const loadNovel = async () => {
     setLoading(true);
@@ -908,40 +904,6 @@ const NovelPage: React.FC = () => {
         {chatDone && !chatting && <Text style={{ color: '#34d399', display: 'block', marginTop: 8 }}>修订完成，点击「确定更新」保存，或关闭继续修改。</Text>}
       </Modal>
 
-      {/* 流式操作中离开页面确认弹窗 */}
-      <Modal
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <ExclamationCircleOutlined style={{ color: '#fbbf24', fontSize: 22 }} />
-            <span style={{ color: '#f1f5f9' }}>确认离开</span>
-          </div>
-        }
-        open={leaveModalOpen}
-        onOk={() => {
-          setLeaveModalOpen(false);
-          blocker.proceed?.();
-        }}
-        onCancel={() => {
-          setLeaveModalOpen(false);
-          blocker.reset?.();
-        }}
-        okText="确认离开（操作将中断）"
-        cancelText="继续当前操作"
-        okButtonProps={{ danger: true }}
-        styles={{
-          content: {
-            background: 'rgba(30,41,59,0.95)',
-            border: '1px solid rgba(245,158,11,0.3)',
-            borderRadius: 20,
-          },
-          header: { background: 'transparent', borderBottom: '1px solid rgba(245,158,11,0.15)' },
-          body: { padding: '24px' },
-        }}
-      >
-        <div style={{ color: '#fca5a5', fontSize: 14, lineHeight: 1.8 }}>
-          当前小说 <strong>《{currentNovel?.title}》</strong> 正在进行 AI 生成操作，离开页面将中断当前操作，已生成的内容将保留。
-        </div>
-      </Modal>
     </div>
   );
 };

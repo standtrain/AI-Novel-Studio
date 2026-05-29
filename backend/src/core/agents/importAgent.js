@@ -101,7 +101,7 @@ class ImportAgent extends BaseAgent {
         setting: overview.setting || '',
         main_plot: overview.main_plot || '',
         sub_plots: overview.sub_plots || [],
-        chapterCount: inferredTotal,
+        chapterCount: totalChapters,
       },
       characters: characters.map(c => ({
         name: c.name || '未知',

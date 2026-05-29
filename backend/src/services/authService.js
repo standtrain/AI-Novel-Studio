@@ -42,7 +42,18 @@ const authService = {
       throw { status: 401, message: '用户名或密码错误' };
     }
     if (user.status === 'disabled') {
-      throw { status: 403, message: '账号已被禁用，请联系管理员' };
+      // 获取封禁详情以在登录响应中返回
+      const banDao = require('../dao/banDao');
+      const ban = await banDao.getActiveBan(user.id);
+      const banInfo = {
+        userId: user.id,
+        type: ban ? ban.type : 'unknown',
+        reason: ban?.reason || '账号已被管理员禁用',
+        createdAt: ban?.created_at || user.updated_at,
+        canAppeal: ban ? ban.type === 'ban' : false,
+      };
+      if (ban) banInfo.banId = ban.id;
+      throw { status: 403, message: '账号已被禁用', banInfo };
     }
 
     const valid = await bcrypt.compare(password, user.password_hash);

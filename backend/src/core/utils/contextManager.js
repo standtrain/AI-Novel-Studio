@@ -5,6 +5,8 @@ class ContextManager {
   constructor(novelDao, novelId) {
     this.novelDao = novelDao || null;
     this.novelId = novelId || null;
+    this._dirty = false;     // 脏标记：有未持久化的变更
+    this._pendingPersist = null; // 延迟持久化定时器
     this.context = {
       novel: null,           // { title, genre, setting, theme }
       characters: [],        // 角色数组
@@ -28,7 +30,7 @@ class ContextManager {
       setting: novel.setting,
       theme: novel.theme,
     };
-    return this.persist();
+    this._markDirty();
   }
 
   getNovel() {
@@ -38,7 +40,7 @@ class ContextManager {
   // 保存角色设定
   saveCharacters(characters) {
     this.context.characters = characters;
-    return this.persist();
+    this._markDirty();
   }
 
   getCharacters() {
@@ -49,7 +51,11 @@ class ContextManager {
   addChapterSummary(chapterNumber, summary) {
     this.context.chaptersSummary.push({ chapter: chapterNumber, summary });
     this.context.currentChapter = chapterNumber;
-    return this.persist();
+    // 超过 100 条摘要时裁剪，保留最近 50 条
+    if (this.context.chaptersSummary.length > 100) {
+      this.context.chaptersSummary = this.context.chaptersSummary.slice(-50);
+    }
+    this._markDirty();
   }
 
   // 获取前面章节摘要
@@ -67,7 +73,11 @@ class ContextManager {
       timestamp: new Date().toISOString(),
       content: typeof content === 'string' ? content.substring(0, 500) : content,
     });
-    return this.persist();
+    // 限制历史记录上限，防止内存膨胀
+    if (this.context.conversationHistory.length > 50) {
+      this.context.conversationHistory = this.context.conversationHistory.slice(-30);
+    }
+    this._markDirty();
   }
 
   // 获取全局系统提示
@@ -98,12 +108,29 @@ class ContextManager {
 
   // ---------- 持久化（DB）----------
 
-  // 将上下文序列化到 novels.context_data 列
+  // 标记为脏，延迟 500ms 合并写入
+  _markDirty() {
+    this._dirty = true;
+    if (this._pendingPersist) return;
+    this._pendingPersist = setTimeout(() => {
+      this._pendingPersist = null;
+      this.persist();
+    }, 500);
+  }
+
+  // 将上下文序列化到 novels.context_data 列（立即写入）
   async persist() {
+    if (this._pendingPersist) {
+      clearTimeout(this._pendingPersist);
+      this._pendingPersist = null;
+    }
+    if (!this._dirty) return;
+    this._dirty = false;
     if (this.novelDao && this.novelId) {
       try {
         await this.novelDao.updateContextData(this.novelId, this.context);
       } catch (err) {
+        this._dirty = true; // 写入失败恢复脏标记
         process.stderr.write(`ContextManager 持久化失败：${err.message}\n`);
       }
     }

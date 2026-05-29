@@ -1,0 +1,102 @@
+/* ====== 数据统计区 - 科技感增强 ====== */
+.stats-section {
+  padding: 80px 48px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 底部分割线发光效果 */
+.stats-section::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(99,102,241,0.5), rgba(34,211,238,0.5), transparent);
+}
+
+.stats-inner {
+  max-width: 1000px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 64px;
+  flex-wrap: wrap;
+}
+
+.stat-block {
+  text-align: center;
+  color: #fff;
+  position: relative;
+  padding: 0 20px;
+}
+
+/* 统计数字容器 */
+.stat-block::before {
+  content: '';
+  position: absolute;
+  bottom: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 3px;
+  background: linear-gradient(90deg, var(--lp-primary), var(--lp-accent));
+  border-radius: 2px;
+  opacity: 0.6;
+}
+
+.stat-value {
+  font-family: var(--lp-font-mono);
+  font-size: clamp(2.8rem, 5vw, 4rem);
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 0.5rem;
+  letter-spacing: -1px;
+  /* 渐变数字 */
+  background: linear-gradient(135deg, #fff 0%, var(--lp-accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: 0 0 40px rgba(34,211,238,0.3);
+}
+
+.stat-suffix {
+  font-size: 1.8rem;
+  font-weight: 600;
+  background: linear-gradient(135deg, var(--lp-accent) 0%, var(--lp-accent-secondary, #f472b6) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.stat-label {
+  font-size: 0.95rem;
+  opacity: 0.8;
+  letter-spacing: 1px;
+  font-weight: 500;
+  color: var(--lp-text-muted);
+}
+
+.stat-divider {
+  width: 1px;
+  height: 64px;
+  background: linear-gradient(180deg, transparent, rgba(99,102,241,0.4), transparent);
+}
+
+/* ====== 响应式 ====== */
+@media (max-width: 768px) {
+  .stats-section {
+    padding: 64px 24px;
+  }
+  .stats-inner {
+    gap: 32px;
+  }
+  .stat-value {
+    font-size: 2.2rem;
+  }
+  .stat-divider {
+    display: none;
+  }
+}

@@ -1,0 +1,201 @@
+/* ====== CTA 行动号召区 - 科技风 ====== */
+.cta-section {
+  position: relative;
+  padding: 120px 48px;
+  text-align: center;
+  overflow: hidden;
+  z-index: 1;
+  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #0f172a 100%) !important;
+}
+
+/* 扫描线动画 */
+.cta-section::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(99,102,241,0.03) 2px,
+    rgba(99,102,241,0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 扫描光效动画 */
+.cta-section::after {
+  content: '';
+  position: absolute;
+  top: -100%;
+  left: 0;
+  right: 0;
+  height: 200%;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(34,211,238,0.05) 50%,
+    transparent 100%
+  );
+  animation: scanLine 8s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes scanLine {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(50%); }
+}
+
+/* 浮动光晕 */
+.cta-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.cta-blob-1 {
+  width: 500px;
+  height: 500px;
+  background: rgba(99,102,241,0.2);
+  top: -200px;
+  left: -100px;
+  animation: floatBlob 10s ease-in-out infinite;
+}
+
+.cta-blob-2 {
+  width: 400px;
+  height: 400px;
+  background: rgba(34,211,238,0.15);
+  bottom: -150px;
+  right: -80px;
+  animation: floatBlob 8s ease-in-out infinite 2s;
+}
+
+.cta-blob-3 {
+  width: 300px;
+  height: 300px;
+  background: rgba(244,114,182,0.1);
+  top: 50%;
+  left: 60%;
+  animation: floatBlob 12s ease-in-out infinite 4s;
+}
+
+@keyframes floatBlob {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -40px) scale(1.08); }
+  66% { transform: translate(-20px, 20px) scale(0.95); }
+}
+
+/* 内容 */
+.cta-content {
+  position: relative;
+  z-index: 2;
+  max-width: 700px;
+  margin: 0 auto;
+  opacity: 0;
+  transform: translateY(30px);
+}
+
+.cta-content.cta-visible {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cta-heading {
+  font-family: var(--lp-font-display);
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 1rem;
+  letter-spacing: -0.5px;
+}
+
+.cta-subtitle {
+  font-size: 1.15rem;
+  color: rgba(255,255,255,0.85);
+  line-height: 1.7;
+  margin-bottom: 2.5rem;
+}
+
+/* 按钮 - 霓虹边框效果 */
+.cta-btn-primary {
+  border-radius: 60px !important;
+  height: 56px !important;
+  padding: 0 48px !important;
+  font-size: 1.15rem !important;
+  font-weight: 700 !important;
+  background: linear-gradient(135deg, var(--lp-primary) 0%, var(--lp-accent) 100%) !important;
+  border: none !important;
+  color: #fff !important;
+  transition: all 0.3s ease !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.cta-btn-primary::before {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  background: linear-gradient(135deg, var(--lp-primary) 0%, var(--lp-accent) 100%);
+  border-radius: 60px;
+  z-index: -1;
+}
+
+.cta-btn-primary:hover {
+  transform: scale(1.06);
+  box-shadow: 0 12px 40px rgba(99,102,241,0.4), 0 0 60px rgba(34,211,238,0.2);
+}
+
+.cta-btn-ghost {
+  border-radius: 60px !important;
+  height: 56px !important;
+  padding: 0 40px !important;
+  font-size: 1.05rem !important;
+  font-weight: 600 !important;
+  background: transparent !important;
+  border: 2px solid rgba(34,211,238,0.5) !important;
+  color: var(--lp-accent) !important;
+  transition: all 0.3s ease !important;
+  position: relative;
+}
+
+.cta-btn-ghost::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(34,211,238,0.05);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  border-radius: 60px;
+}
+
+.cta-btn-ghost:hover {
+  border-color: var(--lp-accent) !important;
+  color: var(--lp-accent) !important;
+  transform: scale(1.05);
+  box-shadow: 0 0 30px rgba(34,211,238,0.2);
+}
+
+.cta-btn-ghost:hover::before {
+  opacity: 1;
+}
+
+/* ====== 响应式 ====== */
+@media (max-width: 768px) {
+  .cta-section {
+    padding: 80px 24px;
+  }
+  .cta-actions {
+    flex-direction: column;
+    align-items: center;
+  }
+}

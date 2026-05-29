@@ -1,5 +1,8 @@
 import client from './client';
-import type { McpServerConfig as McpServer, UserMcpConfig } from '../types';
+import type { McpServerConfig, UserMcpConfig } from '../types';
+
+export type McpServer = McpServerConfig;
+export type { UserMcpConfig };
 
 // 用户端点
 export async function getUserMcpServersApi(): Promise<{ servers: UserMcpConfig[] }> {

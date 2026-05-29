@@ -24,7 +24,7 @@ const novelService = {
   },
 
   // 获取小说详情
-  async getNovelDetail(novelId, userId) {
+  async getNovelDetail(novelId, userId, { lightweight = false } = {}) {
     const novel = await _getNovelOrThrow(novelId, userId);
     const [chapters, characters] = await Promise.all([
       chapterDao.findByNovelId(novelId),
@@ -41,10 +41,27 @@ const novelService = {
       try {
         characters_involved = ch.characters_involved ? JSON.parse(ch.characters_involved) : [];
       } catch { characters_involved = []; }
-      return { ...ch, scenes, characters_involved };
+      const base = { ...ch, scenes, characters_involved };
+      // 轻量模式：跳过大字段，减少传输量
+      if (lightweight) {
+        delete base.content;
+        delete base.review_result;
+        delete base.extraction_result;
+      }
+      return base;
     });
 
     return { ...novel, chapters: formattedChapters, characters };
+  },
+
+  // 获取单个章节完整内容（含审查/提取结果）
+  async getChapterContent(novelId, userId, chapterNumber) {
+    await _getNovelOrThrow(novelId, userId);
+    const chapter = await chapterDao.findByNovelAndNumber(novelId, chapterNumber);
+    if (!chapter) {
+      throw { status: 404, message: '章节不存在' };
+    }
+    return chapter;
   },
 
   // 创建新小说
@@ -61,6 +78,106 @@ const novelService = {
       current_step: 0,
     });
     return novelDao.findById(id);
+  },
+
+  // 导入小说（完整数据包：novel + characters + chapters）
+  async importNovel(userId, maxNovels, importData) {
+    const count = await novelDao.countByUser(userId);
+    if (count >= maxNovels) {
+      throw { status: 403, message: `已达到最大小说数量限制（${maxNovels}本）` };
+    }
+
+    // 提取 novel 元数据（兼容扁平结构和嵌套 novel 对象）
+    const novelMeta = importData.novel || {};
+    const title = novelMeta.title || importData.title || '导入的小说';
+    const genre = novelMeta.genre || importData.genre || null;
+    const theme = novelMeta.theme || null;
+    const setting = novelMeta.setting
+      ? (typeof novelMeta.setting === 'object' ? JSON.stringify(novelMeta.setting) : String(novelMeta.setting))
+      : null;
+    const mainPlot = novelMeta.main_plot || null;
+    const subPlots = novelMeta.sub_plots ? JSON.stringify(novelMeta.sub_plots) : '[]';
+
+    // 提取角色和章节
+    const characters = importData.characters || [];
+    const chapters = importData.chapters || [];
+
+    // 根据数据存在性自动推断 current_step 和 status
+    const hasCharacters = characters.length > 0;
+    const hasChapters = chapters.length > 0;
+    const hasContent = hasChapters && chapters.some(c => c.content && c.content.trim().length > 0);
+    const allCompleted = hasChapters && chapters.every(c => c.status === 'completed' || (c.content && c.content.trim().length > 0));
+
+    let currentStep = 1;
+    let status = 'outline';
+    if (hasCharacters) { currentStep = 2; status = 'characters'; }
+    if (hasChapters) { currentStep = 3; status = 'chapters_outline'; }
+    if (hasContent) { currentStep = 4; status = allCompleted ? 'completed' : 'writing'; }
+
+    // 创建 novel 记录
+    const id = await novelDao.create({
+      user_id: userId,
+      title,
+      genre,
+      theme,
+      setting,
+      main_plot: mainPlot,
+      sub_plots: subPlots,
+      status,
+      current_step: currentStep,
+      chapter_count: hasChapters ? chapters.length : (novelMeta.chapter_count || 0),
+    });
+
+    // 导入角色
+    if (hasCharacters) {
+      const formattedCharacters = characters.map(char => ({
+        novel_id: id,
+        name: char.name || '',
+        age: char.age ? String(char.age) : null,
+        gender: char.gender || null,
+        role: char.role || null,
+        appearance: char.appearance || null,
+        personality: char.personality || null,
+        background: char.background || null,
+        motivation: char.motivation || null,
+        arc: char.arc || null,
+        relationships: JSON.stringify(char.relationships || []),
+      }));
+      await characterDao.bulkCreate(formattedCharacters);
+    }
+
+    // 导入章节
+    if (hasChapters) {
+      // 校验无重复章节号
+      const chapterNumbers = chapters.map(c => c.chapter_number);
+      const uniqueNumbers = new Set(chapterNumbers);
+      if (chapterNumbers.length !== uniqueNumbers.size) {
+        throw { status: 400, message: '导入数据包含重复的章节编号' };
+      }
+
+      const formattedChapters = chapters.map(ch => ({
+        novel_id: id,
+        chapter_number: ch.chapter_number,
+        title: ch.title || `第${ch.chapter_number}章`,
+        brief: ch.brief || null,
+        scenes: JSON.stringify(ch.scenes || []),
+        conflict: ch.conflict || null,
+        turning_point: ch.turning_point || null,
+        characters_involved: JSON.stringify(ch.characters_involved || []),
+        emotional_tone: ch.emotional_tone || null,
+        ending_hook: ch.ending_hook || null,
+        content: ch.content || null,
+        summary: ch.summary || null,
+        status: ch.content ? 'completed' : (ch.status || 'outline'),
+        word_count: ch.word_count || (ch.content ? countWords(ch.content) : 0),
+        created_at: new Date(),
+        updated_at: new Date(),
+      }));
+      await chapterDao.bulkCreate(formattedChapters);
+    }
+
+    // 返回完整详情
+    return this.getNovelDetail(id, userId);
   },
 
   // 更新小说信息
@@ -81,6 +198,14 @@ const novelService = {
   // 保存小说大纲
   async saveOutline(novelId, userId, outlineData) {
     await _getNovelOrThrow(novelId, userId);
+
+    // 防御性处理：如果传入的是JSON字符串，尝试解析
+    if (typeof outlineData === 'string') {
+      try { outlineData = JSON.parse(outlineData); } catch { /* 非JSON则保持原样 */ }
+    }
+    if (!outlineData || typeof outlineData !== 'object') {
+      throw { status: 400, message: '大纲数据格式不正确' };
+    }
 
     const data = {
       title: outlineData.title || '',
@@ -105,7 +230,10 @@ const novelService = {
   async saveCharacters(novelId, userId, charactersData) {
     await _getNovelOrThrow(novelId, userId);
 
-    if (!charactersData.characters || !Array.isArray(charactersData.characters)) {
+    if (typeof charactersData === 'string') {
+      try { charactersData = JSON.parse(charactersData); } catch { /* 非JSON则保持原样 */ }
+    }
+    if (!charactersData || !charactersData.characters || !Array.isArray(charactersData.characters)) {
       throw { status: 400, message: '角色数据格式不正确' };
     }
 
@@ -116,7 +244,7 @@ const novelService = {
     const characters = charactersData.characters.map(char => ({
       novel_id: novelId,
       name: char.name || '',
-      age: (typeof char.age === 'number' && !isNaN(char.age)) ? char.age : null,
+      age: char.age ? String(char.age) : null,
       gender: char.gender || '',
       role: char.role || '',
       appearance: char.appearance || '',
@@ -140,29 +268,54 @@ const novelService = {
   async saveChaptersOutline(novelId, userId, chaptersData) {
     await _getNovelOrThrow(novelId, userId);
 
-    if (!chaptersData.chapters || !Array.isArray(chaptersData.chapters)) {
+    if (typeof chaptersData === 'string') {
+      try { chaptersData = JSON.parse(chaptersData); } catch { /* 非JSON则保持原样 */ }
+    }
+    if (!chaptersData || !chaptersData.chapters || !Array.isArray(chaptersData.chapters)) {
       throw { status: 400, message: '章节数据格式不正确' };
     }
+
+    // 校验每个章节必须有有效的 chapter_number
+    for (let i = 0; i < chaptersData.chapters.length; i++) {
+      const ch = chaptersData.chapters[i];
+      const num = ch.chapter || ch.chapter_number;
+      if (!num || num < 1) {
+        throw { status: 400, message: `第${i + 1}个章节缺少有效的章节编号` };
+      }
+    }
+
+    // 先收集需要保留的已有章节数据（正文、摘要等）
+    const existingChapters = await chapterDao.findByNovelId(novelId);
+    const existingMap = new Map();
+    existingChapters.forEach(ch => existingMap.set(ch.chapter_number, ch));
 
     // 删除现有章节
     await chapterDao.deleteByNovelId(novelId);
 
     // 创建新章节
-    const chapters = chaptersData.chapters.map(ch => ({
-      novel_id: novelId,
-      chapter_number: ch.chapter || ch.chapter_number,
-      title: ch.title || `第${ch.chapter || ch.chapter_number}章`,
-      scenes: JSON.stringify(ch.scenes || []),
-      conflict: ch.conflict || '',
-      turning_point: ch.turning_point || '',
-      characters_involved: JSON.stringify(ch.charactersInvolved || []),
-      emotional_tone: ch.emotionalTone || '',
-      ending_hook: ch.endingHook || '',
-      status: 'outline',
-      word_count: 0,
-      created_at: new Date(),
-      updated_at: new Date(),
-    }));
+    const chapters = chaptersData.chapters.map(ch => {
+      const num = ch.chapter || ch.chapter_number;
+      const existing = existingMap.get(num);
+      return {
+        novel_id: novelId,
+        chapter_number: num,
+        title: ch.title || `第${num}章`,
+        brief: ch.brief || ch.synopsis || null,
+        scenes: JSON.stringify(ch.scenes || []),
+        conflict: ch.conflict || '',
+        turning_point: ch.turning_point || ch.turningPoint || '',
+        characters_involved: JSON.stringify(ch.charactersInvolved || ch.characters_involved || []),
+        emotional_tone: ch.emotionalTone || ch.emotional_tone || '',
+        ending_hook: ch.endingHook || ch.ending_hook || '',
+        // 保留已有的正文和摘要
+        content: existing?.content || null,
+        summary: existing?.summary || null,
+        word_count: existing?.word_count || 0,
+        status: existing?.content ? existing.status : 'outline',
+        created_at: new Date(),
+        updated_at: new Date(),
+      };
+    });
 
     if (chapters.length > 0) {
       await chapterDao.bulkCreate(chapters);
@@ -188,7 +341,9 @@ const novelService = {
       title: contentData.title || `第${chapterNumber}章`,
       content: typeof contentData.content === 'string' ? contentData.content : JSON.stringify(contentData.content),
       summary: contentData.summary || '',
-      word_count: typeof contentData.content === 'string' ? countWords(contentData.content) : 0,
+      word_count: typeof contentData.content === 'string'
+        ? countWords(contentData.content)
+        : countWords(JSON.stringify(contentData.content)),
       status: 'completed',
     };
 

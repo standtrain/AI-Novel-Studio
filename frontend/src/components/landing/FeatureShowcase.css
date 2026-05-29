@@ -1,0 +1,218 @@
+/* ====== 功能详解区 - 深色适配 ====== */
+.showcase-section {
+  background: transparent;
+}
+
+/* 可视化区 - 玻璃拟态 */
+.showcase-visual-box {
+  background: rgba(30,41,59,0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: var(--lp-radius);
+  padding: 32px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+.showcase-visual-box.dark {
+  background: rgba(15,23,42,0.9);
+  border-color: rgba(99,102,241,0.3);
+}
+
+.showcase-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 80px;
+  align-items: center;
+  margin-bottom: 100px;
+}
+
+.showcase-row:last-child {
+  margin-bottom: 0;
+}
+
+/* 动画 */
+.showcase-row .showcase-text,
+.showcase-row .showcase-visual {
+  opacity: 0;
+}
+
+.showcase-row .showcase-text {
+  transform: translateX(-60px);
+}
+
+.showcase-row:nth-child(odd) .showcase-visual {
+  transform: translateX(60px);
+}
+
+.showcase-row.reversed .showcase-text {
+  transform: translateX(60px);
+}
+
+.showcase-row.reversed .showcase-visual {
+  transform: translateX(-60px);
+}
+
+.showcase-row.showcase-visible .showcase-text,
+.showcase-row.showcase-visible .showcase-visual {
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 文字区 */
+.showcase-icon-row {
+  font-size: 32px;
+  color: var(--lp-primary);
+  margin-bottom: 1rem;
+}
+
+.showcase-title {
+  font-family: var(--lp-font-display);
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: var(--lp-text-heading);
+  margin-bottom: 1rem;
+  letter-spacing: -0.5px;
+}
+
+.showcase-desc {
+  font-size: 1.05rem;
+  color: var(--lp-text-muted);
+  line-height: 1.8;
+  margin-bottom: 1.5rem;
+}
+
+.showcase-bullets {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.showcase-bullets li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.95rem;
+  color: var(--lp-text-body);
+}
+
+.bullet-icon {
+  color: var(--lp-primary);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+/* 可视化区 */
+.showcase-visual-box {
+  background: var(--lp-bg-warm);
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-radius);
+  padding: 32px;
+  box-shadow: var(--lp-shadow-md);
+}
+
+.showcase-visual-box.dark {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+/* 大纲可视化 */
+.visual-outline {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.visual-chapter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #fff;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--lp-text-body);
+  box-shadow: var(--lp-shadow-sm);
+  border-left: 3px solid var(--lp-primary);
+}
+
+.ch-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lp-primary);
+  flex-shrink: 0;
+}
+
+/* 流式可视化 */
+.visual-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stream-line {
+  font-family: 'Space Mono', 'Noto Sans SC', monospace;
+  font-size: 0.9rem;
+  color: #e2e8f0;
+  line-height: 1.7;
+}
+
+.stream-line.dim {
+  color: #94a3b8;
+  opacity: 0.6;
+}
+
+.stream-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: var(--lp-accent);
+  margin-right: 4px;
+  vertical-align: text-bottom;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* 倒序 */
+.showcase-row.reversed .showcase-text {
+  order: 2;
+}
+
+.showcase-row.reversed .showcase-visual {
+  order: 1;
+}
+
+/* ====== 响应式 ====== */
+@media (max-width: 768px) {
+  .showcase-row {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    margin-bottom: 64px;
+  }
+
+  .showcase-row.reversed .showcase-text {
+    order: unset;
+  }
+
+  .showcase-row .showcase-text,
+  .showcase-row:nth-child(odd) .showcase-visual,
+  .showcase-row.reversed .showcase-text,
+  .showcase-row.reversed .showcase-visual {
+    transform: translateY(40px);
+  }
+
+  .showcase-row.showcase-visible .showcase-text,
+  .showcase-row.showcase-visible .showcase-visual {
+    transform: translateY(0);
+  }
+}

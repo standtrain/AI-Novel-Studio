@@ -1,0 +1,40 @@
+{
+  "name": "novel-writing-backend",
+  "version": "2.0.0",
+  "description": "AI小说写作平台后端服务",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "migrate": "knex migrate:latest",
+    "migrate:rollback": "knex migrate:rollback",
+    "seed": "knex seed:run",
+    "create-admin": "node src/scripts/createAdmin.js"
+  },
+  "dependencies": {
+    "@mapbox/node-pre-gyp": "^2.0.3",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "docx": "^9.6.1",
+    "dotenv": "^16.4.5",
+    "epub-gen": "^0.1.0",
+    "express": "^5.1.0",
+    "express-rate-limit": "^7.4.0",
+    "jsonwebtoken": "^9.0.2",
+    "knex": "^3.1.0",
+    "mammoth": "^1.12.0",
+    "mysql2": "^3.11.0",
+    "openai": "^4.67.0",
+    "pdfkit": "^0.18.0",
+    "pino": "^9.4.0",
+    "pino-pretty": "^11.2.0",
+    "svg-captcha": "^1.4.0",
+    "word-extractor": "^1.0.4",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "author": "",
+  "license": "Apache-2.0"
+}

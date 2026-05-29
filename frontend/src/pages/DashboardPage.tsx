@@ -8,13 +8,19 @@ import { listNovelsApi, createNovelApi, deleteNovelApi, importNovelApi } from '.
 import { startImportAnalysisStream, startNovelPlanningStream, startNovelPlanReviseStream } from '../api/agents';
 import { getTemplatesApi, createNovelFromTemplateApi, NovelTemplate } from '../api/templates';
 import { useNovelStore } from '../store/novelStore';
+import useMobile from '../hooks/useMobile';
 import type { Novel, ImportNovelData, ImportPreview, ImportAnalysisResult } from '../types';
 
 const { Title, Text } = Typography;
 
+// 模块级小说列表缓存，避免路由切换时重复请求
+let novelsCache: { data: Novel[]; timestamp: number } | null = null;
+const NOVELS_CACHE_TTL = 30_000; // 30秒缓存有效期
+
 const DashboardPage: React.FC = () => {
-  const [novels, setNovels] = useState<Novel[]>([]);
-  const [loading, setLoading] = useState(true);
+  const isMobile = useMobile();
+  const [novels, setNovels] = useState<Novel[]>(novelsCache && Date.now() - novelsCache.timestamp < NOVELS_CACHE_TTL ? novelsCache.data : []);
+  const [loading, setLoading] = useState(!novelsCache || Date.now() - novelsCache.timestamp >= NOVELS_CACHE_TTL);
   const [modalOpen, setModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Novel | null>(null);
@@ -42,6 +48,7 @@ const DashboardPage: React.FC = () => {
   const smartFileRef = useRef<HTMLInputElement>(null);
   const smartAbortRef = useRef<AbortController | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [smartInstructions, setSmartInstructions] = useState('');
 
   // 对话式创建相关状态
   const [planInput, setPlanInput] = useState('');
@@ -80,14 +87,36 @@ const DashboardPage: React.FC = () => {
   };
 
   useEffect(() => {
+    // 有有效缓存则跳过请求
+    if (novelsCache && Date.now() - novelsCache.timestamp < NOVELS_CACHE_TTL) {
+      setNovels(novelsCache.data);
+      setLoading(false);
+      return;
+    }
     loadNovels();
   }, []);
 
-  const loadNovels = async () => {
+  // 组件卸载时中断所有活跃的 SSE 流
+  useEffect(() => {
+    return () => {
+      smartAbortRef.current?.abort();
+      planAbortRef.current?.abort();
+      planReviseAbortRef.current?.abort();
+    };
+  }, []);
+
+  const loadNovels = async (force = false) => {
+    if (!force && novelsCache && Date.now() - novelsCache.timestamp < NOVELS_CACHE_TTL) {
+      setNovels(novelsCache.data);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const data = await listNovelsApi();
-      setNovels(data.rows || []);
+      const rows = data.rows || [];
+      novelsCache = { data: rows, timestamp: Date.now() };
+      setNovels(rows);
     } catch (err: any) {
       message.error(err.response?.data?.error || '加载小说列表失败');
     } finally {
@@ -152,6 +181,7 @@ const DashboardPage: React.FC = () => {
     setSmartImportText('');
     setSmartImportFileName('');
     setDocxBase64('');
+    setSmartInstructions('');
     setAnalyzing(false);
     setAnalysisResult(null);
     setAnalysisPayload(null);
@@ -259,7 +289,7 @@ const DashboardPage: React.FC = () => {
       setModalOpen(false);
       form.resetFields();
       resetImportState();
-      loadNovels();
+      loadNovels(true);
       navigate(`/novel/${novel.id}`);
     } catch (err: any) {
       message.error(err.response?.data?.error || '导入失败');
@@ -347,7 +377,7 @@ const DashboardPage: React.FC = () => {
     setAnalysisProgress({ phase: 'init', message: '正在连接 AI 服务...' });
     setAnalysisError(null);
 
-    smartAbortRef.current = startImportAnalysisStream(text, (event, data) => {
+    smartAbortRef.current = startImportAnalysisStream(text, smartInstructions.trim(), (event, data) => {
       switch (event) {
         case 'progress':
           setAnalysisProgress({
@@ -401,7 +431,7 @@ const DashboardPage: React.FC = () => {
       setModalOpen(false);
       form.resetFields();
       resetImportState();
-      loadNovels();
+      loadNovels(true);
       navigate(`/novel/${novel.id}`);
     } catch (err: any) {
       message.error(err.response?.data?.error || '导入失败');
@@ -509,7 +539,7 @@ const DashboardPage: React.FC = () => {
       form.resetFields();
       resetImportState();
       resetPlanState();
-      loadNovels();
+      loadNovels(true);
       navigate(`/novel/${createdNovelId}`);
     }
   };
@@ -595,7 +625,7 @@ const DashboardPage: React.FC = () => {
       await deleteNovelApi(deleteTarget.id);
       message.success(`小说《${deleteTarget.title}》已删除`);
       resetDeleteState();
-      loadNovels();
+      loadNovels(true);
     } catch (err: any) {
       message.error(err.response?.data?.error || '删除失败');
       setDeleting(false);
@@ -617,6 +647,8 @@ const DashboardPage: React.FC = () => {
         backdropFilter: 'blur(12px)',
         borderRadius: 20,
         border: '1px solid rgba(99,102,241,0.15)',
+        flexWrap: 'wrap',
+        gap: 16,
       }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
@@ -792,9 +824,9 @@ const DashboardPage: React.FC = () => {
             borderBottom: '1px solid rgba(99,102,241,0.1)',
             padding: '20px 24px',
           },
-          body: { padding: '24px' },
+          body: { padding: isMobile ? '16px' : '24px' },
         }}
-        width={680}
+        width={isMobile ? '95vw' : 680}
       >
         <Tabs
           activeKey={activeTab}
@@ -899,7 +931,7 @@ const DashboardPage: React.FC = () => {
                   ) : templates.length === 0 ? (
                     <Empty description="暂无可用模板" />
                   ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, maxHeight: 400, overflowY: 'auto' }}>
+                    <div className="template-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12, maxHeight: 400, overflowY: 'auto' }}>
                       {templates.map(tpl => (
                         <Card
                           key={tpl.id}
@@ -1008,7 +1040,7 @@ const DashboardPage: React.FC = () => {
                     }}>
                       <span style={{ color: '#818cf8', fontWeight: 600 }}>导入预览</span>
                       <Divider style={{ margin: '8px 0' }} />
-                      <Descriptions column={2} size="small" colon={false}>
+                      <Descriptions column={isMobile ? 1 : 2} size="small" colon={false}>
                         <Descriptions.Item label="标题">{importPreview.title}</Descriptions.Item>
                         <Descriptions.Item label="类型">{importPreview.genre || '未设置'}</Descriptions.Item>
                         <Descriptions.Item label="角色数">{importPreview.characterCount} 人</Descriptions.Item>
@@ -1185,7 +1217,7 @@ const DashboardPage: React.FC = () => {
                       borderRadius: 16,
                       border: '1px solid rgba(99,102,241,0.2)',
                       padding: '16px 20px',
-                      maxHeight: 420,
+                      maxHeight: isMobile ? 260 : 420,
                       overflowY: 'auto',
                       marginBottom: 16,
                     }}>
@@ -1295,7 +1327,7 @@ const DashboardPage: React.FC = () => {
                             <CheckCircleOutlined style={{ color: '#34d399' }} />
                             <span style={{ color: '#e2e8f0', fontWeight: 600 }}>方案生成完成</span>
                           </div>
-                          <Descriptions column={2} size="small" colon={false}>
+                          <Descriptions column={isMobile ? 1 : 2} size="small" colon={false}>
                             <Descriptions.Item label="书名" span={2}>
                               <span style={{ color: '#f1f5f9', fontWeight: 600 }}>{planResult.title}</span>
                             </Descriptions.Item>
@@ -1587,6 +1619,28 @@ const DashboardPage: React.FC = () => {
                     }}
                   />
 
+                  {/* 补充意见 */}
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                      <BulbOutlined style={{ color: '#f59e0b', fontSize: 12 }} />
+                      <span style={{ color: '#94a3b8', fontSize: 12 }}>补充意见（选填，可引导 AI 分析方向）</span>
+                    </div>
+                    <Input.TextArea
+                      value={smartInstructions}
+                      onChange={(e) => setSmartInstructions(e.target.value)}
+                      rows={2}
+                      placeholder="例如：这是一部都市异能小说，全书预计30章 / 主角是女性，性格冷酷 / 保持轻松搞笑风格..."
+                      disabled={analyzing}
+                      style={{
+                        fontSize: 13,
+                        background: 'rgba(15,23,42,0.4)',
+                        borderColor: 'rgba(245,158,11,0.2)',
+                        color: '#f1f5f9',
+                        borderRadius: 10,
+                      }}
+                    />
+                  </div>
+
                   {/* 分析进度 */}
                   {analyzing && analysisProgress && (
                     <div style={{
@@ -1638,7 +1692,7 @@ const DashboardPage: React.FC = () => {
                       {/* 小说概览 */}
                       {analysisResult.novel && (
                         <>
-                          <Descriptions column={2} size="small" colon={false} style={{ marginBottom: 12 }}>
+                          <Descriptions column={isMobile ? 1 : 2} size="small" colon={false} style={{ marginBottom: 12 }}>
                             <Descriptions.Item label="标题" span={2}>{analysisResult.novel.title || '未命名'}</Descriptions.Item>
                             <Descriptions.Item label="题材">{analysisResult.novel.genre || '未知'}</Descriptions.Item>
                             {analysisResult.novel.theme && (
@@ -1683,18 +1737,28 @@ const DashboardPage: React.FC = () => {
                       {/* 章节概要 */}
                       {analysisResult.chapters && analysisResult.chapters.length > 0 && (
                         <>
-                          <span style={{ color: '#818cf8', fontWeight: 600, fontSize: 13 }}>
-                            章纲（{analysisResult.chapters.length}章）
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                            <span style={{ color: '#818cf8', fontWeight: 600, fontSize: 13 }}>
+                              章纲（{analysisResult.chapters.length}章）
+                            </span>
+                            {analysisResult.chapters.some((c: any) => c.content) && (
+                              <Tag color="green" style={{ fontSize: 10 }}>
+                                {analysisResult.chapters.filter((c: any) => c.content).length} 章已生成正文
+                              </Tag>
+                            )}
+                          </div>
                           <List
                             size="small"
                             dataSource={analysisResult.chapters.slice(0, 10)}
                             renderItem={(ch: any) => (
                               <List.Item style={{ padding: '4px 0', borderBottom: '1px solid rgba(99,102,241,0.08)' }}>
-                                <div>
-                                  <span style={{ color: '#e2e8f0', fontWeight: 500, fontSize: 12 }}>
-                                    {ch.chapter_number}. {ch.title || `第${ch.chapter_number}章`}
-                                  </span>
+                                <div style={{ width: '100%' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ color: '#e2e8f0', fontWeight: 500, fontSize: 12 }}>
+                                      {ch.chapter_number}. {ch.title || `第${ch.chapter_number}章`}
+                                    </span>
+                                    {ch.content && <Tag color="green" style={{ fontSize: 9, lineHeight: '14px', padding: '0 4px' }}>有正文</Tag>}
+                                  </div>
                                   <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>
                                     {ch.summary?.substring(0, 80)}{(ch.summary?.length || 0) > 80 ? '...' : ''}
                                   </div>
@@ -1809,9 +1873,9 @@ const DashboardPage: React.FC = () => {
             borderBottom: '1px solid rgba(239,68,68,0.15)',
             padding: '20px 24px',
           },
-          body: { padding: '24px' },
+          body: { padding: isMobile ? '16px' : '24px' },
         }}
-        width={480}
+        width={isMobile ? '92vw' : 480}
       >
         <div style={{
           padding: '20px 16px',

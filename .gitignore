@@ -47,3 +47,14 @@ coverage/
 # 环境特定配置
 .env.local
 .env.*.local
+
+# 部署产物
+deploy/
+*.tar.gz
+
+# 临时目录
+$tmpDir/
+.claude/
+
+# 测试文件
+backend/test-novel-save.js

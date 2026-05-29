@@ -1,0 +1,740 @@
+/* ===== CSS 变量系统 ===== */
+:root {
+  /* 主色调 - 渐变紫 */
+  --lp-primary: #6366f1;
+  --lp-primary-light: #818cf8;
+  --lp-primary-dark: #4f46e5;
+  --lp-secondary: #8b5cf6;
+  --lp-accent: #a78bfa;
+  --lp-accent-cyan: #22d3ee;
+
+  /* 背景色 */
+  --lp-bg: #0f172a;
+  --lp-bg-secondary: #1e293b;
+  --lp-bg-tertiary: #334155;
+
+  /* 文字颜色 */
+  --lp-text-primary: #f1f5f9;
+  --lp-text-secondary: #cbd5e1;
+  --lp-text-muted: #94a3b8;
+
+  /* 边框颜色 */
+  --lp-border: rgba(99, 102, 241, 0.15);
+  --lp-border-hover: rgba(99, 102, 241, 0.3);
+
+  /* 阴影 */
+  --lp-shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.2);
+  --lp-shadow-md: 0 8px 32px rgba(0, 0, 0, 0.3);
+  --lp-shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.4);
+  --lp-glow: 0 0 20px rgba(99, 102, 241, 0.2);
+
+  /* 圆角 */
+  --lp-radius-sm: 8px;
+  --lp-radius-md: 12px;
+  --lp-radius-lg: 16px;
+  --lp-radius-xl: 24px;
+
+  /* 间距 */
+  --lp-spacing-xs: 4px;
+  --lp-spacing-sm: 8px;
+  --lp-spacing-md: 16px;
+  --lp-spacing-lg: 24px;
+  --lp-spacing-xl: 32px;
+}
+
+/* ===== 全局样式重置 ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: var(--lp-bg);
+  color: var(--lp-text-secondary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ===== 自定义滚动条 ===== */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(30, 41, 59, 0.5);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.5);
+}
+
+/* ===== 选中文字样式 ===== */
+::selection {
+  background: rgba(99, 102, 241, 0.4);
+  color: #fff;
+}
+
+/* ===== SSE 流式输出样式 ===== */
+.stream-cursor::after {
+  content: '▊';
+  animation: blink 1s infinite;
+  color: var(--lp-primary);
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ===== 全局动画 ===== */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes glowPulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(99, 102, 241, 0.4);
+  }
+}
+
+/* ===== 卡片悬停效果（仅桌面端） ===== */
+.ant-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ant-card:hover {
+    transform: translateY(-4px);
+  }
+}
+
+/* ===== 全局响应式调整 ===== */
+@media (max-width: 768px) {
+  /* 统计组件 */
+  .ant-statistic-title {
+    font-size: 12px;
+  }
+  .ant-statistic-content {
+    font-size: 20px;
+  }
+
+  /* 表格 — 水平滚动 */
+  .ant-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ant-table {
+    min-width: 600px;
+  }
+  .ant-table-thead > tr > th,
+  .ant-table-tbody > tr > td {
+    padding: 8px 10px !important;
+    font-size: 13px;
+  }
+
+  /* Modal — 全屏宽度 */
+  .ant-modal {
+    max-width: calc(100vw - 24px) !important;
+    margin: 12px;
+  }
+  .ant-modal-content {
+    border-radius: 16px !important;
+  }
+  .ant-modal-body {
+    padding: 16px !important;
+  }
+  .ant-modal-header {
+    padding: 16px 16px 12px !important;
+  }
+  .ant-modal-footer {
+    padding: 12px 16px 16px !important;
+  }
+
+  /* 表单 */
+  .ant-form-item {
+    margin-bottom: 16px;
+  }
+  .ant-form-item-label {
+    padding-bottom: 4px;
+  }
+
+  /* Steps 步骤条 — 缩小字号 */
+  .ant-steps-item-title {
+    font-size: 13px !important;
+  }
+  .ant-steps-item-description {
+    font-size: 12px !important;
+  }
+
+  /* Tabs — 可滚动 */
+  .ant-tabs-nav {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .ant-tabs-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 按钮 — 增大触摸目标 */
+  .ant-btn {
+    min-height: 36px;
+  }
+
+  /* Select 下拉 */
+  .ant-select-dropdown {
+    max-width: calc(100vw - 32px);
+  }
+
+  /* Card */
+  .ant-card-body {
+    padding: 16px !important;
+  }
+  .ant-card-head {
+    padding: 12px 16px !important;
+  }
+
+  /* Pagination — 紧凑模式 */
+  .ant-pagination-item,
+  .ant-pagination-prev,
+  .ant-pagination-next {
+    min-width: 30px;
+    height: 30px;
+    line-height: 28px;
+    font-size: 12px;
+  }
+
+  /* Popconfirm */
+  .ant-popover-inner {
+    max-width: calc(100vw - 32px);
+  }
+
+  /* Tag */
+  .ant-tag {
+    font-size: 12px;
+    padding: 2px 8px;
+  }
+
+  /* Collapse */
+  .ant-collapse-header {
+    padding: 10px 12px !important;
+    font-size: 14px;
+  }
+  .ant-collapse-content-box {
+    padding: 12px !important;
+  }
+}
+
+/* 更小屏幕 (≤ 480px) */
+@media (max-width: 480px) {
+  .ant-statistic-content {
+    font-size: 18px;
+  }
+
+  .ant-card-body {
+    padding: 12px !important;
+  }
+
+  .ant-modal-body {
+    padding: 12px !important;
+  }
+
+  /* Steps — 横向滚动 */
+  .ant-steps-horizontal {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ===== 移动端专用优化 ===== */
+@media (max-width: 768px) {
+  /* 页面容器 padding */
+  .ant-layout-content {
+    padding: 12px !important;
+  }
+
+  /* 标题字号缩小 */
+  .ant-typography h3 {
+    font-size: 18px !important;
+  }
+  .ant-typography h4 {
+    font-size: 16px !important;
+  }
+
+  /* Space 组件换行 */
+  .ant-space {
+    flex-wrap: wrap !important;
+  }
+
+  /* 按钮组垂直排列 */
+  .ant-space-compact {
+    flex-direction: column !important;
+  }
+  .ant-space-compact > .ant-btn {
+    width: 100%;
+  }
+
+  /* Card extra 区域按钮换行 */
+  .ant-card-extra {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 4px !important;
+  }
+
+  /* 流式输出区高度限制 — 已移至底部 @media 块统一管理 */
+
+  /* 翻页控件紧凑 */
+  .chapter-pagination {
+    padding: 8px 12px !important;
+    gap: 8px !important;
+  }
+  .chapter-pagination .ant-btn {
+    padding: 4px 8px !important;
+    font-size: 13px;
+  }
+
+  /* 章节操作按钮 */
+  .chapter-actions {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+  }
+  .chapter-actions .ant-space {
+    width: 100%;
+  }
+  .chapter-actions .ant-space .ant-btn {
+    flex: 1;
+  }
+
+  /* 编辑弹窗 textarea */
+  .edit-textarea textarea {
+    min-height: 200px !important;
+  }
+
+  /* AI 修订对话框 */
+  .chat-messages {
+    max-height: 300px !important;
+  }
+}
+
+/* ===== 触摸设备优化 ===== */
+@media (hover: none) and (pointer: coarse) {
+  /* 增大可点击区域 */
+  .ant-btn {
+    min-height: 44px;
+  }
+
+  /* 禁用 hover 效果 */
+  .ant-card:hover {
+    transform: none !important;
+  }
+
+  /* Tag 可点击区域 */
+  .ant-tag {
+    padding: 4px 10px;
+  }
+
+  /* 触摸设备上始终显示 NovelCard 删除按钮 */
+  .novel-card-delete-btn {
+    opacity: 0.7 !important;
+  }
+}
+
+/* ===== 移动端 Modal 内部布局优化 ===== */
+@media (max-width: 768px) {
+  /* Modal 内 Row/Col 自动堆叠 */
+  .ant-modal .ant-row {
+    flex-wrap: wrap !important;
+  }
+  .ant-modal .ant-col-8,
+  .ant-modal .ant-col-12 {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+  }
+  .ant-modal .ant-row .ant-col-8 + .ant-col-8,
+  .ant-modal .ant-row .ant-col-12 + .ant-col-12 {
+    margin-top: 0;
+  }
+
+  /* Modal 内 Descriptions 单列 */
+  .ant-modal .ant-descriptions {
+    font-size: 13px;
+  }
+  .ant-modal .ant-descriptions-item {
+    padding-bottom: 8px !important;
+  }
+
+  /* Steps 步骤条紧凑 */
+  .ant-steps-horizontal .ant-steps-item {
+    padding-right: 8px !important;
+  }
+  .ant-steps-horizontal .ant-steps-item-icon {
+    width: 24px !important;
+    height: 24px !important;
+    line-height: 24px !important;
+    font-size: 12px !important;
+  }
+  .ant-steps-horizontal .ant-steps-item-title {
+    font-size: 12px !important;
+  }
+
+  /* 流式输出区覆盖内联样式 */
+  .stream-output-container {
+    max-height: 250px !important;
+    font-size: 13px !important;
+    padding: 12px !important;
+  }
+
+  /* 模板网格自适应 */
+  .template-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) !important;
+  }
+}
+
+/* ===== 玻璃拟态基础类 ===== */
+.glass-card {
+  background: rgba(30, 41, 59, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--lp-border);
+  border-radius: var(--lp-radius-lg);
+  box-shadow: var(--lp-shadow-md), var(--lp-glow);
+}
+
+/* ===== 渐变按钮类 ===== */
+.gradient-btn {
+  background: linear-gradient(135deg, var(--lp-primary) 0%, var(--lp-secondary) 100%);
+  border: none;
+  transition: all 0.3s ease;
+}
+
+.gradient-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(99, 102, 241, 0.4);
+}
+
+/* ===== 输入框聚焦效果 ===== */
+.input-glow:focus {
+  border-color: var(--lp-primary) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15), inset 0 1px 2px rgba(0,0,0,0.1) !important;
+}
+
+/* ===== Ant Design 表单错误提示样式（暗色主题优化） ===== */
+.ant-form-item-explain-error {
+  color: #f87171 !important;  /* 浅红色，在深色背景上清晰可见 */
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.ant-form-item-explain-warning {
+  color: #fbbf24 !important;  /* 黄色警告 */
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+/* ===== Ant Design 提示文字颜色优化 ===== */
+.ant-typography,
+.ant-typography-secondary {
+  color: var(--lp-text-secondary) !important;
+}
+
+.ant-typography-secondary {
+  color: var(--lp-text-muted) !important;
+}
+
+/* ===== Ant Design Tabs 样式优化 ===== */
+.ant-tabs-tab {
+  color: var(--lp-text-muted) !important;
+}
+
+.ant-tabs-tab:hover {
+  color: var(--lp-text-primary) !important;
+}
+
+.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--lp-primary-light) !important;
+}
+
+/* ===== Ant Design Steps 样式优化 ===== */
+.ant-steps-item-process .ant-steps-item-icon {
+  background: linear-gradient(135deg, var(--lp-primary) 0%, var(--lp-secondary) 100%);
+  border-color: var(--lp-primary) !important;
+}
+
+.ant-steps-item-finish .ant-steps-item-icon {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: var(--lp-primary) !important;
+}
+
+.ant-steps-item-finish .ant-steps-item-icon .ant-steps-icon {
+  color: var(--lp-primary-light) !important;
+}
+
+.ant-steps-item-title {
+  color: var(--lp-text-secondary) !important;
+}
+
+.ant-steps-item-process .ant-steps-item-title {
+  color: var(--lp-text-primary) !important;
+}
+
+/* ===== Ant Design Card 标题样式优化 ===== */
+.ant-card-head-title {
+  color: var(--lp-text-primary) !important;
+}
+
+/* ===== Ant Design Table 样式优化 ===== */
+.ant-table {
+  background: transparent !important;
+  color: var(--lp-text-secondary);
+}
+
+.ant-table-thead > tr > th {
+  background: rgba(99, 102, 241, 0.1) !important;
+  color: var(--lp-text-primary) !important;
+  border-bottom: 1px solid var(--lp-border) !important;
+}
+
+.ant-table-tbody > tr > td {
+  border-bottom: 1px solid rgba(99, 102, 241, 0.08) !important;
+  color: var(--lp-text-secondary);
+}
+
+.ant-table-tbody > tr:hover > td {
+  background: rgba(99, 102, 241, 0.05) !important;
+}
+
+/* ===== Ant Design Popconfirm 样式优化 ===== */
+.ant-popover-inner {
+  background: rgba(30, 41, 59, 0.98) !important;
+  border: 1px solid rgba(99, 102, 241, 0.2) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 30px rgba(99, 102, 241, 0.15) !important;
+}
+
+.ant-popconfirm-message-title {
+  color: var(--lp-text-primary) !important;
+}
+
+.ant-popconfirm-description {
+  color: var(--lp-text-secondary) !important;
+}
+
+/* ===== Ant Design Input/TextArea 暗色样式 ===== */
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-input-password {
+  background-color: rgba(15, 23, 42, 0.6) !important;
+  border-color: rgba(99, 102, 241, 0.3) !important;
+  color: #f1f5f9 !important;
+}
+
+.ant-input::placeholder,
+.ant-input-affix-wrapper input::placeholder {
+  color: rgba(148, 163, 184, 0.6) !important;
+}
+
+.ant-input:hover,
+.ant-input-affix-wrapper:hover {
+  border-color: rgba(129, 140, 248, 0.5) !important;
+}
+
+.ant-input:focus,
+.ant-input-affix-wrapper-focused,
+.ant-input-affix-wrapper:focus {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+}
+
+.ant-input-disabled,
+.ant-input-affix-wrapper-disabled {
+  background-color: rgba(15, 23, 42, 0.3) !important;
+  color: #94a3b8 !important;
+}
+
+.ant-input-affix-wrapper .ant-input-prefix,
+.ant-input-affix-wrapper .ant-input-suffix {
+  color: #818cf8 !important;
+}
+
+/* ===== Ant Design Select 下拉暗色样式 ===== */
+.ant-select-dropdown {
+  background-color: rgba(30, 41, 59, 0.98) !important;
+  border: 1px solid rgba(99, 102, 241, 0.2) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+}
+
+.ant-select-item {
+  color: #cbd5e1 !important;
+}
+
+.ant-select-item-option-selected {
+  background-color: rgba(99, 102, 241, 0.15) !important;
+  color: #f1f5f9 !important;
+}
+
+.ant-select-item-option-active {
+  background-color: rgba(99, 102, 241, 0.1) !important;
+}
+
+.ant-select-selector {
+  background-color: rgba(15, 23, 42, 0.5) !important;
+  border-color: rgba(99, 102, 241, 0.3) !important;
+  color: #f1f5f9 !important;
+}
+
+/* ===== Ant Design Modal 暗色样式 ===== */
+.ant-modal-content {
+  background-color: rgba(30, 41, 59, 0.95) !important;
+  border: 1px solid rgba(99, 102, 241, 0.2) !important;
+}
+
+.ant-modal-header {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(99, 102, 241, 0.1) !important;
+}
+
+.ant-modal-title {
+  color: #f1f5f9 !important;
+}
+
+.ant-modal-close {
+  color: #94a3b8 !important;
+}
+
+.ant-modal-close:hover {
+  color: #f1f5f9 !important;
+}
+
+/* ===== Ant Design Tag 暗色样式 ===== */
+.ant-tag {
+  background: rgba(99, 102, 241, 0.1) !important;
+  border-color: rgba(99, 102, 241, 0.2) !important;
+  color: #cbd5e1 !important;
+}
+
+/* ===== Ant Design Empty 暗色样式 ===== */
+.ant-empty-description {
+  color: #94a3b8 !important;
+}
+
+/* ===== Ant Design Message/Notification 暗色样式 ===== */
+.ant-message-notice-content {
+  background: rgba(30, 41, 59, 0.95) !important;
+  color: #f1f5f9 !important;
+  border: 1px solid rgba(99, 102, 241, 0.15) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+}
+
+.ant-notification-notice {
+  background: rgba(30, 41, 59, 0.95) !important;
+  border: 1px solid rgba(99, 102, 241, 0.15) !important;
+}
+
+/* ===== Ant Design Pagination 暗色样式 ===== */
+.ant-pagination-item {
+  background: rgba(30, 41, 59, 0.6) !important;
+  border-color: rgba(99, 102, 241, 0.2) !important;
+}
+
+.ant-pagination-item a {
+  color: #cbd5e1 !important;
+}
+
+.ant-pagination-item-active {
+  background: rgba(99, 102, 241, 0.2) !important;
+  border-color: #6366f1 !important;
+}
+
+.ant-pagination-item-active a {
+  color: #f1f5f9 !important;
+}
+
+.ant-pagination-prev button,
+.ant-pagination-next button {
+  color: #cbd5e1 !important;
+}
+
+/* ===== Ant Design Tooltip 暗色样式 ===== */
+.ant-tooltip-inner {
+  background: rgba(30, 41, 59, 0.98) !important;
+  color: #f1f5f9 !important;
+  border: 1px solid rgba(99, 102, 241, 0.2) !important;
+}
+
+/* ===== Ant Design Result 暗色样式 ===== */
+.ant-result-title {
+  color: #f1f5f9 !important;
+}
+
+.ant-result-subtitle {
+  color: #94a3b8 !important;
+}
+
+/* ===== Ant Design List 暗色样式 ===== */
+.ant-list-item {
+  border-bottom-color: rgba(99, 102, 241, 0.08) !important;
+  color: #cbd5e1 !important;
+}
+
+/* ===== Ant Design Collapse 暗色样式 ===== */
+.ant-collapse {
+  background: transparent !important;
+  border-color: rgba(99, 102, 241, 0.15) !important;
+}
+
+.ant-collapse-item {
+  border-bottom-color: rgba(99, 102, 241, 0.1) !important;
+}
+
+.ant-collapse-header {
+  color: #cbd5e1 !important;
+}

@@ -174,9 +174,11 @@ CREATE TABLE IF NOT EXISTS `skills` (
   `display_name` varchar(200) NOT NULL COMMENT '技能显示名称',
   `description` text NOT NULL COMMENT '技能描述',
   `icon` varchar(50) DEFAULT NULL COMMENT 'Ant Design 图标名称',
+  `allowed_tools` varchar(500) DEFAULT NULL COMMENT '允许的工具列表，逗号分隔',
   `system_prompt` text NOT NULL COMMENT '技能系统提示词，支持 {{变量}} 占位符',
   `phase` varchar(50) NOT NULL DEFAULT 'all' COMMENT '适用阶段：outline/characters/chapters_outline/write_chapter/all',
   `parameters_schema` json DEFAULT NULL COMMENT '可配置参数的 JSON Schema',
+  `metadata` json DEFAULT NULL COMMENT '额外元数据',
   `enabled` tinyint(1) NOT NULL DEFAULT 1 COMMENT '全局启用状态',
   `sort_order` int NOT NULL DEFAULT 0 COMMENT '排序权重',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -253,6 +255,67 @@ CREATE TABLE IF NOT EXISTS `model_token_limits` (
   UNIQUE KEY `uk_provider_model` (`provider_name`,`model_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ---------- 2.14 小说模板表 ----------
+CREATE TABLE IF NOT EXISTS `novel_templates` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(100) NOT NULL COMMENT '模板标识名',
+  `display_name` varchar(200) NOT NULL COMMENT '模板显示名称',
+  `description` text NOT NULL COMMENT '模板描述',
+  `category` varchar(50) NOT NULL DEFAULT '其他' COMMENT '分类：玄幻/都市/科幻/悬疑/历史/游戏/轻小说/其他',
+  `cover_gradient` varchar(100) DEFAULT 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' COMMENT '卡片渐变背景色',
+  `icon` varchar(50) DEFAULT 'BookOutlined' COMMENT 'Ant Design 图标名',
+  `genre` varchar(100) DEFAULT NULL COMMENT '默认小说类型',
+  `title_example` varchar(200) DEFAULT NULL COMMENT '示例标题',
+  `theme` text COMMENT '预设核心主题',
+  `setting` text COMMENT '预设世界观/背景设定',
+  `main_plot` text COMMENT '预设主线剧情概述',
+  `is_official` tinyint(1) NOT NULL DEFAULT 1 COMMENT '是否官方模板',
+  `sort_order` int NOT NULL DEFAULT 0 COMMENT '排序权重',
+  `enabled` tinyint(1) NOT NULL DEFAULT 1 COMMENT '启用状态',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `novel_templates_name_unique` (`name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------- 2.15 用户封禁记录表 ----------
+CREATE TABLE IF NOT EXISTS `user_bans` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` int unsigned NOT NULL COMMENT '被禁用户',
+  `type` enum('ban','deactivate') NOT NULL DEFAULT 'ban' COMMENT '禁用类型：ban=管理员封禁 deactivate=用户注销',
+  `reason` text COMMENT '封禁/注销原因（可留空）',
+  `operator_id` int unsigned DEFAULT NULL COMMENT '操作人ID（管理员封禁时=管理员ID，注销时=用户自身ID）',
+  `status` enum('active','lifted') NOT NULL DEFAULT 'active' COMMENT '状态：active=生效中 lifted=已解除',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ban_user` (`user_id`),
+  KEY `idx_ban_status` (`status`),
+  CONSTRAINT `user_bans_user_id_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `user_bans_operator_id_fk` FOREIGN KEY (`operator_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------- 2.16 用户申诉表 ----------
+CREATE TABLE IF NOT EXISTS `user_appeals` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `ban_id` int unsigned NOT NULL COMMENT '关联封禁记录',
+  `user_id` int unsigned NOT NULL COMMENT '申诉用户',
+  `content` text NOT NULL COMMENT '申诉内容',
+  `status` enum('pending','approved','rejected') NOT NULL DEFAULT 'pending' COMMENT '审核状态',
+  `reviewed_by` int unsigned DEFAULT NULL COMMENT '审核管理员ID',
+  `review_note` text COMMENT '审核备注',
+  `ai_result` json DEFAULT NULL COMMENT 'AI审核结果JSON',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_appeal_ban` (`ban_id`),
+  KEY `idx_appeal_user` (`user_id`),
+  KEY `idx_appeal_status` (`status`),
+  CONSTRAINT `user_appeals_ban_id_fk` FOREIGN KEY (`ban_id`) REFERENCES `user_bans` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `user_appeals_user_id_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `user_appeals_reviewed_by_fk` FOREIGN KEY (`reviewed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ============================================================
 -- 3. 插入初始数据
 -- ============================================================
@@ -274,8 +337,24 @@ INSERT INTO `site_config` (`config_key`, `config_value`, `description`) VALUES
 ('openai_api_key', '', '单Provider API Key'),
 ('openai_base_url', 'https://api.openai.com/v1', '单Provider API地址'),
 ('default_model', 'gpt-4o', '单Provider默认模型'),
-('openai_providers', '', '多Provider JSON配置');
+('openai_providers', '', '多Provider JSON配置'),
+('captcha_enabled', 'false', '是否启用登录验证码（true/false）'),
+('cors_enabled', 'false', '是否启用 CORS 跨域（true/false，默认关闭）'),
+('cors_origins', '', 'CORS 域名白名单（每行一个域名）'),
+('login_rate_limit', '5', '登录接口每分钟最大尝试次数'),
+('mcp_api_key', '', 'MCP 端点的 API Key（用于外部 AI 应用连接）');
 
 -- ---------- 3.3 默认 MCP 服务器 ----------
 INSERT INTO `mcp_servers` (`name`, `transport`, `url`, `headers`, `enabled`, `description`) VALUES
 ('anysearch', 'http', 'https://api.anysearch.com/mcp', '{"Authorization": "Bearer ${ANYSEARCH_API_KEY}"}', 1, '统一实时搜索引擎，为AI代理提供网页、新闻、图片等搜索能力。免费API Key申请: https://anysearch.com/console/api-keys');
+
+-- ---------- 3.4 预设小说模板 ----------
+INSERT INTO `novel_templates` (`name`, `display_name`, `description`, `category`, `cover_gradient`, `icon`, `genre`, `title_example`, `theme`, `setting`, `main_plot`, `is_official`, `sort_order`) VALUES
+('xianxia_standard', '标准修仙', '凡人逆袭、步步登仙的经典修仙模板，包含完整的境界体系和宗门设定，适合长篇连载', '玄幻', 'linear-gradient(135deg, #0c0c2d 0%, #1a1a5e 40%, #6b3fa0 100%)', 'ThunderboltOutlined', '玄幻', '凡人仙途', '逆境中坚守本心，在力量与道心之间寻找平衡。探讨长生与凡人情感的冲突，问道与入世的抉择。', '九州大地，灵气充沛，万族林立。修炼体系分为：炼气、筑基、金丹、元婴、化神、合体、大乘、渡劫八大境界。每个境界又分初期、中期、后期、圆满四个小境界。天下宗门以"一殿二宗三谷四派"为尊，另有散修联盟、商会、炼丹师公会等势力。', '主角出身微末，偶得上古大能遗物/传承，踏上修炼之路。修炼途中遭遇宗门争斗、秘境探险、正魔大战。中期发现自身身世隐秘，牵涉到上古布局。后期对抗域外天魔/幕后黑手，最终证道飞升。', 1, 1),
+('urban_romance', '都市甜宠', '现代都市背景的浪漫爱情故事，突出甜蜜互动与成长蜕变，适合女性向创作', '都市', 'linear-gradient(135deg, #f093fb 0%, #f5576c 50%, #fda085 100%)', 'HeartOutlined', '都市', '总裁的契约新娘', '爱是相互成就而非占有。在现实压力与情感冲动之间，每个人都需要找到属于自己的答案。', '现代都市，繁华的滨海城市。故事主要围绕商业精英、娱乐圈、豪门世家展开。经济发达，社会阶层分明。', '女主因意外与高冷总裁产生交集，被迫签订契约婚姻/恋爱协议。相处过程中逐渐发现彼此的真实一面。经历情敌挑衅、家族反对、商业阴谋等考验后，两人克服障碍，收获真爱。', 1, 2),
+('sci_fi_interstellar', '星际科幻', '未来星际文明背景下的史诗冒险，融合机甲、基因进化、外星文明等经典科幻元素', '科幻', 'linear-gradient(135deg, #0c2b4f 0%, #1b5e8a 40%, #00d4aa 100%)', 'RocketOutlined', '科幻', '星海征途', '技术与人性的边界在哪里？当人类进入星际时代，古老的道德困境以新的形式呈现。探索未知不仅是征服星辰大海，更是对自我的认知。', '公元3587年，人类已建立横跨银河系的庞大星际联邦。科技以量子引擎、基因强化、AI意识上传为核心。机甲战士是战场主力，精神力觉醒者成为特殊战略资源。外星种族有虫族、灵族、硅基生命等。', '主角从偏远星球出发，意外发现远古文明遗迹，获得超越当前时代的科技/能力。被各方势力追逐的过程中，卷入星际联邦与虫族的全面战争。逐步揭开远古文明灭绝的真相，最终推动人类文明进入新纪元。', 1, 3),
+('suspense_investigation', '悬疑推理', '环环相扣的案件推理模板，从微末线索中抽丝剥茧，揭开惊天真相', '悬疑', 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)', 'SearchOutlined', '悬疑', '暗夜追踪', '真相往往藏于细节之中。正义的实现不在于惩罚，而在于还原每一个受害者的故事。', '现代都市背景下，围绕刑侦队、法医中心、犯罪心理学研究室展开。案件涉及连环犯罪、高科技作案、跨国组织等。', '一桩看似普通的案件，牵扯出多年前的悬案。主角凭借敏锐的观察力和缜密的推理，发现案件之间的隐秘关联。在查案过程中，自身也被卷入更大的阴谋，必须在限时内找到真相。', 1, 4),
+('game_vrmmorpg', '虚拟网游', '全息虚拟现实游戏世界，从新手村到巅峰玩家的成长之路，游戏与现实的交织', '游戏', 'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)', 'AppleOutlined', '游戏', '第二世界', '虚拟世界的价值如何衡量？当游戏装备可以改变现实命运，游戏不再是单纯的娱乐。在规则与漏洞之间，每个玩家都在书写自己的传奇。', '2045年，全球最大虚拟现实MMORPG《永恒大陆》上线。玩家通过意识接入舱进入100%拟真度的游戏世界。游戏经济与现实货币互通，职业玩家和公会体系成熟。', '主角因现实困境进入游戏，凭借前世的游戏记忆/特殊天赋，在新手村获得隐藏职业/装备。一步步建立自己的公会势力，参与游戏内的史诗级事件。随着游戏深入，发现游戏世界隐藏的秘密可能关乎人类文明的未来。', 1, 5),
+('light_novel_campus', '校园轻小说', '轻松愉快的校园日常+超自然元素，适合轻快节奏的青春故事创作', '轻小说', 'linear-gradient(135deg, #a8edea 0%, #fed6e3 50%, #d4a5ff 100%)', 'SmileOutlined', '轻小说', '我与超能力者的日常', '青春最珍贵的不是超能力，而是身边愿意陪你犯傻的朋友。日常的点滴构成了最不平凡的回忆。', '明德中学，一所有着百年历史的名校。校园内隐藏着不为人知的秘密——部分学生觉醒了超能力。学生会在暗中维护校园的日常秩序，防止超能力事件影响普通学生的生活。', '转学第一天，主角意外卷入超能力者之间的争斗。阴差阳错加入学生会"特殊事务处理部"，在日常校园生活与超自然事件之间来回奔波。结识各具特色的同伴，一起解决校园内发生的各种奇异事件。', 1, 6),
+('history_alternate', '架空历史', '穿越/重生到历史背景的平行世界，利用现代知识成就一番事业', '历史', 'linear-gradient(135deg, #3c2a21 0%, #6b4226 40%, #c9a96e 100%)', 'ReadOutlined', '历史', '大梁风华', '历史的车轮下，个人的选择能否改变命运？在已有的知识框架中，如何平衡预知与顺其自然。', '大梁王朝，国力正处于由盛转衰的关键节点。科举制度完备，商业发达但受到官僚压制。周边有北戎、南蛮、东夷等势力，海疆有倭寇侵扰。', '现代人意外穿越/重生为大梁王朝的一个小人物（书生/商人/庶子），凭借对历史的了解和现代管理知识，从地方开始逐步积累实力。通过科举入仕/经营商业/治军练兵等途径崛起，在王朝危机中力挽狂澜。', 1, 7),
+('blank_custom', '空白模板', '完全空白的起点，仅包含基础的创作指引，让您从零自由发挥想象力', '其他', 'linear-gradient(135deg, #2d3748 0%, #4a5568 100%)', 'EditOutlined', NULL, NULL, NULL, NULL, NULL, 1, 99);

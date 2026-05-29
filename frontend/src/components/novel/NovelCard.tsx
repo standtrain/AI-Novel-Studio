@@ -192,6 +192,11 @@ const NovelCard: React.FC<NovelCardProps> = ({ novel, onClick, onDelete }) => {
         background: rgba(239,68,68,0.2) !important;
         color: #dc2626 !important;
       }
+      @media (hover: none) and (pointer: coarse) {
+        .novel-card-delete-btn {
+          opacity: 0.7 !important;
+        }
+      }
     `}</style>
     </>
   );

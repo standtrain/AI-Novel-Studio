@@ -1,0 +1,85 @@
+const { db } = require('../config/database');
+
+const TABLE = 'users';
+
+const userDao = {
+  async findById(id) {
+    return db(TABLE)
+      .join('user_groups', 'users.group_id', 'user_groups.id')
+      .select('users.*', 'user_groups.name as group_name',
+        'user_groups.token_limit_per_day', 'user_groups.rate_limit_per_minute',
+        'user_groups.max_novels', 'user_groups.max_chapters_per_novel',
+        'user_groups.can_export', 'user_groups.can_customize',
+        'user_groups.can_choose_model',
+        'user_groups.queue_priority', 'user_groups.is_admin')
+      .where('users.id', id)
+      .first();
+  },
+
+  async findByUsername(username) {
+    return db(TABLE)
+      .join('user_groups', 'users.group_id', 'user_groups.id')
+      .select('users.*', 'user_groups.name as group_name',
+        'user_groups.token_limit_per_day', 'user_groups.rate_limit_per_minute',
+        'user_groups.max_novels', 'user_groups.max_chapters_per_novel',
+        'user_groups.can_export', 'user_groups.can_customize',
+        'user_groups.can_choose_model',
+        'user_groups.queue_priority', 'user_groups.is_admin')
+      .where('users.username', username)
+      .first();
+  },
+
+  async findByEmail(email) {
+    return db(TABLE).where('email', email).first();
+  },
+
+  async create(userData) {
+    const [id] = await db(TABLE).insert(userData);
+    return id;
+  },
+
+  async getDailyTokensUsed(userId) {
+    const row = await db(TABLE).select('daily_tokens_used', 'last_token_reset_at').where('id', userId).first();
+    return row || { daily_tokens_used: 0, last_token_reset_at: null };
+  },
+
+  async incrementDailyTokens(userId, tokens) {
+    await db(TABLE).where('id', userId).increment('daily_tokens_used', tokens);
+  },
+
+  async resetDailyTokens(userId) {
+    await db(TABLE).where('id', userId).update({
+      daily_tokens_used: 0,
+      last_token_reset_at: db.fn.now(),
+    });
+  },
+
+  async list({ page = 1, limit = 20, status, groupId } = {}) {
+    let base = db(TABLE).join('user_groups', 'users.group_id', 'user_groups.id');
+    if (status) base = base.where('users.status', status);
+    if (groupId) base = base.where('users.group_id', groupId);
+    const offset = (page - 1) * limit;
+    const [rows, [{ total }]] = await Promise.all([
+      base.clone().select(
+        'users.*',
+        'user_groups.name as group_name',
+        'user_groups.token_limit_per_day',
+        db.raw('IF(DATE(users.last_token_reset_at) < CURDATE() OR users.last_token_reset_at IS NULL, 0, users.daily_tokens_used) as daily_tokens_used')
+      )
+        .orderBy('users.created_at', 'desc').limit(limit).offset(offset),
+      base.clone().count('* as total'),
+    ]);
+    return { rows, total: parseInt(total, 10), page, limit };
+  },
+
+  async update(userId, data) {
+    return db(TABLE).where('id', userId).update(data);
+  },
+
+  // 更新用户首选模型（null=按管理员优先级）
+  async updatePreferredModel(userId, modelName) {
+    return db(TABLE).where('id', userId).update({ preferred_model: modelName || null });
+  },
+};
+
+module.exports = userDao;

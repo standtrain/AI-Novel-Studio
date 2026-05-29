@@ -12,6 +12,8 @@ interface NovelState {
   chapterOutlines: any[];
   chapters: Chapter[];
   streamText: string;
+  /** 仅AI生成的章节正文内容（不含日志/进度信息），用于保存到数据库 */
+  chapterContent: string;
   isStreaming: boolean;
   currentStep: number;
   /** 当前正在进行流式操作的小说 ID，用于防止跨小说数据污染 */
@@ -26,8 +28,11 @@ interface NovelState {
   setChapterOutlines: (outlines: any[]) => void;
   appendChapterOutlines: (outlines: any[]) => void;
   setChapters: (chapters: Chapter[]) => void;
+  mergeChapter: (chapter: Chapter) => void;
   setStreamText: (text: string) => void;
   appendStreamText: (text: string) => void;
+  setChapterContent: (text: string) => void;
+  appendChapterContent: (text: string) => void;
   setIsStreaming: (isStreaming: boolean) => void;
   setActiveNovelId: (id: number | null) => void;
   setCurrentStep: (step: number) => void;
@@ -45,6 +50,7 @@ export const useNovelStore = create<NovelState>((set) => ({
   chapterOutlines: [],
   chapters: [],
   streamText: '',
+  chapterContent: '',
   isStreaming: false,
   currentStep: 0,
   activeNovelId: null,
@@ -78,12 +84,27 @@ export const useNovelStore = create<NovelState>((set) => ({
       chapterCount: novel.chapter_count,
     } : null;
 
+    // 合并已有章节数据：轻量加载时新数据不含 content，需保留 store 中已有的
+    const prevChapters = useNovelStore.getState().chapters;
+    const prevMap = new Map<number, Chapter>();
+    prevChapters.forEach((ch: Chapter) => prevMap.set(ch.chapter_number, ch));
+
+    const mergedChapters = chapters.map((ch: any) => {
+      const prev = prevMap.get(ch.chapter_number);
+      return {
+        ...ch,
+        content: ch.content ?? prev?.content,
+        review_result: ch.review_result ?? prev?.review_result,
+        extraction_result: ch.extraction_result ?? prev?.extraction_result,
+      };
+    });
+
     // 根据实际数据决定 currentStep（取最高已到达步骤）
     let step = novel.current_step || 0;
     if (outline) step = Math.max(step, 1);
     if ((novel.characters || []).length > 0) step = Math.max(step, 2);
     if (chapterOutlines.length > 0) step = Math.max(step, 3);
-    if (chapters.some((ch: Chapter) => !!ch.content)) step = Math.max(step, 4);
+    if (mergedChapters.some((ch: Chapter) => !!ch.content)) step = Math.max(step, 4);
 
     set({
       currentNovel: novel,
@@ -91,9 +112,10 @@ export const useNovelStore = create<NovelState>((set) => ({
       outline,
       characters: novel.characters || [],
       chapterOutlines,
-      chapters,
+      chapters: mergedChapters,
       currentStep: step,
       streamText: '',
+      chapterContent: '',
     });
   },
 
@@ -111,15 +133,26 @@ export const useNovelStore = create<NovelState>((set) => ({
     return { chapterOutlines: Array.from(existing.values()).sort((a, b) => (a.chapter || a.chapter_number) - (b.chapter || b.chapter_number)) };
   }),
   setChapters: (chapters) => set({ chapters }),
+  mergeChapter: (chapter) => set((s) => {
+    const idx = s.chapters.findIndex((c: Chapter) => c.chapter_number === chapter.chapter_number);
+    if (idx >= 0) {
+      const updated = [...s.chapters];
+      updated[idx] = { ...updated[idx], ...chapter };
+      return { chapters: updated };
+    }
+    return { chapters: [...s.chapters, chapter] };
+  }),
   setStreamText: (streamText) => set({ streamText }),
   appendStreamText: (text) => set((s) => ({ streamText: s.streamText + text })),
+  setChapterContent: (chapterContent) => set({ chapterContent }),
+  appendChapterContent: (text) => set((s) => ({ chapterContent: s.chapterContent + text })),
   setIsStreaming: (isStreaming) => set({ isStreaming }),
   setActiveNovelId: (activeNovelId) => set({ activeNovelId }),
   safeAbort: (novelId) => {
     const s = useNovelStore.getState();
     // 仅当传入的 novelId 与当前活跃小说 ID 匹配时才清理流式状态
     if (s.activeNovelId === novelId) {
-      set({ isStreaming: false, streamText: '', activeNovelId: null });
+      set({ isStreaming: false, streamText: '', chapterContent: '', activeNovelId: null });
     }
   },
   setCurrentStep: (currentStep) => set({ currentStep }),
@@ -134,6 +167,7 @@ export const useNovelStore = create<NovelState>((set) => ({
     chapterOutlines: [],
     chapters: [],
     streamText: '',
+    chapterContent: '',
     isStreaming: false,
     currentStep: 0,
     activeNovelId: null,

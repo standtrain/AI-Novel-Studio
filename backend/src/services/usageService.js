@@ -38,8 +38,8 @@ const usageService = {
     const resetDate = user.last_token_reset_at ? new Date(user.last_token_reset_at) : null;
     let actualUsed = user.daily_tokens_used;
 
-    // 惰性重置：超过 24 小时则归零并持久化到数据库
-    if (resetDate && (now - resetDate) > 24 * 60 * 60 * 1000) {
+    // 惰性重置：跨自然日则归零并持久化到数据库
+    if (resetDate && resetDate.toDateString() !== now.toDateString()) {
       actualUsed = 0;
       await userDao.resetDailyTokens(userId);
     }

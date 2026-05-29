@@ -532,7 +532,7 @@ function escapeHTML(str) {
 // ====== 主入口 ======
 async function generateExport(format, scope, novelId, userId, options = {}) {
   // 格式校验
-  const validFormats = ['txt', 'docx', 'pdf', 'epub'];
+  const validFormats = ['txt', 'docx', 'pdf', 'epub', 'json'];
   if (!validFormats.includes(format)) {
     const err = new Error('不支持的导出格式');
     err.status = 400;
@@ -583,6 +583,12 @@ async function generateExport(format, scope, novelId, userId, options = {}) {
       buffer = await generateEPUB(filtered);
       mimeType = 'application/epub+zip';
       ext = 'epub';
+      break;
+    case 'json':
+      // 结构化 JSON 导出，支持重新导入
+      buffer = Buffer.from(JSON.stringify({ version: 1, ...filtered }, null, 2), 'utf-8');
+      mimeType = 'application/json; charset=utf-8';
+      ext = 'json';
       break;
     default:
       buffer = Buffer.alloc(0);

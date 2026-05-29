@@ -1,5 +1,8 @@
 import client from './client';
-import type { Skill, UserSkill } from '../types';
+import type { Skill as SkillType, UserSkill as UserSkillType } from '../types';
+
+export type Skill = SkillType;
+export type UserSkill = UserSkillType;
 
 // 用户端点
 export async function getUserSkillsApi(): Promise<{ skills: UserSkill[] }> {
@@ -35,5 +38,10 @@ export async function updateSkillApi(skillId: number, skillData: Partial<Skill>)
 
 export async function deleteSkillApi(skillId: number) {
   const { data } = await client.delete(`/admin/skills/${skillId}`);
+  return data;
+}
+
+export async function batchImportSkillsApi(skills: Partial<Skill>[]) {
+  const { data } = await client.post('/admin/skills/batch-import', { skills });
   return data;
 }

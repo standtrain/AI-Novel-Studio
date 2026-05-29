@@ -22,8 +22,8 @@ async function checkTokenQuota(req, res, next) {
   const now = new Date();
   const resetDate = last_token_reset_at ? new Date(last_token_reset_at) : null;
 
-  // 如果超过24小时且有有效重置时间，重置计数器
-  if (resetDate && (now - resetDate) > 24 * 60 * 60 * 1000) {
+  // 跨自然日则重置计数器
+  if (resetDate && resetDate.toDateString() !== now.toDateString()) {
     await userDao.resetDailyTokens(req.user.id);
     daily_tokens_used = 0;
     req.user.daily_tokens_used = 0;

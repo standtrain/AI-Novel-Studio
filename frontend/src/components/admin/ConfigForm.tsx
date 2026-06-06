@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Input, InputNumber, Button, Switch, Typography, message, Alert, Space, Upload, Image } from 'antd';
-import { SaveOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined, UploadOutlined, DeleteOutlined, PictureOutlined } from '@ant-design/icons';
+import { SaveOutlined, ReloadOutlined, SafetyCertificateOutlined, UploadOutlined, DeleteOutlined, PictureOutlined } from '@ant-design/icons';
 import { getConfigsApi, updateConfigApi, getFaviconInfoApi, uploadFaviconApi, deleteFaviconApi } from '../../api/admin';
 import type { UploadFile } from 'antd/es/upload/interface';
 
@@ -31,12 +31,15 @@ const SITE_CONFIG_KEYS = [
 // boolean 类型的配置键
 const BOOLEAN_KEYS = ['allow_registration', 'cors_enabled', 'captcha_enabled', 'email_verification_enabled', 'email_domain_whitelist_enabled'];
 
-const ConfigForm: React.FC = () => {
+interface ConfigFormProps {
+  searchTerm: string;
+}
+
+const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
   const [configs, setConfigs] = useState<any[]>([]);
   const [editingValues, setEditingValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
-  const [searchTerm, setSearchTerm] = useState('');
 
   // favicon 管理
   const [faviconLoading, setFaviconLoading] = useState(false);
@@ -373,27 +376,11 @@ const ConfigForm: React.FC = () => {
         </Text>
       </div>
 
-      <div style={{ marginBottom: 16 }}>
-        <Input
-          prefix={<SearchOutlined style={{ color: '#64748b' }} />}
-          placeholder="搜索配置项（名称或描述）..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          allowClear
-          style={{
-            background: 'rgba(15,23,42,0.5)',
-            borderColor: 'rgba(99,102,241,0.3)',
-            color: '#f1f5f9',
-            borderRadius: 10,
-            height: 40,
-          }}
-        />
-        {searchTerm.trim() && (
-          <Text style={{ color: '#64748b', fontSize: 12, marginTop: 4, display: 'block' }}>
-            找到 {filteredConfigs.length} 项匹配
-          </Text>
-        )}
-      </div>
+      {searchTerm.trim() && (
+        <Text style={{ color: '#64748b', fontSize: 12, marginBottom: 12, display: 'block' }}>
+          找到 {filteredConfigs.length} 项匹配
+        </Text>
+      )}
       <Table
         columns={columns}
         dataSource={filteredConfigs}

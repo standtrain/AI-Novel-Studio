@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { Tabs, Typography } from 'antd';
-import { BarChartOutlined, TeamOutlined, SettingOutlined, ApiOutlined, BookOutlined, FolderOutlined, ThunderboltOutlined, LinkOutlined, StopOutlined, ShopOutlined, LockOutlined } from '@ant-design/icons';
+import { Tabs, Typography, Input } from 'antd';
+import { BarChartOutlined, TeamOutlined, SettingOutlined, ApiOutlined, BookOutlined, FolderOutlined, ThunderboltOutlined, LinkOutlined, StopOutlined, ShopOutlined, LockOutlined, SearchOutlined } from '@ant-design/icons';
 import StatsPanel from '../components/admin/StatsPanel';
 import UserTable from '../components/admin/UserTable';
 import GroupManager from '../components/admin/GroupManager';
@@ -38,6 +38,7 @@ const useLazyTabs = (defaultKey: string) => {
 const AdminPage: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const { activeKey, renderedKeys, onChange } = useLazyTabs('stats');
+  const [searchTerm, setSearchTerm] = useState('');
 
   if (user?.group?.name !== 'admin') {
     return <Navigate to="/dashboard" />;
@@ -52,14 +53,31 @@ const AdminPage: React.FC = () => {
     { key: 'token_limits', label: <span><StopOutlined /> Token 限额</span>, children: renderedKeys.has('token_limits') ? <ModelTokenLimitManager /> : null },
     { key: 'skills', label: <span><ThunderboltOutlined /> 技能管理</span>, children: renderedKeys.has('skills') ? <SkillsManager /> : null },
     { key: 'mcp', label: <span><LinkOutlined /> MCP 服务器</span>, children: renderedKeys.has('mcp') ? <McpServerManager /> : null },
-    { key: 'config', label: <span><SettingOutlined /> 站点配置</span>, children: renderedKeys.has('config') ? <ConfigForm /> : null },
+    { key: 'config', label: <span><SettingOutlined /> 站点配置</span>, children: renderedKeys.has('config') ? <ConfigForm searchTerm={searchTerm} /> : null },
     { key: 'templates', label: <span><ShopOutlined /> 模板审核</span>, children: renderedKeys.has('templates') ? <TemplateReview /> : null },
     { key: 'bans', label: <span><LockOutlined /> 封禁管理</span>, children: renderedKeys.has('bans') ? <BanManager /> : null },
   ];
 
   return (
     <div>
-      <Title level={4}>管理后台</Title>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+        <Title level={4} style={{ margin: 0 }}>管理后台</Title>
+        <Input
+          prefix={<SearchOutlined style={{ color: '#64748b' }} />}
+          placeholder="搜索配置项（名称或描述）..."
+          value={searchTerm}
+          onChange={(e) => { setSearchTerm(e.target.value); if (e.target.value.trim()) onChange('config'); }}
+          allowClear
+          style={{
+            width: 320,
+            background: 'rgba(15,23,42,0.5)',
+            borderColor: 'rgba(99,102,241,0.3)',
+            color: '#f1f5f9',
+            borderRadius: 10,
+            height: 40,
+          }}
+        />
+      </div>
       <Tabs activeKey={activeKey} onChange={onChange} items={tabItems} />
     </div>
   );

@@ -106,7 +106,7 @@ router.get('/register-status', async (_req, res) => {
     const verificationEnabled = await configService.get('email_verification_enabled');
     const whitelistEnabledRaw = await configService.get('email_domain_whitelist_enabled');
     const whitelistEnabled = whitelistEnabledRaw === 'true';
-    let allowedDomains: string[] = [];
+    let allowedDomains = [];
     if (whitelistEnabled) {
       const raw = await configService.get('email_domain_whitelist');
       if (raw && raw.trim()) {

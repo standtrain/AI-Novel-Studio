@@ -1,21 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Card, Form, Input, Button, Typography, message, Divider, Popconfirm, Space,
 } from 'antd';
-import { UserOutlined, MailOutlined, LockOutlined, ExclamationCircleOutlined, ClockCircleOutlined, CalendarOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { UserOutlined, MailOutlined, LockOutlined, ExclamationCircleOutlined, ClockCircleOutlined, CalendarOutlined, SendOutlined, NumberOutlined } from '@ant-design/icons';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { sendChangeEmailCodeApi, changeEmailApi, getCaptchaApi } from '../api/auth';
 import client from '../api/client';
 
 const { Title, Text } = Typography;
 
 const SettingsPage: React.FC = () => {
-  const { user, logout } = useAuthStore();
+  const { user, token, logout, setUser } = useAuthStore();
   const navigate = useNavigate();
 
   // 邮箱修改
-  const [emailLoading, setEmailLoading] = useState(false);
   const [emailForm] = Form.useForm();
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  const [captchaEnabled, setCaptchaEnabled] = useState(false);
+  const [captchaId, setCaptchaId] = useState<string | null>(null);
+  const [captchaSvg, setCaptchaSvg] = useState<string | null>(null);
 
   // 密码修改
   const [passwordLoading, setPasswordLoading] = useState(false);
@@ -24,12 +31,67 @@ const SettingsPage: React.FC = () => {
   // 注销
   const [cancelLoading, setCancelLoading] = useState(false);
 
-  const handleUpdateEmail = async (values: { email: string }) => {
+  const refreshCaptcha = async () => {
+    try {
+      const res = await getCaptchaApi();
+      setCaptchaEnabled(res.enabled);
+      setCaptchaId(res.captchaId);
+      setCaptchaSvg(res.svg);
+    } catch { /* 静默 */ }
+  };
+
+  useEffect(() => { refreshCaptcha(); }, []);
+
+  // 发送冷却倒计时
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => setCooldown(c => c - 1), 1000);
+    return () => clearInterval(timer);
+  }, [cooldown > 0]);
+
+  // 发送新邮箱验证码
+  const handleSendChangeEmailCode = async () => {
+    const newEmail = emailForm.getFieldValue('newEmail');
+    if (!newEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+      message.warning('请先输入有效的新邮箱地址');
+      return;
+    }
+    if (newEmail === user?.email) {
+      message.warning('新邮箱与当前邮箱相同');
+      return;
+    }
+    if (captchaEnabled) {
+      const capInput = document.getElementById('settings-captcha-input') as HTMLInputElement;
+      if (!capInput?.value) {
+        message.warning('请先填写图形验证码');
+        return;
+      }
+    }
+    setSendingCode(true);
+    try {
+      await sendChangeEmailCodeApi(newEmail);
+      setCodeSent(true);
+      setCooldown(60);
+      message.success('验证码已发送至新邮箱');
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '发送验证码失败');
+    } finally {
+      setSendingCode(false);
+      const capInput = document.getElementById('settings-captcha-input') as HTMLInputElement;
+      if (capInput) capInput.value = '';
+      await refreshCaptcha();
+    }
+  };
+
+  // 确认修改邮箱（验证码校验）
+  const handleConfirmChangeEmail = async (values: { newEmail: string; code: string }) => {
     setEmailLoading(true);
     try {
-      await client.put('/auth/me', { email: values.email });
+      const result = await changeEmailApi(values.newEmail, values.code);
       message.success('邮箱修改成功');
+      setUser(result.user, token!);
       emailForm.resetFields();
+      setCodeSent(false);
     } catch (err: any) {
       message.error(err.response?.data?.error || '修改失败');
     } finally {
@@ -115,22 +177,46 @@ const SettingsPage: React.FC = () => {
           border: '1px solid rgba(99,102,241,0.2)',
           borderRadius: 12
         }}
-        styles={{ body: { color: '#cbd5e1' } }}
       >
-        <Form form={emailForm} layout="vertical" onFinish={handleUpdateEmail}>
+        <Form form={emailForm} layout="vertical" onFinish={handleConfirmChangeEmail}>
           <Form.Item label={<span style={{ color: '#cbd5e1' }}>当前邮箱</span>}>
-            <Input value={user?.email || ''} disabled placeholder="当前邮箱" style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#94a3b8' }} />
+            <Input value={user?.email || ''} disabled style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#94a3b8' }} />
           </Form.Item>
-          <Form.Item name="email" label={<span style={{ color: '#cbd5e1' }}>新邮箱</span>} rules={[{ required: true, message: '请输入新邮箱地址' }, { type: 'email', message: '请输入有效的邮箱格式' }]}>
-            <Input placeholder="输入新邮箱地址" style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9' }} />
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <Form.Item name="newEmail" label={<span style={{ color: '#cbd5e1' }}>新邮箱</span>} rules={[{ required: true, message: '请输入新邮箱地址' }, { type: 'email', message: '请输入有效的邮箱格式' }]} style={{ flex: 1 }}>
+              <Input placeholder="输入新邮箱地址" style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9' }} />
+            </Form.Item>
+            <Button icon={<SendOutlined />} loading={sendingCode} disabled={cooldown > 0} onClick={handleSendChangeEmailCode}
+              style={{ marginTop: 30, color: cooldown > 0 ? '#64748b' : '#22d3ee', borderColor: cooldown > 0 ? 'rgba(100,116,139,0.3)' : 'rgba(34,211,238,0.4)', background: 'rgba(34,211,238,0.08)' }}>
+              {cooldown > 0 ? `${cooldown}s` : codeSent ? '重新发送' : '发送验证码'}
+            </Button>
+          </div>
+
+          {/* 图形验证码 */}
+          {captchaEnabled && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <div
+                  style={{ flexShrink: 0, cursor: 'pointer', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(99,102,241,0.3)', background: '#f0f2f5', lineHeight: 0, height: 40 }}
+                  dangerouslySetInnerHTML={{ __html: captchaSvg || '' }}
+                  onClick={refreshCaptcha}
+                  title="点击刷新验证码"
+                />
+                <Input id="settings-captcha-input" placeholder="验证码计算结果" autoComplete="off"
+                  style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', flex: 1 }} />
+              </div>
+            </div>
+          )}
+
+          <Form.Item name="code" label={<span style={{ color: '#cbd5e1' }}>验证码</span>} rules={[{ required: true, message: '请输入6位验证码' }, { len: 6, message: '验证码为6位数字' }]}>
+            <Input prefix={<NumberOutlined style={{ color: '#22d3ee' }} />} placeholder="输入邮件中的6位验证码" maxLength={6}
+              style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', letterSpacing: 4, fontFamily: 'monospace', fontSize: 18, textAlign: 'center' }} />
           </Form.Item>
-          <Button
-            type="primary"
-            htmlType="submit"
-            loading={emailLoading}
-            style={{ background: 'linear-gradient(135deg, var(--lp-primary) 0%, var(--lp-primary-dark) 100%)', border: 'none' }}
-          >
-            保存
+
+          <Button type="primary" htmlType="submit" loading={emailLoading}
+            style={{ background: 'linear-gradient(135deg, var(--lp-primary) 0%, var(--lp-primary-dark) 100%)', border: 'none' }}>
+            确认修改
           </Button>
         </Form>
       </Card>
@@ -168,14 +254,19 @@ const SettingsPage: React.FC = () => {
           >
             <Input.Password placeholder="再次输入新密码" style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9' }} />
           </Form.Item>
-          <Button
-            type="primary"
-            htmlType="submit"
-            loading={passwordLoading}
-            style={{ background: 'linear-gradient(135deg, var(--lp-primary) 0%, var(--lp-primary-dark) 100%)', border: 'none' }}
-          >
-            修改密码
-          </Button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={passwordLoading}
+              style={{ background: 'linear-gradient(135deg, var(--lp-primary) 0%, var(--lp-primary-dark) 100%)', border: 'none' }}
+            >
+              修改密码
+            </Button>
+            <Link to="/forgot-password" style={{ color: '#f59e0b', fontSize: 13 }}>
+              忘记密码？
+            </Link>
+          </div>
         </Form>
       </Card>
 

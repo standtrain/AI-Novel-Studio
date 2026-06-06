@@ -15,7 +15,7 @@ export async function getUserDetailApi(userId: number) {
   return data;
 }
 
-export async function updateUserApi(userId: number, updates: { status?: string; group_id?: number }) {
+export async function updateUserApi(userId: number, updates: { status?: string; group_id?: number; email?: string; username?: string }) {
   const { data } = await client.put(`/admin/users/${userId}`, updates);
   return data;
 }

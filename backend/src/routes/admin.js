@@ -171,11 +171,23 @@ router.put('/users/:id', async (req, res) => {
       return res.status(404).json({ error: '用户不存在' });
     }
 
-    const allowedFields = ['status', 'group_id', 'email'];
+    const allowedFields = ['status', 'group_id', 'email', 'username'];
     const data = {};
     allowedFields.forEach(f => {
       if (req.body[f] !== undefined) data[f] = req.body[f];
     });
+
+    // 用户名唯一性校验
+    if (data.username) {
+      if (typeof data.username !== 'string' || data.username.trim().length < 3 || data.username.trim().length > 50) {
+        return res.status(400).json({ error: '用户名长度需在 3-50 个字符之间' });
+      }
+      data.username = data.username.trim();
+      const existing = await userDao.findByUsername(data.username);
+      if (existing && existing.id !== userId) {
+        return res.status(409).json({ error: '该用户名已被使用' });
+      }
+    }
 
     // 密码单独处理
     if (req.body.password) {

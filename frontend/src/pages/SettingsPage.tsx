@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Card, Form, Input, Button, Typography, message, Modal, Popconfirm, Space,
 } from 'antd';
-import { UserOutlined, MailOutlined, LockOutlined, ExclamationCircleOutlined, ClockCircleOutlined, CalendarOutlined, SendOutlined, NumberOutlined } from '@ant-design/icons';
+import { UserOutlined, MailOutlined, LockOutlined, ExclamationCircleOutlined, ClockCircleOutlined, CalendarOutlined, SendOutlined, NumberOutlined, EditOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { sendChangeEmailCodeApi, changeEmailApi, getCaptchaApi, sendVerifyCodeApi, resetPasswordApi } from '../api/auth';
@@ -39,8 +39,35 @@ const SettingsPage: React.FC = () => {
   const [forgotCaptchaSvg, setForgotCaptchaSvg] = useState<string | null>(null);
   const [forgotForm] = Form.useForm();
 
+  // 用户名编辑
+  const [editingUsername, setEditingUsername] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [usernameLoading, setUsernameLoading] = useState(false);
+
   // 注销
   const [cancelLoading, setCancelLoading] = useState(false);
+
+  const handleStartEditUsername = () => {
+    setNewUsername(user?.username || '');
+    setEditingUsername(true);
+  };
+
+  const handleSaveUsername = async () => {
+    const trimmed = newUsername.trim();
+    if (!trimmed || trimmed.length < 3) { message.warning('用户名至少3个字符'); return; }
+    if (trimmed === user?.username) { setEditingUsername(false); return; }
+    setUsernameLoading(true);
+    try {
+      const { data } = await client.put('/auth/me', { username: trimmed });
+      message.success('用户名修改成功');
+      setUser(data.user, token!);
+      setEditingUsername(false);
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '修改失败');
+    } finally {
+      setUsernameLoading(false);
+    }
+  };
 
   // 忘记密码 — 冷却倒计时
   useEffect(() => {
@@ -225,9 +252,25 @@ const SettingsPage: React.FC = () => {
         }}
       >
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text style={{ color: '#94a3b8' }}>用户名</Text>
-            <Text style={{ color: '#f1f5f9' }}>{user?.username}</Text>
+            {editingUsername ? (
+              <Space.Compact size="small">
+                <Input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} maxLength={50}
+                  style={{ width: 140, background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9' }}
+                  onPressEnter={handleSaveUsername} />
+                <Button icon={<CheckOutlined />} loading={usernameLoading} onClick={handleSaveUsername}
+                  style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)' }} />
+                <Button icon={<CloseOutlined />} onClick={() => setEditingUsername(false)}
+                  style={{ color: '#f87171', borderColor: 'rgba(248,113,113,0.3)' }} />
+              </Space.Compact>
+            ) : (
+              <Space size={4}>
+                <Text style={{ color: '#f1f5f9' }}>{user?.username}</Text>
+                <Button type="link" size="small" icon={<EditOutlined />} onClick={handleStartEditUsername}
+                  style={{ color: '#64748b', padding: 0, fontSize: 12 }} />
+              </Space>
+            )}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <Text style={{ color: '#94a3b8' }}>角色</Text>

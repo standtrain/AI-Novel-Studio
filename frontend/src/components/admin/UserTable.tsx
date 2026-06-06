@@ -13,12 +13,32 @@ import { useAuthStore } from '../../store/authStore';
 
 const { Text } = Typography;
 
+// 高亮搜索匹配文本
+const highlightText = (text: string, term: string): React.ReactNode => {
+  if (!term.trim()) return text;
+  const parts: React.ReactNode[] = [];
+  const lower = text.toLowerCase();
+  const t = term.toLowerCase();
+  let lastIdx = 0;
+  let pos = 0;
+  while ((pos = lower.indexOf(t, pos)) !== -1) {
+    if (pos > lastIdx) parts.push(text.slice(lastIdx, pos));
+    parts.push(<span key={pos} style={{ background: 'rgba(251,191,36,0.35)', borderRadius: 2, padding: '0 1px' }}>{text.slice(pos, pos + t.length)}</span>);
+    pos += t.length;
+    lastIdx = pos;
+  }
+  if (lastIdx < text.length) parts.push(text.slice(lastIdx));
+  return <>{parts}</>;
+};
+
 const statusOptions = [
   { value: 'active', label: '正常' },
   { value: 'disabled', label: '已禁用' },
 ];
 
-const UserTable: React.FC = () => {
+interface UserTableProps { searchTerm: string; }
+
+const UserTable: React.FC<UserTableProps> = ({ searchTerm }) => {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -134,14 +154,15 @@ const UserTable: React.FC = () => {
       return;
     }
     setEditUser(record);
-    editForm.setFieldsValue({ email: record.email, password: '' });
+    editForm.setFieldsValue({ email: record.email, username: record.username, password: '' });
     setEditModal(true);
   };
 
-  const handleEdit = async (values: { email: string; password: string }) => {
+  const handleEdit = async (values: { email: string; username: string; password: string }) => {
     setEditing(true);
     try {
       const data: any = { email: values.email };
+      if (values.username && values.username !== editUser.username) data.username = values.username;
       if (values.password) data.password = values.password;
       await updateUserApi(editUser.id, data);
       message.success('修改成功');
@@ -181,6 +202,12 @@ const UserTable: React.FC = () => {
   // ---------- 列定义 ----------
   const isSelf = (record: any) => record.id === currentUserId;
 
+  const isRowMatch = (record: any): boolean => {
+    if (!searchTerm.trim()) return false;
+    const term = searchTerm.toLowerCase();
+    return (record.username || '').toLowerCase().includes(term) || (record.email || '').toLowerCase().includes(term);
+  };
+
   const columns = [
     {
       title: 'ID', dataIndex: 'id', width: 50,
@@ -195,12 +222,15 @@ const UserTable: React.FC = () => {
       title: '用户名', dataIndex: 'username', width: 100,
       render: (name: string, record: any) => (
         <span>
-          {name}
+          {highlightText(name, searchTerm)}
           {isSelf(record) && <Tag color="blue" style={{ marginLeft: 4, fontSize: 10 }}>我</Tag>}
         </span>
       ),
     },
-    { title: '邮箱', dataIndex: 'email', width: 180 },
+    {
+      title: '邮箱', dataIndex: 'email', width: 180,
+      render: (email: string) => highlightText(email, searchTerm),
+    },
     {
       title: '分组', dataIndex: 'group_name', width: 100,
       render: (_: string, record: any) => (
@@ -298,6 +328,10 @@ const UserTable: React.FC = () => {
         pagination={{ current: page, total, pageSize: 20, onChange: setPage }}
         scroll={{ x: 1150 }}
         size="small"
+        onRow={(record: any) => {
+          if (!searchTerm.trim()) return {};
+          return isRowMatch(record) ? { style: { background: 'rgba(251,191,36,0.06)' } } : {};
+        }}
       />
 
       {/* 新增用户弹窗 */}
@@ -333,6 +367,9 @@ const UserTable: React.FC = () => {
         confirmLoading={editing}
       >
         <Form form={editForm} layout="vertical" onFinish={handleEdit}>
+          <Form.Item name="username" label="用户名" rules={[{ required: true }, { min: 3, message: '至少3个字符' }, { max: 50, message: '最多50个字符' }]}>
+            <Input placeholder="用户名" />
+          </Form.Item>
           <Form.Item name="email" label="邮箱" rules={[{ required: true }, { type: 'email' }]}>
             <Input placeholder="user@example.com" />
           </Form.Item>

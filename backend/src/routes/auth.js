@@ -204,7 +204,20 @@ router.put('/me', authenticate, async (req, res) => {
     const userDao = require('../dao/userDao');
     const bcrypt = require('bcrypt');
     const data = {};
-    const { email, password, currentPassword } = req.body;
+    const { email, password, currentPassword, username } = req.body;
+
+    // 修改用户名
+    if (username) {
+      if (typeof username !== 'string' || username.trim().length < 3 || username.trim().length > 50) {
+        return res.status(400).json({ error: '用户名长度需在 3-50 个字符之间' });
+      }
+      const trimmed = username.trim();
+      const existing = await userDao.findByUsername(trimmed);
+      if (existing && existing.id !== req.user.id) {
+        return res.status(409).json({ error: '该用户名已被使用' });
+      }
+      data.username = trimmed;
+    }
 
     // 修改密码需验证当前密码
     if (password) {
@@ -231,7 +244,8 @@ router.put('/me', authenticate, async (req, res) => {
     }
 
     await userDao.update(req.user.id, data);
-    res.json({ success: true, message: '修改成功' });
+    const updatedUser = await userDao.findById(req.user.id);
+    res.json({ success: true, message: '修改成功', user: authService.sanitizeUser(updatedUser) });
   } catch (err) {
     res.status(500).json({ error: '修改失败' });
   }

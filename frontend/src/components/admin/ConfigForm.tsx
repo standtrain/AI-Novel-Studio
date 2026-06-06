@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Input, InputNumber, Button, Switch, Typography, message, Alert, Space, Upload, Image } from 'antd';
+import { Table, Input, InputNumber, Button, Switch, Typography, message, Alert, Space, Upload, Image, Select } from 'antd';
 import { SaveOutlined, ReloadOutlined, SafetyCertificateOutlined, UploadOutlined, DeleteOutlined, PictureOutlined } from '@ant-design/icons';
 import { getConfigsApi, updateConfigApi, getFaviconInfoApi, uploadFaviconApi, deleteFaviconApi } from '../../api/admin';
 import type { UploadFile } from 'antd/es/upload/interface';
@@ -18,18 +18,21 @@ function generateRandomKey(length = 48): string {
   return result;
 }
 
-// 所有站点配置项（站点信息 + 安全 + 邮件）
+// 所有站点配置项（站点信息 + 安全 + 邮件 + SMTP）
 const SITE_CONFIG_KEYS = [
   'site_name', 'site_description',
   'max_tokens_per_request', 'default_temperature', 'chapters_per_batch',
   'allow_registration', 'cors_enabled', 'cors_origins',
   'captcha_enabled', 'login_rate_limit', 'mcp_api_key',
-  'resend_api_key', 'email_from', 'email_from_name', 'email_verification_enabled',
+  'email_provider',
+  'resend_api_key', 'email_from', 'email_from_name',
+  'smtp_host', 'smtp_port', 'smtp_secure', 'smtp_auth_login', 'smtp_user', 'smtp_from', 'smtp_pass',
+  'email_verification_enabled',
   'email_domain_whitelist_enabled', 'email_domain_whitelist',
 ];
 
 // boolean 类型的配置键
-const BOOLEAN_KEYS = ['allow_registration', 'cors_enabled', 'captcha_enabled', 'email_verification_enabled', 'email_domain_whitelist_enabled'];
+const BOOLEAN_KEYS = ['allow_registration', 'cors_enabled', 'captcha_enabled', 'email_verification_enabled', 'email_domain_whitelist_enabled', 'smtp_secure', 'smtp_auth_login'];
 
 interface ConfigFormProps {
   searchTerm: string;
@@ -246,6 +249,48 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
               value={currentVal}
               onChange={(e) => setEditingValues({ ...editingValues, [record.config_key]: e.target.value })}
               placeholder="输入 Resend API Key（在 resend.com/api-keys 获取）"
+              style={{
+                background: modified ? 'rgba(251,191,36,0.08)' : undefined,
+                borderColor: modified ? 'rgba(251,191,36,0.4)' : undefined,
+              }}
+            />
+          );
+        }
+
+        // email_provider：邮件发送方式选择
+        if (record.config_key === 'email_provider') {
+          return (
+            <Select
+              value={currentVal || 'resend'}
+              onChange={(v) => setEditingValues({ ...editingValues, [record.config_key]: v })}
+              style={{ width: '100%' }}
+              options={[
+                { value: 'resend', label: 'Resend API' },
+                { value: 'smtp', label: 'SMTP 服务器' },
+              ]}
+            />
+          );
+        }
+
+        // smtp_port：端口输入
+        if (record.config_key === 'smtp_port') {
+          return (
+            <InputNumber
+              value={Number(currentVal) || 587}
+              onChange={(v) => setEditingValues({ ...editingValues, [record.config_key]: String(v ?? 587) })}
+              min={1} max={65535}
+              style={{ width: '100%' }}
+            />
+          );
+        }
+
+        // smtp_pass：密码输入
+        if (record.config_key === 'smtp_pass') {
+          return (
+            <Input.Password
+              value={currentVal}
+              onChange={(e) => setEditingValues({ ...editingValues, [record.config_key]: e.target.value })}
+              placeholder="留空以保留现有凭证"
               style={{
                 background: modified ? 'rgba(251,191,36,0.08)' : undefined,
                 borderColor: modified ? 'rgba(251,191,36,0.4)' : undefined,

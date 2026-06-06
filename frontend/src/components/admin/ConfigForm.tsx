@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Input, InputNumber, Button, Switch, Typography, message, Alert, Space, Upload, Select, Collapse } from 'antd';
+import { Table, Input, InputNumber, Button, Switch, Typography, message, Space, Upload, Select, Collapse } from 'antd';
 import { SaveOutlined, ReloadOutlined, SafetyCertificateOutlined, UploadOutlined, DeleteOutlined, PictureOutlined, GlobalOutlined, EditOutlined, LockOutlined, MailOutlined, ApiOutlined } from '@ant-design/icons';
 import { getConfigsApi, updateConfigApi, getFaviconInfoApi, uploadFaviconApi, deleteFaviconApi } from '../../api/admin';
 
@@ -57,6 +57,24 @@ const CONFIG_CATEGORIES: { key: string; label: string; icon: React.ReactNode; ke
 const ALL_SITE_CONFIG_KEYS = CONFIG_CATEGORIES.flatMap(c => c.keys);
 const BOOLEAN_KEYS = ['allow_registration', 'cors_enabled', 'captcha_enabled', 'email_verification_enabled', 'email_domain_whitelist_enabled', 'smtp_secure', 'smtp_auth_login'];
 
+// 高亮搜索匹配文本
+const highlightText = (text: string, term: string): React.ReactNode => {
+  if (!term.trim()) return text;
+  const parts: React.ReactNode[] = [];
+  const lower = text.toLowerCase();
+  const t = term.toLowerCase();
+  let lastIdx = 0;
+  let pos = 0;
+  while ((pos = lower.indexOf(t, pos)) !== -1) {
+    if (pos > lastIdx) parts.push(text.slice(lastIdx, pos));
+    parts.push(<span key={pos} style={{ background: 'rgba(251,191,36,0.35)', borderRadius: 2, padding: '0 1px' }}>{text.slice(pos, pos + t.length)}</span>);
+    pos += t.length;
+    lastIdx = pos;
+  }
+  if (lastIdx < text.length) parts.push(text.slice(lastIdx));
+  return <>{parts}</>;
+};
+
 interface ConfigFormProps { searchTerm: string; }
 
 const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
@@ -109,13 +127,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
   // 获取指定分类的配置项列表
   const getCategoryConfigs = (catKeys: string[]) => {
     let list = configs.filter(c => catKeys.includes(c.config_key));
-    // 按 catKeys 顺序排列
     list.sort((a, b) => catKeys.indexOf(a.config_key) - catKeys.indexOf(b.config_key));
-    // 搜索过滤
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      list = list.filter(c => (c.config_key || '').toLowerCase().includes(term) || (c.description || '').toLowerCase().includes(term));
-    }
     return list;
   };
 
@@ -134,14 +146,14 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
 
   const getCurrentValue = (record: any) => editingValues[record.config_key] !== undefined ? editingValues[record.config_key] : record.config_value;
 
-  // 搜索时自动展开包含匹配项的分类
+  // 搜索时自动展开所有分类，清空搜索词时恢复默认
   useEffect(() => {
-    if (!searchTerm.trim()) return;
-    const matchedCategories = CONFIG_CATEGORIES
-      .filter(cat => getCategoryConfigs(cat.keys).length > 0)
-      .map(cat => cat.key);
-    if (matchedCategories.length > 0) setActiveKeys(matchedCategories);
-  }, [searchTerm, configs]);
+    if (searchTerm.trim()) {
+      setActiveKeys(CONFIG_CATEGORIES.map(cat => cat.key));
+    } else {
+      setActiveKeys(['site']);
+    }
+  }, [searchTerm]);
 
   // 渲染单个配置行的值编辑器
   const renderValueEditor = (record: any) => {
@@ -202,14 +214,20 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
     return <Input value={currentVal} onChange={(e) => setEditingValues({ ...editingValues, [record.config_key]: e.target.value })} style={inputStyle} />;
   };
 
+  const isRowMatch = (record: any): boolean => {
+    if (!searchTerm.trim()) return false;
+    const term = searchTerm.toLowerCase();
+    return (record.config_key || '').toLowerCase().includes(term) || (record.description || '').toLowerCase().includes(term);
+  };
+
   const configColumns = [
     {
       title: '配置项', dataIndex: 'config_key', width: 180,
       render: (key: string, record: any) => (
         <div>
-          <Text code style={{ fontSize: 12 }}>{key}</Text>
+          <Text code style={{ fontSize: 12 }}>{highlightText(key, searchTerm)}</Text>
           <br />
-          <Text style={{ color: '#64748b', fontSize: 11 }}>{record.description}</Text>
+          <Text style={{ color: '#64748b', fontSize: 11 }}>{highlightText(record.description || '', searchTerm)}</Text>
         </div>
       ),
     },
@@ -227,13 +245,18 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
     },
   ];
 
-  const totalFiltered = CONFIG_CATEGORIES.reduce((sum, cat) => sum + getCategoryConfigs(cat.keys).length, 0);
+  const totalMatched = searchTerm.trim()
+    ? configs.filter(c => {
+        const term = searchTerm.toLowerCase();
+        return (c.config_key || '').toLowerCase().includes(term) || (c.description || '').toLowerCase().includes(term);
+      }).length
+    : 0;
 
   return (
     <div>
       {/* 搜索提示 */}
       {searchTerm.trim() && (
-        <Text style={{ color: '#94a3b8', fontSize: 12, marginBottom: 12, display: 'block' }}>找到 {totalFiltered} 项匹配</Text>
+        <Text style={{ color: '#94a3b8', fontSize: 12, marginBottom: 12, display: 'block' }}>找到 {totalMatched} 项匹配（共 {configs.length} 项配置）</Text>
       )}
 
       {/* 分类可折叠面板 */}
@@ -242,8 +265,6 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
           style={{ background: 'transparent' }}>
           {CONFIG_CATEGORIES.map(cat => {
             const catConfigs = getCategoryConfigs(cat.keys);
-            // 搜索模式：没有匹配项的分类隐藏
-            if (searchTerm.trim() && catConfigs.length === 0) return null;
             return (
               <Collapse.Panel
                 key={cat.key}
@@ -255,7 +276,11 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
                 }
                 style={{ marginBottom: 8, background: 'rgba(30,41,59,0.4)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 10, overflow: 'hidden' }}
               >
-                <Table columns={configColumns} dataSource={catConfigs} rowKey="config_key" pagination={false} size="small" showHeader={false} />
+                <Table columns={configColumns} dataSource={catConfigs} rowKey="config_key" pagination={false} size="small" showHeader={false}
+                  onRow={(record: any) => {
+                    if (!searchTerm.trim()) return {};
+                    return isRowMatch(record) ? { style: { background: 'rgba(251,191,36,0.06)' } } : {};
+                  }} />
                 {cat.key === 'site' && (
                   <div style={{ marginTop: 16, padding: 16, background: 'rgba(15,23,42,0.4)', border: '1px solid rgba(99,102,241,0.12)', borderRadius: 10 }}>
                     <Text strong style={{ color: '#e2e8f0', fontSize: 13, display: 'block', marginBottom: 12 }}><PictureOutlined style={{ marginRight: 6 }} />站点图标</Text>
@@ -280,22 +305,16 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
                     </div>
                   </div>
                 )}
-              </Collapse.Panel>
-            );
-          })}
-        </Collapse>
-      )}
-
-      {/* MCP 外部连接说明 */}
-      <Alert type="info" icon={<SafetyCertificateOutlined />} message="MCP 外部连接说明" style={{ marginTop: 20 }}
-        description={
-          <div style={{ fontSize: 13 }}>
-            <Title level={5} style={{ marginTop: 8, marginBottom: 4 }}>连接地址</Title>
-            <Paragraph><Text code copyable>https://你的服务器地址/api/mcp-endpoint</Text></Paragraph>
-            <Title level={5} style={{ marginBottom: 4 }}>认证方式</Title>
-            <Paragraph>在请求头中携带 API Key，支持两种方式：<br />• <Text code>Authorization: Bearer {'<MCP_API_KEY>'}</Text><br />• <Text code>x-api-key: {'<MCP_API_KEY>'}</Text></Paragraph>
-            <Title level={5} style={{ marginBottom: 4 }}>Claude Desktop 配置示例</Title>
-            <pre style={{ background: '#0f172a', color: '#e2e8f0', padding: '12px 16px', borderRadius: 8, fontSize: 12, lineHeight: 1.6, overflow: 'auto', margin: 0 }}>{`{
+                {cat.key === 'security' && (
+                  <div style={{ marginTop: 16, padding: 16, background: 'rgba(15,23,42,0.4)', border: '1px solid rgba(99,102,241,0.12)', borderRadius: 10 }}>
+                    <Text strong style={{ color: '#e2e8f0', fontSize: 13, display: 'block', marginBottom: 12 }}><SafetyCertificateOutlined style={{ marginRight: 6 }} />MCP 外部连接说明</Text>
+                    <div style={{ fontSize: 13 }}>
+                      <Title level={5} style={{ marginTop: 8, marginBottom: 4 }}>连接地址</Title>
+                      <Paragraph><Text code copyable>https://你的服务器地址/api/mcp-endpoint</Text></Paragraph>
+                      <Title level={5} style={{ marginBottom: 4 }}>认证方式</Title>
+                      <Paragraph>在请求头中携带 API Key，支持两种方式：<br />• <Text code>Authorization: Bearer {'<MCP_API_KEY>'}</Text><br />• <Text code>x-api-key: {'<MCP_API_KEY>'}</Text></Paragraph>
+                      <Title level={5} style={{ marginBottom: 4 }}>Claude Desktop 配置示例</Title>
+                      <pre style={{ background: '#0f172a', color: '#e2e8f0', padding: '12px 16px', borderRadius: 8, fontSize: 12, lineHeight: 1.6, overflow: 'auto', margin: 0 }}>{`{
   "mcpServers": {
     "bookagent": {
       "transport": "http",
@@ -304,8 +323,14 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
     }
   }
 }`}</pre>
-          </div>
-        } />
+                    </div>
+                  </div>
+                )}
+              </Collapse.Panel>
+            );
+          })}
+        </Collapse>
+      )}
     </div>
   );
 };

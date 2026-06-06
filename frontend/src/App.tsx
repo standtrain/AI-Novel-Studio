@@ -10,7 +10,6 @@ import ProtectedRoute from './components/shared/ProtectedRoute';
 const LoginPage = React.lazy(() => import('./pages/LoginPage'));
 const RegisterPage = React.lazy(() => import('./pages/RegisterPage'));
 const ForgotPasswordPage = React.lazy(() => import('./pages/ForgotPasswordPage'));
-const ResetPasswordPage = React.lazy(() => import('./pages/ResetPasswordPage'));
 const DashboardPage = React.lazy(() => import('./pages/DashboardPage'));
 const NovelPage = React.lazy(() => import('./pages/NovelPage'));
 const ChapterEditPage = React.lazy(() => import('./pages/ChapterEditPage'));
@@ -91,7 +90,6 @@ const App: React.FC = () => {
           <Route path="/login" element={isAuthenticated ? <Navigate to="/" /> : <LoginPage />} />
           <Route path="/register" element={isAuthenticated ? <Navigate to="/" /> : <RegisterPage />} />
           <Route path="/forgot-password" element={isAuthenticated ? <Navigate to="/" /> : <ForgotPasswordPage />} />
-          <Route path="/reset-password" element={isAuthenticated ? <Navigate to="/" /> : <ResetPasswordPage />} />
 
           <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
             <Route path="/dashboard" element={<DashboardPage />} />

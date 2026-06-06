@@ -5,6 +5,24 @@ import { getAdminNovelsApi, getAdminNovelDetailApi, deleteAdminNovelApi } from '
 
 const { Text } = Typography;
 
+// 高亮搜索匹配文本
+const highlightText = (text: string, term: string): React.ReactNode => {
+  if (!term.trim()) return text;
+  const parts: React.ReactNode[] = [];
+  const lower = text.toLowerCase();
+  const t = term.toLowerCase();
+  let lastIdx = 0;
+  let pos = 0;
+  while ((pos = lower.indexOf(t, pos)) !== -1) {
+    if (pos > lastIdx) parts.push(text.slice(lastIdx, pos));
+    parts.push(<span key={pos} style={{ background: 'rgba(251,191,36,0.35)', borderRadius: 2, padding: '0 1px' }}>{text.slice(pos, pos + t.length)}</span>);
+    pos += t.length;
+    lastIdx = pos;
+  }
+  if (lastIdx < text.length) parts.push(text.slice(lastIdx));
+  return <>{parts}</>;
+};
+
 const statusMap: Record<string, { color: string; label: string }> = {
   draft: { color: 'default', label: '草稿' },
   outline: { color: 'blue', label: '已生成大纲' },
@@ -14,7 +32,9 @@ const statusMap: Record<string, { color: string; label: string }> = {
   completed: { color: 'green', label: '已完成' },
 };
 
-const NovelManager: React.FC = () => {
+interface NovelManagerProps { searchTerm: string; }
+
+const NovelManager: React.FC<NovelManagerProps> = ({ searchTerm }) => {
   const [novels, setNovels] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -59,10 +79,22 @@ const NovelManager: React.FC = () => {
     }
   };
 
+  const isRowMatch = (record: any): boolean => {
+    if (!searchTerm.trim()) return false;
+    const term = searchTerm.toLowerCase();
+    return (record.title || '').toLowerCase().includes(term) || (record.username || '').toLowerCase().includes(term);
+  };
+
   const columns = [
     { title: 'ID', dataIndex: 'id', width: 50 },
-    { title: '标题', dataIndex: 'title', width: 180, ellipsis: true },
-    { title: '作者', dataIndex: 'username', width: 100 },
+    {
+      title: '标题', dataIndex: 'title', width: 180, ellipsis: true,
+      render: (title: string) => highlightText(title, searchTerm),
+    },
+    {
+      title: '作者', dataIndex: 'username', width: 100,
+      render: (username: string) => highlightText(username, searchTerm),
+    },
     {
       title: '状态', dataIndex: 'status', width: 110,
       render: (s: string) => {
@@ -104,6 +136,10 @@ const NovelManager: React.FC = () => {
         pagination={{ current: page, total, pageSize: 20, onChange: setPage }}
         scroll={{ x: 800 }}
         size="small"
+        onRow={(record: any) => {
+          if (!searchTerm.trim()) return {};
+          return isRowMatch(record) ? { style: { background: 'rgba(251,191,36,0.06)' } } : {};
+        }}
       />
 
       {/* 详情弹窗 */}

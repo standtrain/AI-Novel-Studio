@@ -38,6 +38,7 @@ const ForgotPasswordPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [sentEmail, setSentEmail] = useState('');
+  const [cooldown, setCooldown] = useState(0);
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
   const [captchaEnabled, setCaptchaEnabled] = useState(false);
   const [captchaId, setCaptchaId] = useState<string | null>(null);
@@ -56,12 +57,20 @@ const ForgotPasswordPage: React.FC = () => {
 
   useEffect(() => { refreshCaptcha(); }, []);
 
+  // 发送冷却倒计时（60秒）
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => setCooldown(c => c - 1), 1000);
+    return () => clearInterval(timer);
+  }, [cooldown > 0]);
+
   const onFinish = async (values: { email: string; captchaCode?: string }) => {
     setLoading(true);
     try {
       await sendVerifyCodeApi(values.email, 'reset_password', captchaId ?? undefined, values.captchaCode);
       setSentEmail(values.email);
       setSent(true);
+      setCooldown(0); // 成功后切换到已发送视图，重置冷却
       message.success('验证码已发送，请检查邮箱');
       refreshCaptcha();
     } catch (err: any) {
@@ -122,7 +131,7 @@ const ForgotPasswordPage: React.FC = () => {
               前往重置密码
             </Button>
             <Text style={{ display: 'block', marginTop: 16 }}>
-              <Link to="/forgot-password" style={{ color: '#f59e0b' }} onClick={() => setSent(false)}>
+              <Link to="/forgot-password" style={{ color: '#f59e0b' }} onClick={() => { setSent(false); setCooldown(60); }}>
                 未收到邮件？重新发送
               </Link>
             </Text>
@@ -193,10 +202,11 @@ const ForgotPasswordPage: React.FC = () => {
               )}
               <Form.Item style={{ marginBottom: 16, marginTop: 32 }}>
                 <Button type="primary" htmlType="submit" loading={loading} block
-                  style={primaryBtnStyle}
-                  onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 25px rgba(245,158,11,0.4), inset 0 1px 0 rgba(255,255,255,0.2)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 15px rgba(245,158,11,0.3), inset 0 1px 0 rgba(255,255,255,0.15)'; }}>
-                  发送验证码
+                  disabled={cooldown > 0}
+                  style={cooldown > 0 ? { ...primaryBtnStyle, opacity: 0.5 } : primaryBtnStyle}
+                  onMouseEnter={(e) => { if (cooldown > 0) return; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 25px rgba(245,158,11,0.4), inset 0 1px 0 rgba(255,255,255,0.2)'; }}
+                  onMouseLeave={(e) => { if (cooldown > 0) return; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 15px rgba(245,158,11,0.3), inset 0 1px 0 rgba(255,255,255,0.15)'; }}>
+                  {cooldown > 0 ? `请等待 ${cooldown} 秒后重新发送` : '发送验证码'}
                 </Button>
               </Form.Item>
             </Form>

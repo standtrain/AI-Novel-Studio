@@ -38,7 +38,7 @@ const CONFIG_CATEGORIES: { key: string; label: string; icon: React.ReactNode; ke
     key: 'email',
     label: '邮件设置',
     icon: <MailOutlined />,
-    keys: ['email_provider', 'email_verification_enabled', 'email_domain_whitelist_enabled', 'email_domain_whitelist'],
+    keys: ['email_provider', 'email_verification_enabled', 'email_domain_whitelist_enabled', 'email_domain_whitelist', 'email_daily_limit'],
   },
   {
     key: 'resend',
@@ -171,7 +171,10 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
       );
     }
 
-    if (record.config_key === 'login_rate_limit' || record.config_key === 'smtp_port') {
+    if (record.config_key === 'login_rate_limit' || record.config_key === 'smtp_port' || record.config_key === 'email_daily_limit') {
+      if (record.config_key === 'email_daily_limit') {
+        return <InputNumber value={Number(currentVal) || 0} onChange={(v) => setEditingValues({ ...editingValues, [record.config_key]: String(v ?? 0) })} min={0} max={999} style={{ width: '100%' }} />;
+      }
       const def = record.config_key === 'smtp_port' ? 587 : 5;
       const max = record.config_key === 'smtp_port' ? 65535 : 60;
       return <InputNumber value={Number(currentVal) || def} onChange={(v) => setEditingValues({ ...editingValues, [record.config_key]: String(v ?? def) })} min={1} max={max} style={{ width: '100%' }} />;

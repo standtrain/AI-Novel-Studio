@@ -95,6 +95,9 @@ const authService = {
       throw { status: 400, message: '邮箱格式不正确' };
     }
 
+    // 发送频率限制（60 秒冷却 + 每日上限）
+    await emailService.checkSendLimit(email, type);
+
     // 注册验证：检查邮箱域名白名单和邮箱是否已被使用
     if (type === 'register') {
       await checkEmailDomainWhitelist(email);
@@ -147,6 +150,9 @@ const authService = {
     if (!result.success) {
       throw { status: 500, message: `验证码发送失败：${result.error}` };
     }
+
+    // 记录发送成功（用于频率控制）
+    emailService._recordSendWithType(email, type);
 
     return { success: true, message: '验证码已发送至您的邮箱' };
   },

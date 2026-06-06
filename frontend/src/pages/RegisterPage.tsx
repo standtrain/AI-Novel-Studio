@@ -46,6 +46,7 @@ const RegisterPage: React.FC = () => {
   const [allowedDomains, setAllowedDomains] = useState<string[]>([]);
   const [sendingCode, setSendingCode] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
   const [captchaEnabled, setCaptchaEnabled] = useState(false);
   const [captchaId, setCaptchaId] = useState<string | null>(null);
@@ -53,6 +54,13 @@ const RegisterPage: React.FC = () => {
   const register = useAuthStore((s) => s.register);
   const navigate = useNavigate();
   const isMobile = useMobile();
+
+  // 发送冷却倒计时（60秒）
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => setCooldown(c => c - 1), 1000);
+    return () => clearInterval(timer);
+  }, [cooldown > 0]);
 
   const refreshCaptcha = async () => {
     try {
@@ -106,6 +114,7 @@ const RegisterPage: React.FC = () => {
     try {
       await sendVerifyCodeApi(email, 'register', captchaId ?? undefined, captchaCodeVal);
       setCodeSent(true);
+      setCooldown(60);
       message.success('验证码已发送至邮箱');
       refreshCaptcha();
     } catch (err: any) {
@@ -230,8 +239,9 @@ const RegisterPage: React.FC = () => {
                       suffix={
                         <Button type="link" size="small" icon={<SendOutlined />}
                           loading={sendingCode} onClick={handleSendCode}
-                          style={{ color: '#22d3ee', fontSize: 12 }}>
-                          {codeSent ? '重新发送' : '发送验证码'}
+                          disabled={cooldown > 0}
+                          style={{ color: cooldown > 0 ? '#64748b' : '#22d3ee', fontSize: 12 }}>
+                          {cooldown > 0 ? `${cooldown}s` : codeSent ? '重新发送' : '发送验证码'}
                         </Button>
                       } />
                   </Form.Item>

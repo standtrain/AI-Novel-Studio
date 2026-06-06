@@ -96,6 +96,81 @@ async function _sendViaSmtp(to, subject, html) {
   }
 }
 
+// ===== 发送频率控制 =====
+const COOLDOWN_SECONDS = 60; // 同一邮箱+类型 60 秒内不可重复发送
+const _sendCooldown = new Map();   // key: "email:type" → timestamp(ms)
+const _dailySendCount = new Map(); // key: "email:YYYY-MM-DD" → count
+
+// 定期清理过期记录（每 5 分钟）
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, ts] of _sendCooldown) {
+    if (now - ts > COOLDOWN_SECONDS * 1000) _sendCooldown.delete(key);
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  for (const [key] of _dailySendCount) {
+    const datePart = key.split(':').pop();
+    if (datePart !== today) _dailySendCount.delete(key);
+  }
+}, 5 * 60 * 1000);
+
+/**
+ * 检查发送频率限制，超出则抛出异常
+ * @param {string} email
+ * @param {string} type - register / reset_password / change_email
+ */
+async function checkSendLimit(email, type) {
+  const emailLower = email.toLowerCase();
+
+  // 60 秒冷却检查
+  const cooldownKey = `${emailLower}:${type}`;
+  const lastSend = _sendCooldown.get(cooldownKey);
+  if (lastSend) {
+    const elapsed = Math.floor((Date.now() - lastSend) / 1000);
+    if (elapsed < COOLDOWN_SECONDS) {
+      const remaining = COOLDOWN_SECONDS - elapsed;
+      throw { status: 429, message: `发送过于频繁，请 ${remaining} 秒后再试` };
+    }
+  }
+
+  // 每日上限检查
+  const dailyLimitRaw = await configService.get('email_daily_limit');
+  const dailyLimit = parseInt(dailyLimitRaw || '0', 10);
+  if (dailyLimit > 0) {
+    const today = new Date().toISOString().slice(0, 10);
+    const dailyKey = `${emailLower}:${today}`;
+    const count = _dailySendCount.get(dailyKey) || 0;
+    if (count >= dailyLimit) {
+      throw { status: 429, message: '该邮箱今日发送次数已达上限，请明天再试' };
+    }
+  }
+}
+
+/**
+ * 记录一次成功发送
+ */
+function _recordSend(email) {
+  const emailLower = email.toLowerCase();
+  const now = Date.now();
+
+  // 记录冷却
+  // 注意：此处 type 已经在 checkSendLimit 中使用，但 record 时不区分 type
+  // 为简化，用统一的 send 标记
+  const today = new Date().toISOString().slice(0, 10);
+  const dailyKey = `${emailLower}:${today}`;
+  _dailySendCount.set(dailyKey, (_dailySendCount.get(dailyKey) || 0) + 1);
+}
+
+/**
+ * 记录特定类型的发送（用于冷却）
+ */
+function _recordSendWithType(email, type) {
+  const emailLower = email.toLowerCase();
+  const cooldownKey = `${emailLower}:${type}`;
+  _sendCooldown.set(cooldownKey, Date.now());
+  _recordSend(email);
+}
+
 /**
  * 发送邮箱验证码邮件
  */
@@ -103,27 +178,46 @@ async function sendVerificationCode(to, code, purpose) {
   const siteName = (await configService.get('site_name')) || 'AI Novel Studio';
   const expiresMinutes = 10;
 
+  const purposeTitleMap = {
+    register: '注册账号',
+    reset_password: '重置密码',
+    change_email: '变更邮箱',
+  };
+  const purposeText = purposeTitleMap[purpose] || purpose;
+
   const html = `
-<div style="max-width:480px;margin:0 auto;padding:32px;font-family:'Noto Sans SC',system-ui,sans-serif;background:#1e293b;border-radius:16px;border:1px solid rgba(99,102,241,0.2);">
-  <div style="text-align:center;margin-bottom:24px;">
-    <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;background:linear-gradient(135deg,rgba(99,102,241,0.2) 0%,rgba(139,92,246,0.2) 100%);border-radius:16px;margin-bottom:12px;">
-      <span style="font-size:28px;background:linear-gradient(135deg,#818cf8 0%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">✦</span>
+<div style="max-width:520px;margin:0 auto;padding:40px 32px;font-family:'Noto Sans SC','PingFang SC','Microsoft YaHei',system-ui,sans-serif;background:#ffffff;border-radius:12px;border:1px solid #e5e7eb;">
+  <div style="text-align:center;margin-bottom:28px;">
+    <div style="display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);border-radius:12px;margin-bottom:16px;">
+      <span style="font-size:24px;color:#ffffff;line-height:1;">✦</span>
     </div>
-    <h2 style="color:#f1f5f9;margin:0 0 4px;font-size:20px;">${siteName}</h2>
-    <p style="color:#94a3b8;font-size:14px;margin:0;">${purpose}</p>
+    <h2 style="color:#1e293b;margin:0 0 6px;font-size:20px;font-weight:700;">${siteName}</h2>
+    <p style="color:#64748b;font-size:14px;margin:0;">${purposeText}验证码</p>
   </div>
-  <div style="background:#0f172a;border-radius:12px;padding:24px;text-align:center;margin-bottom:20px;border:1px solid rgba(99,102,241,0.1);">
-    <p style="color:#64748b;font-size:13px;margin:0 0 12px;">验证码 ${expiresMinutes} 分钟内有效，请勿泄露给他人</p>
-    <div style="font-size:36px;font-weight:700;letter-spacing:8px;color:#e2e8f0;background:rgba(99,102,241,0.08);border-radius:8px;padding:12px 24px;display:inline-block;font-family:monospace;">
+
+  <div style="background:#f8fafc;border-radius:10px;padding:28px 20px;text-align:center;margin-bottom:24px;border:1px solid #e2e8f0;">
+    <p style="color:#475569;font-size:14px;margin:0 0 6px;">您正在${purposeText}，请在 ${expiresMinutes} 分钟内输入以下验证码完成验证：</p>
+    <div style="font-size:32px;font-weight:700;letter-spacing:10px;color:#1e293b;background:#ffffff;border-radius:8px;padding:14px 24px;display:inline-block;font-family:'SF Mono','Fira Code','Consolas',monospace;border:2px dashed #cbd5e1;margin-top:12px;">
       ${code}
     </div>
   </div>
-  <p style="color:#475569;font-size:12px;text-align:center;margin:0;">
-    如果这不是你的操作，请忽略此邮件。<br/>此邮件由系统自动发送，请勿回复。
+
+  <div style="background:#fffbeb;border-left:4px solid #f59e0b;border-radius:6px;padding:12px 16px;margin-bottom:20px;">
+    <p style="color:#92400e;font-size:13px;margin:0;line-height:1.6;">
+      <strong>安全提示：</strong>请勿向任何人透露此验证码，包括自称平台客服的人员。${siteName}工作人员不会以任何理由索要您的验证码。
+    </p>
+  </div>
+
+  <p style="color:#94a3b8;font-size:12px;text-align:center;margin:0;line-height:1.8;">
+    如果这不是您的操作，请忽略此邮件，无需采取任何措施。<br/>此邮件由系统自动发送，请勿回复。
   </p>
+
+  <div style="margin-top:24px;padding-top:20px;border-top:1px solid #f1f5f9;text-align:center;">
+    <p style="color:#cbd5e1;font-size:11px;margin:0;">${siteName} · AI 小说创作平台</p>
+  </div>
 </div>`;
 
-  return sendEmail(to, `${siteName} - ${purpose}验证码`, html);
+  return sendEmail(to, `[${siteName}] ${purposeText}验证码`, html);
 }
 
-module.exports = { sendEmail, sendVerificationCode };
+module.exports = { sendEmail, sendVerificationCode, checkSendLimit, _recordSendWithType };

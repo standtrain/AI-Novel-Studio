@@ -232,14 +232,16 @@ const authService = {
       throw { status: 401, message: '用户名或密码错误' };
     }
 
-    // 记录最后登录时间（异步，不阻塞返回）
-    userDao.update(user.id, { last_login_at: db.fn.now() }).catch(() => {});
+    // 记录最后登录时间
+    await userDao.update(user.id, { last_login_at: db.fn.now() });
+    // 刷新 user 对象以获取最新的 last_login_at
+    const updatedUser = await userDao.findById(user.id);
 
-    const token = this.generateToken(user);
+    const token = this.generateToken(updatedUser);
 
     return {
       token,
-      user: this.sanitizeUser(user),
+      user: this.sanitizeUser(updatedUser),
     };
   },
 

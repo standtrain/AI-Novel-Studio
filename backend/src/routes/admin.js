@@ -45,6 +45,57 @@ router.get('/stats', async (req, res) => {
   }
 });
 
+// 全局搜索（跨模块：用户、小说、配置项）
+router.get('/search', async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || !q.trim()) return res.json({ users: [], novels: [], configs: [] });
+
+    const term = `%${q.trim()}%`;
+    const { db } = require('../config/database');
+
+    // 搜索用户（用户名、邮箱、状态）
+    const users = await db('users')
+      .leftJoin('user_groups', 'users.group_id', 'user_groups.id')
+      .select('users.id', 'users.username', 'users.email', 'users.status', 'user_groups.name as group_name')
+      .where(function () {
+        this.where('users.username', 'like', term)
+          .orWhere('users.email', 'like', term)
+          .orWhere('users.status', 'like', term);
+      })
+      .limit(5);
+
+    // 搜索小说（标题、类型、状态）
+    const novels = await db('novels')
+      .join('users', 'novels.user_id', 'users.id')
+      .select('novels.id', 'novels.title', 'novels.genre', 'novels.status', 'users.username as author')
+      .where(function () {
+        this.where('novels.title', 'like', term)
+          .orWhere('novels.genre', 'like', term)
+          .orWhere('novels.status', 'like', term);
+      })
+      .limit(5);
+
+    // 搜索配置项
+    const configs = await db('site_config')
+      .select('config_key', 'config_value', 'description')
+      .where(function () {
+        this.where('config_key', 'like', term)
+          .orWhere('description', 'like', term)
+          .orWhere('config_value', 'like', term);
+      })
+      .limit(10);
+
+    res.json({
+      users: users.map(u => ({ ...u, _type: 'user' })),
+      novels: novels.map(n => ({ ...n, _type: 'novel' })),
+      configs: configs.map(c => ({ ...c, _type: 'config' })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: '搜索失败' });
+  }
+});
+
 // 用户列表
 router.get('/users', async (req, res) => {
   try {

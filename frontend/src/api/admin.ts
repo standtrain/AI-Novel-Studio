@@ -35,6 +35,17 @@ export async function getConfigsApi() {
   return data;
 }
 
+export interface AdminSearchResult {
+  users: Array<{ id: number; username: string; email: string; status: string; group_name: string; _type: 'user' }>;
+  novels: Array<{ id: number; title: string; genre: string; status: string; author: string; _type: 'novel' }>;
+  configs: Array<{ config_key: string; config_value: string; description: string; _type: 'config' }>;
+}
+
+export async function adminSearchApi(q: string): Promise<AdminSearchResult> {
+  const { data } = await client.get('/admin/search', { params: { q } });
+  return data;
+}
+
 export async function updateConfigApi(key: string, value: string) {
   const { data } = await client.put(`/admin/config/${key}`, { value });
   return data;

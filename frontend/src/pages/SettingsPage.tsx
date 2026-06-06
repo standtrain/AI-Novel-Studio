@@ -73,10 +73,14 @@ const SettingsPage: React.FC = () => {
     }
     setForgotSending(true);
     try {
-      await sendVerifyCodeApi(user!.email, 'reset_password', forgotCaptchaId ?? undefined, captchaCodeVal);
+      const result = await sendVerifyCodeApi(user!.email, 'reset_password', forgotCaptchaId ?? undefined, captchaCodeVal);
+      if (result.message && result.message.includes('如果该邮箱已注册')) {
+        message.warning(result.message);
+        return;
+      }
       setForgotStep('reset');
       setForgotCooldown(60);
-      message.success('验证码已发送至您的邮箱');
+      message.success(result.message || '验证码已发送至您的邮箱');
     } catch (err: any) {
       message.error(err.response?.data?.error || '发送验证码失败');
     } finally {

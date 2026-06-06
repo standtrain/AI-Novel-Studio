@@ -126,7 +126,6 @@ const AdminPage: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <Title level={4} style={{ margin: 0 }}>管理后台</Title>
           <Input.Search
-            prefix={<SearchOutlined style={{ color: '#64748b' }} />}
             placeholder="全局搜索（用户、小说、配置）..."
             value={searchTerm}
             onChange={(e) => handleSearchChange(e.target.value)}

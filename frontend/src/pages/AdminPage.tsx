@@ -156,7 +156,7 @@ const AdminPage: React.FC = () => {
           }}>
             <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(99,102,241,0.15)' }}>
               <Text style={{ color: '#94a3b8', fontSize: 12 }}>
-                {searching ? '搜索中...' : `找到 <strong style="color:#a5b4fc">${totalHits}</strong> 项结果（用户、小说、配置）`}
+                {searching ? '搜索中...' : <>找到 <Text strong style={{ color: '#a5b4fc' }}>{totalHits}</Text> 项结果（用户、小说、配置）</>}
               </Text>
             </div>
             {!searchResult || totalHits === 0 ? (

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Card, Form, Input, Button, Typography, message, Divider, Popconfirm, Space,
+  Card, Form, Input, Button, Typography, message, Modal, Popconfirm, Space,
 } from 'antd';
 import { UserOutlined, MailOutlined, LockOutlined, ExclamationCircleOutlined, ClockCircleOutlined, CalendarOutlined, SendOutlined, NumberOutlined } from '@ant-design/icons';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { sendChangeEmailCodeApi, changeEmailApi, getCaptchaApi } from '../api/auth';
+import { sendChangeEmailCodeApi, changeEmailApi, getCaptchaApi, sendVerifyCodeApi, resetPasswordApi } from '../api/auth';
 import client from '../api/client';
 
 const { Title, Text } = Typography;
@@ -28,8 +28,84 @@ const SettingsPage: React.FC = () => {
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordForm] = Form.useForm();
 
+  // 忘记密码弹窗
+  const [forgotModalOpen, setForgotModalOpen] = useState(false);
+  const [forgotStep, setForgotStep] = useState<'send' | 'reset'>('send');
+  const [forgotSending, setForgotSending] = useState(false);
+  const [forgotCooldown, setForgotCooldown] = useState(0);
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotCaptchaEnabled, setForgotCaptchaEnabled] = useState(false);
+  const [forgotCaptchaId, setForgotCaptchaId] = useState<string | null>(null);
+  const [forgotCaptchaSvg, setForgotCaptchaSvg] = useState<string | null>(null);
+  const [forgotForm] = Form.useForm();
+
   // 注销
   const [cancelLoading, setCancelLoading] = useState(false);
+
+  // 忘记密码 — 冷却倒计时
+  useEffect(() => {
+    if (forgotCooldown <= 0) return;
+    const timer = setInterval(() => setForgotCooldown(c => c - 1), 1000);
+    return () => clearInterval(timer);
+  }, [forgotCooldown > 0]);
+
+  // 打开忘记密码弹窗
+  const openForgotModal = async () => {
+    setForgotStep('send');
+    forgotForm.resetFields();
+    setForgotCooldown(0);
+    try {
+      const res = await getCaptchaApi();
+      setForgotCaptchaEnabled(res.enabled);
+      setForgotCaptchaId(res.captchaId);
+      setForgotCaptchaSvg(res.svg);
+    } catch { /* 静默 */ }
+    setForgotModalOpen(true);
+  };
+
+  // 忘记密码 — 发送验证码
+  const handleForgotSendCode = async () => {
+    let captchaCodeVal: string | undefined;
+    if (forgotCaptchaEnabled) {
+      const capInput = document.getElementById('forgot-captcha-input') as HTMLInputElement;
+      captchaCodeVal = capInput?.value;
+      if (!captchaCodeVal) { message.warning('请先填写图形验证码'); return; }
+    }
+    setForgotSending(true);
+    try {
+      await sendVerifyCodeApi(user!.email, 'reset_password', forgotCaptchaId ?? undefined, captchaCodeVal);
+      setForgotStep('reset');
+      setForgotCooldown(60);
+      message.success('验证码已发送至您的邮箱');
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '发送验证码失败');
+    } finally {
+      setForgotSending(false);
+      const capInput = document.getElementById('forgot-captcha-input') as HTMLInputElement;
+      if (capInput) capInput.value = '';
+      try {
+        const res = await getCaptchaApi();
+        setForgotCaptchaEnabled(res.enabled);
+        setForgotCaptchaId(res.captchaId);
+        setForgotCaptchaSvg(res.svg);
+      } catch { /* 静默 */ }
+    }
+  };
+
+  // 忘记密码 — 重置密码
+  const handleForgotReset = async (values: { code: string; newPassword: string }) => {
+    setForgotLoading(true);
+    try {
+      await resetPasswordApi(user!.email, values.code, values.newPassword);
+      message.success('密码重置成功，请重新登录');
+      setForgotModalOpen(false);
+      setTimeout(() => { logout(); navigate('/login'); }, 1500);
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '重置失败');
+    } finally {
+      setForgotLoading(false);
+    }
+  };
 
   const refreshCaptcha = async () => {
     try {
@@ -263,9 +339,9 @@ const SettingsPage: React.FC = () => {
             >
               修改密码
             </Button>
-            <Link to="/forgot-password" style={{ color: '#f59e0b', fontSize: 13 }}>
-              忘记密码？
-            </Link>
+            <Button type="link" style={{ color: '#f59e0b', fontSize: 13, padding: 0 }} onClick={openForgotModal}>
+              使用邮箱修改密码
+            </Button>
           </div>
         </Form>
       </Card>
@@ -296,6 +372,91 @@ const SettingsPage: React.FC = () => {
           </Popconfirm>
         </div>
       </Card>
+
+      {/* 忘记密码弹窗 */}
+      <Modal
+        title={<span style={{ color: '#f1f5f9' }}>使用邮箱修改密码</span>}
+        open={forgotModalOpen}
+        onCancel={() => setForgotModalOpen(false)}
+        footer={null}
+        destroyOnClose
+        styles={{
+          header: { background: '#1e293b', borderBottom: '1px solid rgba(99,102,241,0.15)' },
+          body: { background: '#1e293b', padding: 24 },
+          content: { background: '#1e293b' },
+        }}
+      >
+        {/* 步骤一：发送验证码 */}
+        {forgotStep === 'send' && (
+          <div>
+            <div style={{ marginBottom: 16 }}>
+              <Text style={{ color: '#94a3b8', fontSize: 13 }}>验证码将发送至您的注册邮箱</Text>
+              <Input value={user?.email || ''} disabled style={{ marginTop: 6, background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#94a3b8' }} />
+            </div>
+            {forgotCaptchaEnabled && (
+              <div style={{ marginBottom: 16, display: 'flex', gap: 12 }}>
+                <div
+                  style={{ flexShrink: 0, cursor: 'pointer', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(99,102,241,0.3)', background: '#f0f2f5', lineHeight: 0, height: 40 }}
+                  dangerouslySetInnerHTML={{ __html: forgotCaptchaSvg || '' }}
+                  onClick={async () => {
+                    try {
+                      const res = await getCaptchaApi();
+                      setForgotCaptchaEnabled(res.enabled);
+                      setForgotCaptchaId(res.captchaId);
+                      setForgotCaptchaSvg(res.svg);
+                    } catch { /* 静默 */ }
+                  }}
+                  title="点击刷新验证码"
+                />
+                <Input id="forgot-captcha-input" placeholder="验证码计算结果" autoComplete="off"
+                  style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', flex: 1 }} />
+              </div>
+            )}
+            <Button type="primary" block loading={forgotSending} disabled={forgotCooldown > 0}
+              onClick={handleForgotSendCode}
+              style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', border: 'none', height: 44 }}>
+              {forgotCooldown > 0 ? `请等待 ${forgotCooldown} 秒后重新发送` : '发送验证码'}
+            </Button>
+          </div>
+        )}
+
+        {/* 步骤二：输入验证码和新密码 */}
+        {forgotStep === 'reset' && (
+          <Form form={forgotForm} layout="vertical" onFinish={handleForgotReset}>
+            <div style={{ marginBottom: 16 }}>
+              <Text style={{ color: '#94a3b8', fontSize: 13 }}>验证码已发送至 <Text strong style={{ color: '#f1f5f9' }}>{user?.email}</Text></Text>
+            </div>
+            <Form.Item name="code" label={<span style={{ color: '#cbd5e1' }}>验证码</span>} rules={[{ required: true, message: '请输入6位验证码' }, { len: 6, message: '验证码为6位数字' }]}>
+              <Input prefix={<NumberOutlined style={{ color: '#f59e0b' }} />} placeholder="输入邮件中的6位验证码" maxLength={6}
+                style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', letterSpacing: 4, fontFamily: 'monospace', fontSize: 18, textAlign: 'center' }} />
+            </Form.Item>
+            <Form.Item name="newPassword" label={<span style={{ color: '#cbd5e1' }}>新密码</span>} rules={[{ required: true, min: 6, message: '密码至少6个字符' }]}>
+              <Input.Password placeholder="输入新密码" style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9' }} />
+            </Form.Item>
+            <Form.Item name="confirmPassword" label={<span style={{ color: '#cbd5e1' }}>确认新密码</span>}
+              dependencies={['newPassword']}
+              rules={[
+                { required: true, message: '请再次输入新密码' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    if (!value || getFieldValue('newPassword') === value) return Promise.resolve();
+                    return Promise.reject(new Error('两次密码不一致'));
+                  },
+                }),
+              ]}
+            >
+              <Input.Password placeholder="再次输入新密码" style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9' }} />
+            </Form.Item>
+            <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+              <Button onClick={() => { setForgotStep('send'); forgotForm.resetFields(); }}>返回上一步</Button>
+              <Button type="primary" htmlType="submit" loading={forgotLoading}
+                style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', border: 'none' }}>
+                重置密码
+              </Button>
+            </Space>
+          </Form>
+        )}
+      </Modal>
     </div>
   );
 };

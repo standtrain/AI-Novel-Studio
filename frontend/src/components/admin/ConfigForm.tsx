@@ -228,31 +228,6 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
 
   return (
     <div>
-      {/* 站点图标管理 */}
-      <div style={{ marginBottom: 20, padding: 20, background: 'rgba(30,41,59,0.5)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 12 }}>
-        <Text strong style={{ color: '#f1f5f9', fontSize: 15, display: 'block', marginBottom: 16 }}><PictureOutlined style={{ marginRight: 8 }} />站点图标（Favicon）</Text>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-          <div style={{ width: 64, height: 64, borderRadius: 12, background: 'rgba(15,23,42,0.6)', border: '2px dashed rgba(99,102,241,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
-            {faviconInfo.hasCustom && faviconInfo.url ? (
-              <img src={faviconInfo.url} alt="站点图标" style={{ width: '100%', height: '100%', objectFit: 'contain' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-            ) : <span style={{ fontSize: 28, background: 'linear-gradient(135deg, #6366f1, #22d3ee)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>✦</span>}
-          </div>
-          <div style={{ flex: 1, minWidth: 200 }}>
-            {faviconInfo.hasCustom ? (
-              <div><Text style={{ color: '#f1f5f9' }}>自定义图标</Text><br />
-                <Text style={{ color: '#94a3b8', fontSize: 12 }}>{faviconInfo.originalName}{faviconInfo.size != null && ` (${(faviconInfo.size / 1024).toFixed(1)} KB)`}</Text></div>
-            ) : <Text style={{ color: '#64748b' }}>当前使用默认图标</Text>}
-          </div>
-          <Space>
-            <Upload accept=".png,.svg,.ico,.jpg,.jpeg" showUploadList={false} beforeUpload={(file) => { handleFaviconUpload(file as File); return false; }}>
-              <Button icon={<UploadOutlined />} loading={faviconUploading} style={{ background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#818cf8' }}>上传图标</Button>
-            </Upload>
-            {faviconInfo.hasCustom && <Button icon={<DeleteOutlined />} danger loading={faviconDeleting} onClick={handleFaviconDelete}>恢复默认</Button>}
-          </Space>
-        </div>
-        <Text style={{ display: 'block', marginTop: 12, color: '#64748b', fontSize: 11 }}>支持 PNG、SVG、ICO、JPG 格式，建议尺寸 64×64 或以上，文件不超过 1MB</Text>
-      </div>
-
       {/* 搜索提示 */}
       {searchTerm.trim() && (
         <Text style={{ color: '#94a3b8', fontSize: 12, marginBottom: 12, display: 'block' }}>找到 {totalFiltered} 项匹配</Text>
@@ -278,6 +253,30 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
                 style={{ marginBottom: 8, background: 'rgba(30,41,59,0.4)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 10, overflow: 'hidden' }}
               >
                 <Table columns={configColumns} dataSource={catConfigs} rowKey="config_key" pagination={false} size="small" showHeader={false} />
+                {cat.key === 'site' && (
+                  <div style={{ marginTop: 16, padding: 16, background: 'rgba(15,23,42,0.4)', border: '1px solid rgba(99,102,241,0.12)', borderRadius: 10 }}>
+                    <Text strong style={{ color: '#e2e8f0', fontSize: 13, display: 'block', marginBottom: 12 }}><PictureOutlined style={{ marginRight: 6 }} />站点图标</Text>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                      <div style={{ width: 52, height: 52, borderRadius: 10, background: 'rgba(15,23,42,0.6)', border: '2px dashed rgba(99,102,241,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                        {faviconInfo.hasCustom && faviconInfo.url ? (
+                          <img src={faviconInfo.url} alt="站点图标" style={{ width: '100%', height: '100%', objectFit: 'contain' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        ) : <span style={{ fontSize: 22, background: 'linear-gradient(135deg, #6366f1, #22d3ee)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>✦</span>}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 140 }}>
+                        {faviconInfo.hasCustom ? (
+                          <div><Text style={{ color: '#e2e8f0', fontSize: 13 }}>自定义图标</Text><br />
+                            <Text style={{ color: '#94a3b8', fontSize: 11 }}>{faviconInfo.originalName}{faviconInfo.size != null && ` (${(faviconInfo.size / 1024).toFixed(1)} KB)`}</Text></div>
+                        ) : <Text style={{ color: '#64748b', fontSize: 13 }}>使用默认图标</Text>}
+                      </div>
+                      <Space size="small">
+                        <Upload accept=".png,.svg,.ico,.jpg,.jpeg" showUploadList={false} beforeUpload={(file) => { handleFaviconUpload(file as File); return false; }}>
+                          <Button icon={<UploadOutlined />} loading={faviconUploading} size="small" style={{ background: 'rgba(99,102,241,0.15)', borderColor: 'rgba(99,102,241,0.4)', color: '#818cf8' }}>上传</Button>
+                        </Upload>
+                        {faviconInfo.hasCustom && <Button icon={<DeleteOutlined />} danger size="small" loading={faviconDeleting} onClick={handleFaviconDelete}>恢复默认</Button>}
+                      </Space>
+                    </div>
+                  </div>
+                )}
               </Collapse.Panel>
             );
           })}

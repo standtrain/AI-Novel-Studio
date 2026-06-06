@@ -19,9 +19,10 @@ export async function loginApi(
 export async function registerApi(
   username: string,
   email: string,
-  password: string
+  password: string,
+  code?: string
 ): Promise<AuthResponse> {
-  const { data } = await client.post('/auth/register', { username, email, password });
+  const { data } = await client.post('/auth/register', { username, email, password, code });
   return data;
 }
 
@@ -54,5 +55,41 @@ export async function getCaptchaApi(): Promise<{
   enabled: boolean;
 }> {
   const { data } = await client.get('/auth/captcha');
+  return data;
+}
+
+// 发送邮箱验证码
+export async function sendVerifyCodeApi(email: string, type: 'register' | 'reset_password'): Promise<{ success: boolean; message: string }> {
+  const { data } = await client.post('/auth/send-verify-code', { email, type });
+  return data;
+}
+
+// 忘记密码
+export async function forgotPasswordApi(email: string): Promise<{ success: boolean; message: string }> {
+  const { data } = await client.post('/auth/forgot-password', { email });
+  return data;
+}
+
+// 重置密码
+export async function resetPasswordApi(email: string, code: string, password: string): Promise<{ success: boolean; message: string }> {
+  const { data } = await client.post('/auth/reset-password', { email, code, password });
+  return data;
+}
+
+// 发送邮箱变更验证码（需登录）
+export async function sendChangeEmailCodeApi(email: string): Promise<{ success: boolean; message: string }> {
+  const { data } = await client.post('/auth/me/send-change-email-code', { email });
+  return data;
+}
+
+// 完成邮箱变更（需登录）
+export async function changeEmailApi(newEmail: string, code: string): Promise<{ success: boolean; message: string; user: any }> {
+  const { data } = await client.post('/auth/me/change-email', { newEmail, code });
+  return data;
+}
+
+// 检查邮箱验证是否启用
+export async function getEmailVerificationStatusApi(): Promise<{ enabled: boolean }> {
+  const { data } = await client.get('/auth/email-verification-status');
   return data;
 }

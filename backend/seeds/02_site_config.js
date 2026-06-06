@@ -19,5 +19,16 @@ exports.seed = async function (knex) {
     { config_key: 'cors_origins', config_value: '', description: 'CORS 域名白名单（每行一个域名）' },
     { config_key: 'login_rate_limit', config_value: '5', description: '登录接口每分钟最大尝试次数' },
     { config_key: 'mcp_api_key', config_value: '', description: 'MCP 端点的 API Key（用于外部 AI 应用连接）' },
+    // 邮件/Resend 相关配置
+    { config_key: 'resend_api_key', config_value: '', description: 'Resend API Key（用于发送验证邮件，在 resend.com 获取）' },
+    { config_key: 'email_from', config_value: '', description: '发件人邮箱地址（需在 resend.com 完成域名验证）' },
+    { config_key: 'email_from_name', config_value: 'AI Novel Studio', description: '发件人显示名称' },
+    { config_key: 'email_verification_enabled', config_value: 'false', description: '是否启用邮箱验证码功能（true/false）' },
+    // 站点图标
+    { config_key: 'favicon_path', config_value: '', description: '自定义站点图标路径（上传后自动设置）' },
+    { config_key: 'favicon_original_name', config_value: '', description: '自定义站点图标原始文件名' },
+    // 邮箱域名白名单
+    { config_key: 'email_domain_whitelist_enabled', config_value: 'false', description: '是否启用注册邮箱域名白名单（true/false）' },
+    { config_key: 'email_domain_whitelist', config_value: '', description: '允许注册的邮箱域名白名单（每行一个域名，如 gmail.com）' },
   ]);
 };

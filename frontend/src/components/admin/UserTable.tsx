@@ -234,6 +234,10 @@ const UserTable: React.FC = () => {
       ),
     },
     {
+      title: '最后登录', dataIndex: 'last_login_at', width: 110,
+      render: (v: string) => v ? new Date(v).toLocaleString('zh-CN') : <Text style={{ color: '#64748b' }}>从未登录</Text>,
+    },
+    {
       title: '注册时间', dataIndex: 'created_at', width: 110,
       render: (v: string) => v ? new Date(v).toLocaleDateString('zh-CN') : '-',
     },
@@ -292,7 +296,7 @@ const UserTable: React.FC = () => {
         rowKey="id"
         loading={loading}
         pagination={{ current: page, total, pageSize: 20, onChange: setPage }}
-        scroll={{ x: 1050 }}
+        scroll={{ x: 1150 }}
         size="small"
       />
 

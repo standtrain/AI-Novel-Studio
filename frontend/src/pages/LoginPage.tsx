@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, Form, Input, Button, Typography, message, Modal, Descriptions, Tag } from 'antd';
 import { UserOutlined, LockOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';
@@ -78,6 +78,7 @@ const LoginPage: React.FC = () => {
   const [banInfo, setBanInfo] = useState<any>(null);
   const [appealContent, setAppealContent] = useState('');
   const [appealSubmitting, setAppealSubmitting] = useState(false);
+  const appealSubmittingRef = useRef(false);
 
   // 刷新验证码
   const refreshCaptcha = async () => {
@@ -124,6 +125,8 @@ const LoginPage: React.FC = () => {
 
   const handleSubmitAppeal = async () => {
     if (!appealContent.trim()) { message.warning('请输入申诉内容'); return; }
+    if (appealSubmittingRef.current) return;
+    appealSubmittingRef.current = true;
     setAppealSubmitting(true);
     try {
       await submitAppealApi(banInfo.banId, banInfo.userId, appealContent.trim());
@@ -133,6 +136,7 @@ const LoginPage: React.FC = () => {
     } catch (err: any) {
       message.error(err?.response?.data?.error || '提交申诉失败');
     } finally {
+      appealSubmittingRef.current = false;
       setAppealSubmitting(false);
     }
   };
@@ -288,6 +292,20 @@ const LoginPage: React.FC = () => {
           paddingTop: 16,
           borderTop: '1px solid rgba(99,102,241,0.1)',
         }}>
+          <Link
+            to="/forgot-password"
+            style={{
+              color: '#64748b',
+              fontSize: 13,
+              transition: 'color 0.2s',
+              display: 'block',
+              marginBottom: 12,
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.color = '#f59e0b'}
+            onMouseLeave={(e) => e.currentTarget.style.color = '#64748b'}
+          >
+            忘记密码？
+          </Link>
           <Text style={{ color: '#64748b' }}>还没有账号？</Text>
           <Link
             to="/register"

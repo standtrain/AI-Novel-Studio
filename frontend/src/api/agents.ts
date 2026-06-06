@@ -241,13 +241,13 @@ export function startImportAnalysisStream(
   instructions: string,
   onEvent: SSEEventHandler
 ): AbortController {
-  // DOCX/DOC 文件用 text/plain 传输（避免 JSON 序列化大 base64 字符串）
   const isDocx = text.startsWith('[DOCX_BASE64]') || text.startsWith('[DOC_BASE64]');
+  // 统一使用 JSON 格式发送，确保 instructions 不会丢失
   return startSSE(
     '/api/novels/import-analyze',
-    isDocx ? text : JSON.stringify({ text, instructions: instructions || undefined }),
+    JSON.stringify({ text, instructions: instructions?.trim() || undefined, isDocx: isDocx || undefined }),
     onEvent,
-    isDocx ? 'text/plain' : 'application/json'
+    'application/json'
   );
 }
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Button, Input, Typography, message, Space } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined } from '@ant-design/icons';
@@ -17,6 +17,7 @@ const ChapterEditPage: React.FC = () => {
   const [chapter, setChapter] = useState<Chapter | null>(null);
   const [content, setContent] = useState('');
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -37,6 +38,8 @@ const ChapterEditPage: React.FC = () => {
   };
 
   const handleSave = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       await client.put(`/novels/${novelId}/chapters/${chapterNum}`, { content });
@@ -44,6 +47,7 @@ const ChapterEditPage: React.FC = () => {
     } catch (err: any) {
       message.error('保存失败');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };

@@ -7,6 +7,7 @@ export interface UserInfo {
   status: string;
   dailyTokensUsed: number;
   preferredModel?: string | null;
+  lastLoginAt?: string | null;
   createdAt: string;
 }
 

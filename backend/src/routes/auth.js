@@ -10,11 +10,35 @@ const userGroupDao = require('../dao/userGroupDao');
 
 const router = Router();
 
+// 发送邮箱验证码（注册/密码重置/邮箱变更）
+const sendCodeSchema = z.object({
+  email: z.string().email(),
+  type: z.enum(['register', 'reset_password', 'change_email']),
+});
+
+router.post('/send-verify-code', async (req, res) => {
+  try {
+    const body = sendCodeSchema.parse(req.body);
+    // change_email 需要登录态
+    if (body.type === 'change_email') {
+      return res.status(400).json({ error: '邮箱变更验证码需要通过认证接口发送' });
+    }
+    const result = await authService.sendVerificationCode(body.email, body.type);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: '输入数据格式不正确', details: err.errors });
+    }
+    res.status(err.status || 500).json({ error: err.message || '发送验证码失败' });
+  }
+});
+
 // 注册
 const registerSchema = z.object({
   username: z.string().min(3).max(50),
   email: z.string().email(),
   password: z.string().min(6).max(100),
+  code: z.string().length(6).optional(),
 });
 
 router.post('/register', async (req, res) => {
@@ -36,14 +60,67 @@ router.post('/register', async (req, res) => {
   }
 });
 
+// 忘记密码（发送重置验证码）
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const body = forgotPasswordSchema.parse(req.body);
+    const result = await authService.forgotPassword(body.email);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: '输入数据格式不正确', details: err.errors });
+    }
+    res.status(err.status || 500).json({ error: err.message || '发送验证码失败' });
+  }
+});
+
+// 重置密码
+const resetPasswordSchema = z.object({
+  email: z.string().email(),
+  code: z.string().length(6),
+  password: z.string().min(6).max(100),
+});
+
+router.post('/reset-password', async (req, res) => {
+  try {
+    const body = resetPasswordSchema.parse(req.body);
+    const result = await authService.resetPassword(body.email, body.code, body.password);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: '输入数据格式不正确', details: err.errors });
+    }
+    res.status(err.status || 500).json({ error: err.message || '重置密码失败' });
+  }
+});
+
 // 检查注册是否开放（公开接口）
 router.get('/register-status', async (_req, res) => {
   try {
     const allowRegistration = await configService.get('allow_registration');
     const allowed = allowRegistration !== 'false' && allowRegistration !== '0';
-    res.json({ allowRegistration: allowed });
+    const verificationEnabled = await configService.get('email_verification_enabled');
+    const whitelistEnabledRaw = await configService.get('email_domain_whitelist_enabled');
+    const whitelistEnabled = whitelistEnabledRaw === 'true';
+    let allowedDomains: string[] = [];
+    if (whitelistEnabled) {
+      const raw = await configService.get('email_domain_whitelist');
+      if (raw && raw.trim()) {
+        allowedDomains = raw.split(/[\n,]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+      }
+    }
+    res.json({
+      allowRegistration: allowed,
+      emailVerificationEnabled: verificationEnabled === 'true',
+      emailDomainWhitelistEnabled: whitelistEnabled,
+      allowedDomains: whitelistEnabled ? allowedDomains : [],
+    });
   } catch {
-    res.json({ allowRegistration: true }); // 出错时默认允许
+    res.json({ allowRegistration: true, emailVerificationEnabled: false, emailDomainWhitelistEnabled: false, allowedDomains: [] });
   }
 });
 
@@ -131,7 +208,8 @@ router.put('/me', authenticate, async (req, res) => {
     }
 
     if (email) {
-      data.email = email;
+      // 邮箱变更需要通过验证码流程
+      return res.status(400).json({ error: '请使用邮箱验证码完成邮箱变更。先通过 /me/send-change-email-code 发送验证码，再通过 /me/change-email 完成变更' });
     }
 
     if (Object.keys(data).length === 0) {
@@ -142,6 +220,34 @@ router.put('/me', authenticate, async (req, res) => {
     res.json({ success: true, message: '修改成功' });
   } catch (err) {
     res.status(500).json({ error: '修改失败' });
+  }
+});
+
+// 发送邮箱变更验证码（需登录）
+router.post('/me/send-change-email-code', authenticate, async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: '请提供有效的邮箱地址' });
+    }
+    const result = await authService.sendVerificationCode(email, 'change_email', req.user.id);
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || '发送验证码失败' });
+  }
+});
+
+// 完成邮箱变更（需登录，验证码确认）
+router.post('/me/change-email', authenticate, async (req, res) => {
+  try {
+    const { newEmail, code } = req.body;
+    if (!newEmail || !code) {
+      return res.status(400).json({ error: '请提供新邮箱和验证码' });
+    }
+    const result = await authService.changeEmail(req.user.id, req.user.email, newEmail, code);
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || '邮箱变更失败' });
   }
 });
 

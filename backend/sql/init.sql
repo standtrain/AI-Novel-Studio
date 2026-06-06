@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `daily_tokens_used` int unsigned NOT NULL DEFAULT 0 COMMENT '今日已用token',
   `last_token_reset_at` timestamp NULL DEFAULT NULL COMMENT '上次token重置时间',
   `preferred_model` varchar(255) DEFAULT NULL COMMENT '用户首选模型(null=按管理员优先级)，格式: provider_name::model_name',
+  `last_login_at` timestamp NULL DEFAULT NULL COMMENT '最后登录时间',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -237,7 +238,23 @@ CREATE TABLE IF NOT EXISTS `user_mcp_configs` (
   CONSTRAINT `user_mcp_configs_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ---------- 2.13 模型 Token 限额表 ----------
+-- ---------- 2.13 邮箱验证码表 ----------
+CREATE TABLE IF NOT EXISTS `email_verifications` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` int unsigned DEFAULT NULL COMMENT '关联用户ID（注册验证时可能为空）',
+  `email` varchar(120) NOT NULL COMMENT '目标邮箱',
+  `code` varchar(10) NOT NULL COMMENT '6位数字验证码',
+  `type` varchar(30) NOT NULL COMMENT '类型：register/ reset_password/ change_email',
+  `new_email` varchar(120) DEFAULT NULL COMMENT '变更邮箱时的新邮箱地址',
+  `used` tinyint(1) NOT NULL DEFAULT 0 COMMENT '是否已使用',
+  `expires_at` timestamp NOT NULL COMMENT '过期时间',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_email_type_used` (`email`,`type`,`used`),
+  KEY `idx_expires_at` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------- 2.14 模型 Token 限额表 ----------
 CREATE TABLE IF NOT EXISTS `model_token_limits` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `provider_name` varchar(100) NOT NULL COMMENT 'Provider名称',
@@ -342,7 +359,15 @@ INSERT INTO `site_config` (`config_key`, `config_value`, `description`) VALUES
 ('cors_enabled', 'false', '是否启用 CORS 跨域（true/false，默认关闭）'),
 ('cors_origins', '', 'CORS 域名白名单（每行一个域名）'),
 ('login_rate_limit', '5', '登录接口每分钟最大尝试次数'),
-('mcp_api_key', '', 'MCP 端点的 API Key（用于外部 AI 应用连接）');
+('mcp_api_key', '', 'MCP 端点的 API Key（用于外部 AI 应用连接）'),
+('resend_api_key', '', 'Resend API Key（用于发送验证邮件，在 resend.com 获取）'),
+('email_from', '', '发件人邮箱地址（需在 resend.com 完成域名验证）'),
+('email_from_name', 'AI Novel Studio', '发件人显示名称'),
+('email_verification_enabled', 'false', '是否启用邮箱验证码功能（true/false）'),
+('favicon_path', '', '自定义站点图标路径（上传后自动设置）'),
+('favicon_original_name', '', '自定义站点图标原始文件名'),
+('email_domain_whitelist_enabled', 'false', '是否启用注册邮箱域名白名单（true/false）'),
+('email_domain_whitelist', '', '允许注册的邮箱域名白名单（每行一个域名，如 gmail.com）');
 
 -- ---------- 3.3 默认 MCP 服务器 ----------
 INSERT INTO `mcp_servers` (`name`, `transport`, `url`, `headers`, `enabled`, `description`) VALUES

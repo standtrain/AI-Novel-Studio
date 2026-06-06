@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Card, Form, Input, Button, Typography, message, Divider, Popconfirm, Space,
 } from 'antd';
-import { UserOutlined, MailOutlined, LockOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { UserOutlined, MailOutlined, LockOutlined, ExclamationCircleOutlined, ClockCircleOutlined, CalendarOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import client from '../api/client';
@@ -71,6 +71,40 @@ const SettingsPage: React.FC = () => {
   return (
     <div style={{ maxWidth: 500 }}>
       <Title level={4} style={{ color: '#f1f5f9' }}>个人设置</Title>
+
+      {/* 账户信息 */}
+      <Card
+        title={<span style={{ color: '#f1f5f9' }}><UserOutlined /> 账户信息</span>}
+        style={{
+          marginBottom: 16,
+          background: 'rgba(30,41,59,0.6)',
+          border: '1px solid rgba(99,102,241,0.2)',
+          borderRadius: 12,
+        }}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Text style={{ color: '#94a3b8' }}>用户名</Text>
+            <Text style={{ color: '#f1f5f9' }}>{user?.username}</Text>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Text style={{ color: '#94a3b8' }}>角色</Text>
+            <Text style={{ color: '#f1f5f9' }}>{user?.group?.name === 'admin' ? '管理员' : '普通用户'}</Text>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Text style={{ color: '#94a3b8' }}><CalendarOutlined /> 注册时间</Text>
+            <Text style={{ color: '#f1f5f9' }}>
+              {user?.createdAt ? new Date(user.createdAt).toLocaleString('zh-CN') : '-'}
+            </Text>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Text style={{ color: '#94a3b8' }}><ClockCircleOutlined /> 最后登录</Text>
+            <Text style={{ color: '#f1f5f9' }}>
+              {user?.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString('zh-CN') : '暂无记录'}
+            </Text>
+          </div>
+        </Space>
+      </Card>
 
       {/* 邮箱 */}
       <Card

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Row, Col, Typography, Tag, Button, Modal, Spin, Empty, Input, message, Form, Select, Tabs, Popconfirm, Divider, Alert } from 'antd';
 import {
@@ -70,10 +70,15 @@ const TemplateStorePage: React.FC = () => {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<NovelTemplate | null>(null);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [templateForm] = Form.useForm();
 
   // 审核提交
   const [submitting, setSubmitting] = useState<number | null>(null);
+  const submittingRef = useRef(false);
+
+  // 删除
+  const [deleting, setDeleting] = useState<number | null>(null);
 
   useEffect(() => {
     loadData();
@@ -165,9 +170,11 @@ const TemplateStorePage: React.FC = () => {
   };
 
   const handleSaveTemplate = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     try {
       const values = await templateForm.validateFields();
-      setSaving(true);
       if (editingTemplate) {
         await updateMyTemplateApi(editingTemplate.id, values);
         message.success('模板已更新');
@@ -181,21 +188,27 @@ const TemplateStorePage: React.FC = () => {
       if (err?.errorFields) return;
       message.error(err?.response?.data?.error || '操作失败');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
 
   const handleDeleteTemplate = async (id: number) => {
     try {
+      setDeleting(id);
       await deleteMyTemplateApi(id);
       message.success('模板已删除');
       loadMyTemplates();
     } catch (err: any) {
       message.error(err?.response?.data?.error || '删除失败');
+    } finally {
+      setDeleting(null);
     }
   };
 
   const handleSubmitReview = async (id: number) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(id);
     try {
       const result = await submitTemplateForReviewApi(id);
@@ -205,6 +218,7 @@ const TemplateStorePage: React.FC = () => {
     } catch (err: any) {
       message.error(err?.response?.data?.error || '提交失败');
     } finally {
+      submittingRef.current = false;
       setSubmitting(null);
     }
   };
@@ -259,7 +273,7 @@ const TemplateStorePage: React.FC = () => {
                 使用
               </Button>
               <Popconfirm title="确定删除？" onConfirm={(e) => { e?.stopPropagation(); handleDeleteTemplate(tpl.id); }}>
-                <Button size="small" danger icon={<DeleteOutlined />}
+                <Button size="small" danger icon={<DeleteOutlined />} loading={deleting === tpl.id}
                   onClick={(e) => e.stopPropagation()} />
               </Popconfirm>
             </div>

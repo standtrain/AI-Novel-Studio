@@ -8,7 +8,7 @@ interface AuthState {
   isAuthenticated: boolean;
   loading: boolean;
   login: (username: string, password: string, captchaId?: string, captchaCode?: string) => Promise<void>;
-  register: (username: string, email: string, password: string) => Promise<void>;
+  register: (username: string, email: string, password: string, code?: string) => Promise<void>;
   logout: () => void;
   fetchMe: () => Promise<void>;
   setUser: (user: UserInfo, token: string) => void;
@@ -41,10 +41,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
-  register: async (username, email, password) => {
+  register: async (username, email, password, code) => {
     set({ loading: true });
     try {
-      const { token, user } = await registerApi(username, email, password);
+      const { token, user } = await registerApi(username, email, password, code);
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(user));
       set({ user, token, isAuthenticated: true, loading: false });

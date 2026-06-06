@@ -68,8 +68,10 @@ const NovelPage: React.FC = () => {
 
   // 编辑
   const [editingPhase, setEditingPhase] = useState<string | null>(null);
+  const [editChapterNumber, setEditChapterNumber] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   // AI 修订（多轮对话）
   const [chatPhase, setChatPhase] = useState<string | null>(null);
@@ -77,6 +79,8 @@ const NovelPage: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'ai'; content: string; revised?: any; wordCount?: number }[]>([]);
   const [chatAIStream, setChatAIStream] = useState('');
   const [chatStreaming, setChatStreaming] = useState(false);
+  const chatStreamingRef = useRef(false);
+  const confirmRevisionRef = useRef(false);
   const [chatChapter, setChatChapter] = useState<number | null>(null);
   const chatAbortRef = useRef<AbortController | null>(null);
   const chatResultRef = useRef<any>(null);
@@ -577,8 +581,9 @@ const NovelPage: React.FC = () => {
   };
 
   // ====== 编辑 ======
-  const openEditor = (phase: string, content: any) => {
+  const openEditor = (phase: string, content: any, chapterNum?: number) => {
     setEditingPhase(phase);
+    setEditChapterNumber(chapterNum || null);
     setEditText(typeof content === 'string' ? content : JSON.stringify(content, null, 2));
   };
 
@@ -611,7 +616,8 @@ const NovelPage: React.FC = () => {
     return secs;
   }, [outline, characters, chapterOutlines, chapters]);
   const handleSaveEdit = async () => {
-    if (!editingPhase) return;
+    if (!editingPhase || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       // 关键修复：将 JSON 字符串解析为对象后再发送
@@ -621,14 +627,15 @@ const NovelPage: React.FC = () => {
           parsedContent = JSON.parse(editText);
         } catch (e) {
           message.error('数据格式错误，请检查 JSON 格式');
+          savingRef.current = false;
           setSaving(false);
           return;
         }
       }
-      await client.put(`/novels/${novelId}/save`, { phase: editingPhase, content: parsedContent, chapterNumber: chatChapter });
+      await client.put(`/novels/${novelId}/save`, { phase: editingPhase, content: parsedContent, chapterNumber: editChapterNumber });
       message.success('保存成功'); setEditingPhase(null); loadNovel();
     } catch { message.error('保存失败'); }
-    finally { setSaving(false); }
+    finally { savingRef.current = false; setSaving(false); }
   };
 
   // ====== AI 修订 ======
@@ -648,6 +655,8 @@ const NovelPage: React.FC = () => {
     chatOriginalRef.current = original;
   };
   const handleConfirmRevision = async () => {
+    if (confirmRevisionRef.current) return;
+    confirmRevisionRef.current = true;
     setChatStreaming(true);
     try {
       const chTitle = chatChapter ? chapters.find(c => c.chapter_number === chatChapter)?.title || '' : '';
@@ -673,10 +682,11 @@ const NovelPage: React.FC = () => {
     } catch (err: any) {
       const backendMsg = err?.response?.data?.error || err?.message || '未知错误';
       message.error(`更新失败：${backendMsg}`);
-    } finally { setChatStreaming(false); }
+    } finally { confirmRevisionRef.current = false; setChatStreaming(false); }
   };
   const handleChatSend = () => {
-    if (!chatFeedback.trim() || !chatPhase) return;
+    if (!chatFeedback.trim() || !chatPhase || chatStreamingRef.current) return;
+    chatStreamingRef.current = true;
     const feedback = chatFeedback.trim();
     // 追加用户消息到对话历史
     setChatMessages(prev => [...prev, { role: 'user', content: feedback }]);
@@ -700,11 +710,11 @@ const NovelPage: React.FC = () => {
             message.error(e.error || '请求失败');
           }
         }).catch(() => message.error('请求失败'));
-        setChatStreaming(false);
+        setChatStreaming(false); chatStreamingRef.current = false;
         return;
       }
       readSSE(response);
-    }).catch(() => { setChatStreaming(false); });
+    }).catch(() => { setChatStreaming(false); chatStreamingRef.current = false; });
   };
   const readSSE = async (response: Response) => {
     if (!response.body) return;
@@ -734,7 +744,7 @@ const NovelPage: React.FC = () => {
                 return '';
               });
               message.error(data.message);
-              setChatStreaming(false);
+              setChatStreaming(false); chatStreamingRef.current = false;
             }
             else if (currentEvent === 'done') {
               const revised = chatResultRef.current;
@@ -743,7 +753,7 @@ const NovelPage: React.FC = () => {
                 setChatMessages(prev => [...prev, { role: 'ai' as const, content: finalText, revised: revised || finalText, wordCount: data.wordCount }]);
                 return '';
               });
-              setChatStreaming(false);
+              setChatStreaming(false); chatStreamingRef.current = false;
             }
             else if (currentEvent === 'result') { chatResultRef.current = data.revised; }
           } catch { /* raw text */ }
@@ -955,7 +965,7 @@ const NovelPage: React.FC = () => {
                     reviewResult={reviewResults[ch.chapter_number] || null}
                     extractionResult={extractionResults[ch.chapter_number] || null}
                     onRegenerate={() => startPhase4(ch.chapter_number)}
-                    onEdit={() => openEditor('chapter_content', ch.content || '')}
+                    onEdit={() => openEditor('chapter_content', ch.content || '', ch.chapter_number)}
                     onChat={() => openChat('chapter_content', ch.chapter_number)}
                     onReview={() => startReview(ch.chapter_number)}
                     onExtract={() => startExtract(ch.chapter_number)}
@@ -1040,7 +1050,7 @@ const NovelPage: React.FC = () => {
             const content = sec.phase === 'chapter_content'
               ? (chapters.find(c => c.chapter_number === sec.chapterNumber)?.content || '')
               : sec.content;
-            openEditor(sec.phase, content);
+            openEditor(sec.phase, content, sec.chapterNumber);
             if (sec.chapterNumber) setChatChapter(sec.chapterNumber);
           }}
         />

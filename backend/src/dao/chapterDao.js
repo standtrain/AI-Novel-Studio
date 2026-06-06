@@ -19,9 +19,13 @@ const chapterDao = {
   },
 
   async update(novelId, chapterNumber, data) {
-    return db(TABLE)
+    const affectedRows = await db(TABLE)
       .where({ novel_id: novelId, chapter_number: chapterNumber })
       .update(data);
+    if (affectedRows === 0) {
+      throw Object.assign(new Error('章节不存在，更新失败'), { status: 404 });
+    }
+    return affectedRows;
   },
 
   async upsert(data) {
@@ -29,10 +33,10 @@ const chapterDao = {
       .where({ novel_id: data.novel_id, chapter_number: data.chapter_number })
       .first();
     if (existing) {
-      await db(TABLE).where('id', existing.id).update(data);
+      await db(TABLE).where('id', existing.id).update({ ...data, updated_at: db.fn.now() });
       return existing.id;
     }
-    const [id] = await db(TABLE).insert(data);
+    const [id] = await db(TABLE).insert({ ...data, created_at: db.fn.now(), updated_at: db.fn.now() });
     return id;
   },
 

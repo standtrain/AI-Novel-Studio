@@ -107,14 +107,57 @@ app.use('/api/admin/mcp', adminMcpRoutes);
 app.use('/api/mcp-endpoint', mcpEndpointRoutes);
 app.use('/api/templates', templateRoutes);
 
+const path = require('path');
+const fs = require('fs');
+
+// uploads 静态文件目录
+const uploadsDir = path.join(__dirname, '../../uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use('/uploads', express.static(uploadsDir));
+
+// 默认 favicon SVG（内联生成，匹配站点设计风格）
+const DEFAULT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#22d3ee"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="1.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#bg)"/>
+  <text x="32" y="44" text-anchor="middle" font-size="36" font-family="serif" fill="white" filter="url(#glow)">✦</text>
+</svg>`;
+
+// favicon 路由：优先使用上传的自定义图标，否则返回默认 SVG
+app.get(['/favicon.ico', '/favicon.svg'], async (_req, res) => {
+  try {
+    const configDao = require('./dao/configDao');
+    const faviconPath = await configDao.get('favicon_path');
+    if (faviconPath) {
+      const fullPath = path.join(uploadsDir, faviconPath);
+      if (fs.existsSync(fullPath)) {
+        const ext = path.extname(faviconPath).toLowerCase();
+        const mimeMap = { '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' };
+        return res.type(mimeMap[ext] || 'image/png').sendFile(fullPath);
+      }
+    }
+    res.type('image/svg+xml').send(DEFAULT_FAVICON_SVG);
+  } catch {
+    res.type('image/svg+xml').send(DEFAULT_FAVICON_SVG);
+  }
+});
+
 // 健康检查
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 // ---- 生产模式：托管前端静态文件 ----
-const path = require('path');
-const fs = require('fs');
 const frontendDist = path.join(__dirname, '../../frontend/dist');
 if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));

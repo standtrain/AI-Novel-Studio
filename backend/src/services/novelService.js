@@ -4,6 +4,7 @@ const chapterDao = require('../dao/chapterDao');
 const characterDao = require('../dao/characterDao');
 const { safeUpdateNovel } = require('../utils/databaseHelper');
 const { countWords } = require('../core/utils/wordCounter');
+const { db } = require('../config/database');
 
 // 公共辅助：获取小说并校验所有权
 async function _getNovelOrThrow(novelId, userId) {
@@ -37,10 +38,16 @@ const novelService = {
       let characters_involved = [];
       try {
         scenes = ch.scenes ? JSON.parse(ch.scenes) : [];
-      } catch { scenes = []; }
+      } catch (e) {
+        console.error(`章节 ${ch.chapter_number} 的 scenes 字段 JSON 解析失败:`, String(e));
+        scenes = [];
+      }
       try {
         characters_involved = ch.characters_involved ? JSON.parse(ch.characters_involved) : [];
-      } catch { characters_involved = []; }
+      } catch (e) {
+        console.error(`章节 ${ch.chapter_number} 的 characters_involved 字段 JSON 解析失败:`, String(e));
+        characters_involved = [];
+      }
       const base = { ...ch, scenes, characters_involved };
       // 轻量模式：跳过大字段，减少传输量
       if (lightweight) {
@@ -237,10 +244,7 @@ const novelService = {
       throw { status: 400, message: '角色数据格式不正确' };
     }
 
-    // 删除现有角色
-    await characterDao.deleteByNovelId(novelId);
-
-    // 创建新角色
+    // 格式化角色数据
     const characters = charactersData.characters.map(char => ({
       novel_id: novelId,
       name: char.name || '',
@@ -255,12 +259,14 @@ const novelService = {
       relationships: JSON.stringify(char.relationships || []),
     }));
 
-    if (characters.length > 0) {
-      await characterDao.bulkCreate(characters);
-    }
-
-    // 更新小说状态
-    await safeUpdateNovel(novelId, { current_step: 2, status: 'characters' });
+    // 在事务中执行：删除旧角色 + 插入新角色 + 更新小说状态
+    await db.transaction(async (trx) => {
+      await trx('characters').where('novel_id', novelId).del();
+      if (characters.length > 0) {
+        await trx('characters').insert(characters);
+      }
+      await trx('novels').where('id', novelId).update({ current_step: 2, status: 'characters' });
+    });
     return this.getNovelDetail(novelId, userId);
   },
 

@@ -673,4 +673,109 @@ router.put('/appeal-ai-review-config', async (req, res) => {
   }
 });
 
+// ==================== favicon 管理 ====================
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+const faviconStorage = multer.diskStorage({
+  destination: path.join(__dirname, '../../../uploads'),
+  filename(_req, file, cb) {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `favicon${ext}`);
+  },
+});
+
+const faviconUpload = multer({
+  storage: faviconStorage,
+  limits: { fileSize: 1024 * 1024 }, // 1MB
+  fileFilter(_req, file, cb) {
+    const allowed = ['.png', '.svg', '.ico', '.jpg', '.jpeg'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!allowed.includes(ext)) {
+      return cb(new Error('仅支持 PNG、SVG、ICO、JPG、JPEG 格式的图标文件'));
+    }
+    cb(null, true);
+  },
+});
+
+// 上传 favicon（管理员）
+router.post('/favicon', authenticate, authorize('admin'), (req, res) => {
+  faviconUpload.single('favicon')(req, res, async (err) => {
+    if (err) {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: '文件大小不能超过 1MB' });
+      }
+      return res.status(400).json({ error: err.message || '上传失败' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: '请选择要上传的图标文件' });
+    }
+
+    try {
+      // 删除旧的自定义 favicon（如果有不同扩展名的）
+      const oldPath = await configService.get('favicon_path');
+      if (oldPath) {
+        const oldFull = path.join(__dirname, '../../../uploads', oldPath);
+        if (fs.existsSync(oldFull) && oldPath !== req.file.filename) {
+          fs.unlinkSync(oldFull);
+        }
+      }
+
+      await configService.set('favicon_path', req.file.filename);
+      await configService.set('favicon_original_name', req.file.originalname);
+      res.json({
+        success: true,
+        url: `/uploads/${req.file.filename}`,
+        filename: req.file.originalname,
+        size: req.file.size,
+      });
+    } catch (e) {
+      res.status(500).json({ error: '保存配置失败' });
+    }
+  });
+});
+
+// 删除自定义 favicon，恢复默认图标（管理员）
+router.delete('/favicon', authenticate, authorize('admin'), async (req, res) => {
+  try {
+    const oldPath = await configService.get('favicon_path');
+    if (oldPath) {
+      const fullPath = path.join(__dirname, '../../../uploads', oldPath);
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+      }
+    }
+    await configService.set('favicon_path', '');
+    await configService.set('favicon_original_name', '');
+    res.json({ success: true, message: '已恢复默认图标' });
+  } catch (err) {
+    res.status(500).json({ error: '删除失败' });
+  }
+});
+
+// 获取当前 favicon 信息（管理员）
+router.get('/favicon', authenticate, authorize('admin'), async (_req, res) => {
+  try {
+    const faviconPath = await configService.get('favicon_path');
+    const originalName = await configService.get('favicon_original_name');
+    const uploadsDir = path.join(__dirname, '../../../uploads');
+    let fileSize = 0;
+    if (faviconPath) {
+      const fullPath = path.join(uploadsDir, faviconPath);
+      if (fs.existsSync(fullPath)) {
+        fileSize = fs.statSync(fullPath).size;
+      }
+    }
+    res.json({
+      hasCustom: !!faviconPath && fileSize > 0,
+      url: faviconPath && fileSize > 0 ? `/uploads/${faviconPath}` : null,
+      originalName: originalName || null,
+      size: fileSize || null,
+    });
+  } catch {
+    res.json({ hasCustom: false, url: null, originalName: null, size: null });
+  }
+});
+
 module.exports = router;

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Input, InputNumber, Button, Switch, Typography, message, Alert, Space } from 'antd';
-import { SaveOutlined, ReloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import { getConfigsApi, updateConfigApi } from '../../api/admin';
+import { Table, Input, InputNumber, Button, Switch, Typography, message, Alert, Space, Upload, Image } from 'antd';
+import { SaveOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined, UploadOutlined, DeleteOutlined, PictureOutlined } from '@ant-design/icons';
+import { getConfigsApi, updateConfigApi, getFaviconInfoApi, uploadFaviconApi, deleteFaviconApi } from '../../api/admin';
+import type { UploadFile } from 'antd/es/upload/interface';
 
 const { Text, Paragraph, Title } = Typography;
 
@@ -17,24 +18,67 @@ function generateRandomKey(length = 48): string {
   return result;
 }
 
-// 所有站点配置项（站点信息 + 安全）
+// 所有站点配置项（站点信息 + 安全 + 邮件）
 const SITE_CONFIG_KEYS = [
   'site_name', 'site_description',
   'max_tokens_per_request', 'default_temperature', 'chapters_per_batch',
   'allow_registration', 'cors_enabled', 'cors_origins',
   'captcha_enabled', 'login_rate_limit', 'mcp_api_key',
+  'resend_api_key', 'email_from', 'email_from_name', 'email_verification_enabled',
+  'email_domain_whitelist_enabled', 'email_domain_whitelist',
 ];
 
 // boolean 类型的配置键
-const BOOLEAN_KEYS = ['allow_registration', 'cors_enabled', 'captcha_enabled'];
+const BOOLEAN_KEYS = ['allow_registration', 'cors_enabled', 'captcha_enabled', 'email_verification_enabled', 'email_domain_whitelist_enabled'];
 
 const ConfigForm: React.FC = () => {
   const [configs, setConfigs] = useState<any[]>([]);
   const [editingValues, setEditingValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
+  const [searchTerm, setSearchTerm] = useState('');
 
-  useEffect(() => { loadConfigs(); }, []);
+  // favicon 管理
+  const [faviconLoading, setFaviconLoading] = useState(false);
+  const [faviconInfo, setFaviconInfo] = useState<{ hasCustom: boolean; url: string | null; originalName: string | null; size: number | null }>({ hasCustom: false, url: null, originalName: null, size: null });
+  const [faviconUploading, setFaviconUploading] = useState(false);
+  const [faviconDeleting, setFaviconDeleting] = useState(false);
+
+  useEffect(() => { loadConfigs(); loadFaviconInfo(); }, []);
+
+  const loadFaviconInfo = async () => {
+    try {
+      const info = await getFaviconInfoApi();
+      setFaviconInfo(info);
+    } catch { /* 静默失败 */ }
+  };
+
+  const handleFaviconUpload = async (file: File) => {
+    setFaviconUploading(true);
+    try {
+      const result = await uploadFaviconApi(file);
+      message.success('图标上传成功');
+      setFaviconInfo({ hasCustom: true, url: result.url, originalName: result.filename, size: result.size });
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '上传失败');
+    } finally {
+      setFaviconUploading(false);
+    }
+    return false; // 阻止默认上传行为
+  };
+
+  const handleFaviconDelete = async () => {
+    setFaviconDeleting(true);
+    try {
+      await deleteFaviconApi();
+      message.success('已恢复默认图标');
+      setFaviconInfo({ hasCustom: false, url: null, originalName: null, size: null });
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '删除失败');
+    } finally {
+      setFaviconDeleting(false);
+    }
+  };
 
   const loadConfigs = async () => {
     setLoading(true);
@@ -47,6 +91,16 @@ const ConfigForm: React.FC = () => {
       setLoading(false);
     }
   };
+
+  // 搜索过滤：匹配 config_key 和 description
+  const filteredConfigs = searchTerm.trim()
+    ? configs.filter(c => {
+        const term = searchTerm.toLowerCase();
+        const key = (c.config_key || '').toLowerCase();
+        const desc = (c.description || '').toLowerCase();
+        return key.includes(term) || desc.includes(term);
+      })
+    : configs;
 
   const handleSave = async (key: string) => {
     const val = editingValues[key];
@@ -124,6 +178,25 @@ const ConfigForm: React.FC = () => {
           );
         }
 
+        // email_domain_whitelist：多行文本域
+        if (record.config_key === 'email_domain_whitelist') {
+          return (
+            <Input.TextArea
+              value={currentVal}
+              onChange={(e) => setEditingValues({ ...editingValues, [record.config_key]: e.target.value })}
+              rows={4}
+              placeholder="每行一个域名，例如：&#10;gmail.com&#10;outlook.com&#10;qq.com"
+              style={{
+                background: modified ? 'rgba(251,191,36,0.08)' : 'rgba(15,23,42,0.5)',
+                borderColor: modified ? 'rgba(251,191,36,0.4)' : 'rgba(99,102,241,0.3)',
+                color: '#f1f5f9',
+                fontSize: 13,
+                fontFamily: 'monospace',
+              }}
+            />
+          );
+        }
+
         // login_rate_limit：数字输入
         if (record.config_key === 'login_rate_limit') {
           return (
@@ -163,6 +236,21 @@ const ConfigForm: React.FC = () => {
           );
         }
 
+        // resend_api_key：密码输入
+        if (record.config_key === 'resend_api_key') {
+          return (
+            <Input.Password
+              value={currentVal}
+              onChange={(e) => setEditingValues({ ...editingValues, [record.config_key]: e.target.value })}
+              placeholder="输入 Resend API Key（在 resend.com/api-keys 获取）"
+              style={{
+                background: modified ? 'rgba(251,191,36,0.08)' : undefined,
+                borderColor: modified ? 'rgba(251,191,36,0.4)' : undefined,
+              }}
+            />
+          );
+        }
+
         // 普通文本输入
         return (
           <Input
@@ -199,9 +287,116 @@ const ConfigForm: React.FC = () => {
 
   return (
     <div>
+      {/* 站点图标管理 */}
+      <div style={{
+        marginBottom: 20,
+        padding: 20,
+        background: 'rgba(30,41,59,0.5)',
+        border: '1px solid rgba(99,102,241,0.2)',
+        borderRadius: 12,
+      }}>
+        <Text strong style={{ color: '#f1f5f9', fontSize: 15, display: 'block', marginBottom: 16 }}>
+          <PictureOutlined style={{ marginRight: 8 }} />站点图标（Favicon）
+        </Text>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+          {/* 预览区 */}
+          <div style={{
+            width: 64, height: 64,
+            borderRadius: 12,
+            background: 'rgba(15,23,42,0.6)',
+            border: '2px dashed rgba(99,102,241,0.25)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            overflow: 'hidden',
+            flexShrink: 0,
+          }}>
+            {faviconInfo.hasCustom && faviconInfo.url ? (
+              <img src={faviconInfo.url} alt="站点图标" style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            ) : (
+              <span style={{
+                fontSize: 28,
+                background: 'linear-gradient(135deg, #6366f1, #22d3ee)',
+                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+              }}>✦</span>
+            )}
+          </div>
+
+          {/* 信息区 */}
+          <div style={{ flex: 1, minWidth: 200 }}>
+            {faviconInfo.hasCustom ? (
+              <div>
+                <Text style={{ color: '#f1f5f9' }}>自定义图标</Text>
+                <br />
+                <Text style={{ color: '#94a3b8', fontSize: 12 }}>
+                  {faviconInfo.originalName}
+                  {faviconInfo.size != null && ` (${(faviconInfo.size / 1024).toFixed(1)} KB)`}
+                </Text>
+              </div>
+            ) : (
+              <Text style={{ color: '#64748b' }}>当前使用默认图标</Text>
+            )}
+          </div>
+
+          {/* 操作区 */}
+          <Space>
+            <Upload
+              accept=".png,.svg,.ico,.jpg,.jpeg"
+              showUploadList={false}
+              beforeUpload={(file) => { handleFaviconUpload(file as File); return false; }}
+            >
+              <Button
+                icon={<UploadOutlined />}
+                loading={faviconUploading}
+                style={{
+                  background: 'rgba(99,102,241,0.15)',
+                  borderColor: 'rgba(99,102,241,0.4)',
+                  color: '#818cf8',
+                }}
+              >
+                上传图标
+              </Button>
+            </Upload>
+            {faviconInfo.hasCustom && (
+              <Button
+                icon={<DeleteOutlined />}
+                danger
+                loading={faviconDeleting}
+                onClick={handleFaviconDelete}
+              >
+                恢复默认
+              </Button>
+            )}
+          </Space>
+        </div>
+        <Text style={{ display: 'block', marginTop: 12, color: '#64748b', fontSize: 11 }}>
+          支持 PNG、SVG、ICO、JPG 格式，建议尺寸 64×64 或以上，文件不超过 1MB
+        </Text>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <Input
+          prefix={<SearchOutlined style={{ color: '#64748b' }} />}
+          placeholder="搜索配置项（名称或描述）..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          allowClear
+          style={{
+            background: 'rgba(15,23,42,0.5)',
+            borderColor: 'rgba(99,102,241,0.3)',
+            color: '#f1f5f9',
+            borderRadius: 10,
+            height: 40,
+          }}
+        />
+        {searchTerm.trim() && (
+          <Text style={{ color: '#64748b', fontSize: 12, marginTop: 4, display: 'block' }}>
+            找到 {filteredConfigs.length} 项匹配
+          </Text>
+        )}
+      </div>
       <Table
         columns={columns}
-        dataSource={configs}
+        dataSource={filteredConfigs}
         rowKey="config_key"
         loading={loading}
         pagination={false}

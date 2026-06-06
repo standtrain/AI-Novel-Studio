@@ -23,8 +23,10 @@ const DashboardPage: React.FC = () => {
   const [loading, setLoading] = useState(!novelsCache || Date.now() - novelsCache.timestamp >= NOVELS_CACHE_TTL);
   const [modalOpen, setModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const creatingRef = useRef(false);
   const [deleteTarget, setDeleteTarget] = useState<Novel | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const deletingRef = useRef(false);
   const [confirmText, setConfirmText] = useState('');
   const [form] = Form.useForm();
   const navigate = useNavigate();
@@ -76,6 +78,7 @@ const DashboardPage: React.FC = () => {
   const [templates, setTemplates] = useState<NovelTemplate[]>([]);
   const [templateLoading, setTemplateLoading] = useState(false);
   const [creatingFromTemplate, setCreatingFromTemplate] = useState<number | null>(null);
+  const creatingFromTemplateRef = useRef(false);
   const [templateForm] = Form.useForm();
 
   // 状态标签映射
@@ -127,6 +130,8 @@ const DashboardPage: React.FC = () => {
   };
 
   const handleCreate = async (values: { title: string; genre?: string }) => {
+    if (creatingRef.current) return;
+    creatingRef.current = true;
     setCreating(true);
     try {
       const { novel } = await createNovelApi(values.title, values.genre);
@@ -138,6 +143,7 @@ const DashboardPage: React.FC = () => {
     } catch (err: any) {
       message.error(err.response?.data?.error || '创建失败');
     } finally {
+      creatingRef.current = false;
       setCreating(false);
     }
   };
@@ -157,10 +163,12 @@ const DashboardPage: React.FC = () => {
 
   // 从模板创建
   const handleCreateFromTemplate = async (template: NovelTemplate) => {
-    const title = templateForm.getFieldValue('title');
+    if (creatingFromTemplateRef.current) return;
+    const title = (templateForm.getFieldValue('title') || '').trim();
+    creatingFromTemplateRef.current = true;
     setCreatingFromTemplate(template.id);
     try {
-      const result = await createNovelFromTemplateApi(template.id, title ? { title: title.trim() } : {});
+      const result = await createNovelFromTemplateApi(template.id, title ? { title } : {});
       message.success(`已从「${template.display_name}」模板创建小说`);
       setModalOpen(false);
       templateForm.resetFields();
@@ -169,6 +177,7 @@ const DashboardPage: React.FC = () => {
     } catch (err: any) {
       message.error(err?.response?.data?.error || '创建失败');
     } finally {
+      creatingFromTemplateRef.current = false;
       setCreatingFromTemplate(null);
     }
   };
@@ -623,7 +632,8 @@ const DashboardPage: React.FC = () => {
   };
 
   const handleDeleteConfirm = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || deletingRef.current) return;
+    deletingRef.current = true;
     setDeleting(true);
     try {
       await deleteNovelApi(deleteTarget.id);
@@ -632,6 +642,8 @@ const DashboardPage: React.FC = () => {
       loadNovels(true);
     } catch (err: any) {
       message.error(err.response?.data?.error || '删除失败');
+    } finally {
+      deletingRef.current = false;
       setDeleting(false);
     }
   };

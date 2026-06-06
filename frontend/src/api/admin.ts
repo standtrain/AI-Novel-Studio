@@ -236,3 +236,31 @@ export async function submitAppealApi(banId: number, userId: number, content: st
   const { data } = await client.post('/auth/appeal', { banId, userId, content });
   return data;
 }
+
+// ==================== favicon 管理 ====================
+
+export interface FaviconInfo {
+  hasCustom: boolean;
+  url: string | null;
+  originalName: string | null;
+  size: number | null;
+}
+
+export async function getFaviconInfoApi(): Promise<FaviconInfo> {
+  const { data } = await client.get('/admin/favicon');
+  return data;
+}
+
+export async function uploadFaviconApi(file: File): Promise<{ url: string; filename: string; size: number }> {
+  const formData = new FormData();
+  formData.append('favicon', file);
+  const { data } = await client.post('/admin/favicon', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+}
+
+export async function deleteFaviconApi(): Promise<{ success: boolean; message: string }> {
+  const { data } = await client.delete('/admin/favicon');
+  return data;
+}

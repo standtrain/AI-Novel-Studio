@@ -9,9 +9,12 @@ router.get('/info', async (_req, res) => {
   try {
     const siteName = await configService.get('site_name');
     const siteDescription = await configService.get('site_description');
+    const faviconPath = await configService.get('favicon_path');
+    const hasCustomFavicon = !!(faviconPath && faviconPath.trim());
     res.json({
       siteName: siteName || 'AI Novel Studio',
       siteDescription: siteDescription || '基于AI的小说创作平台',
+      faviconUrl: hasCustomFavicon ? `/uploads/${faviconPath}` : '/favicon.svg',
     });
   } catch (err) {
     res.status(500).json({ error: '获取站点信息失败' });

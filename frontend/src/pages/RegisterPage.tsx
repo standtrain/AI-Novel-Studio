@@ -116,13 +116,15 @@ const RegisterPage: React.FC = () => {
       setCodeSent(true);
       setCooldown(60);
       message.success('验证码已发送至邮箱');
-      refreshCaptcha();
     } catch (err: any) {
       message.error(err.response?.data?.error || '发送验证码失败');
-      refreshCaptcha();
     } finally {
       setSendingCode(false);
     }
+    // 无论成败，刷新验证码并清空输入框（captcha 为一次性使用）
+    const input = document.getElementById('reg-captcha-input') as HTMLInputElement;
+    if (input) input.value = '';
+    await refreshCaptcha();
   };
 
   const onFinish = async (values: { username: string; email: string; password: string; code?: string }) => {

@@ -72,13 +72,14 @@ const ForgotPasswordPage: React.FC = () => {
       setSent(true);
       setCooldown(0); // 成功后切换到已发送视图，重置冷却
       message.success('验证码已发送，请检查邮箱');
-      refreshCaptcha();
     } catch (err: any) {
       message.error(err.response?.data?.error || '发送验证码失败');
-      refreshCaptcha();
     } finally {
       setLoading(false);
     }
+    // 无论成败，刷新验证码并清空输入框（captcha 为一次性使用）
+    form.resetFields(['captchaCode']);
+    await refreshCaptcha();
   };
 
   const getInputStyle = (name: string) => ({

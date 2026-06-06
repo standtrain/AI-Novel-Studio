@@ -37,6 +37,7 @@ const DashboardPage: React.FC = () => {
   const [importing, setImporting] = useState(false);
   const [importFileName, setImportFileName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importingRef = useRef(false);
 
   // 智能导入相关状态
   const [smartImportText, setSmartImportText] = useState('');
@@ -47,6 +48,7 @@ const DashboardPage: React.FC = () => {
   const [analysisProgress, setAnalysisProgress] = useState<{ phase: string; message?: string; current?: number; total?: number; done?: boolean } | null>(null);
   const smartFileRef = useRef<HTMLInputElement>(null);
   const smartAbortRef = useRef<AbortController | null>(null);
+  const smartImportingRef = useRef(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [smartInstructions, setSmartInstructions] = useState('');
 
@@ -278,10 +280,10 @@ const DashboardPage: React.FC = () => {
 
   // 确认导入
   const handleImportSubmit = async () => {
-    if (!parsedImportData) {
-      message.warning('请先选择或粘贴有效的导入数据');
+    if (!parsedImportData || importingRef.current) {
       return;
     }
+    importingRef.current = true;
     setImporting(true);
     try {
       const { novel } = await importNovelApi(parsedImportData);
@@ -294,6 +296,7 @@ const DashboardPage: React.FC = () => {
     } catch (err: any) {
       message.error(err.response?.data?.error || '导入失败');
     } finally {
+      importingRef.current = false;
       setImporting(false);
     }
   };
@@ -420,10 +423,10 @@ const DashboardPage: React.FC = () => {
   };
 
   const handleSmartImportSubmit = async () => {
-    if (!analysisPayload) {
-      message.warning('请等待 AI 分析完成');
+    if (!analysisPayload || smartImportingRef.current) {
       return;
     }
+    smartImportingRef.current = true;
     setImporting(true);
     try {
       const { novel } = await importNovelApi(analysisPayload);
@@ -436,6 +439,7 @@ const DashboardPage: React.FC = () => {
     } catch (err: any) {
       message.error(err.response?.data?.error || '导入失败');
     } finally {
+      smartImportingRef.current = false;
       setImporting(false);
     }
   };

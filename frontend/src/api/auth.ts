@@ -59,8 +59,13 @@ export async function getCaptchaApi(): Promise<{
 }
 
 // 发送邮箱验证码
-export async function sendVerifyCodeApi(email: string, type: 'register' | 'reset_password'): Promise<{ success: boolean; message: string }> {
-  const { data } = await client.post('/auth/send-verify-code', { email, type });
+export async function sendVerifyCodeApi(
+  email: string,
+  type: 'register' | 'reset_password',
+  captchaId?: string,
+  captchaCode?: string
+): Promise<{ success: boolean; message: string }> {
+  const { data } = await client.post('/auth/send-verify-code', { email, type, captchaId, captchaCode });
   return data;
 }
 

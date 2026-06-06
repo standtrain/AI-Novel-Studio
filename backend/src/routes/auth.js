@@ -14,6 +14,8 @@ const router = Router();
 const sendCodeSchema = z.object({
   email: z.string().email(),
   type: z.enum(['register', 'reset_password', 'change_email']),
+  captchaId: z.string().optional(),
+  captchaCode: z.string().optional(),
 });
 
 router.post('/send-verify-code', async (req, res) => {
@@ -23,6 +25,18 @@ router.post('/send-verify-code', async (req, res) => {
     if (body.type === 'change_email') {
       return res.status(400).json({ error: '邮箱变更验证码需要通过认证接口发送' });
     }
+
+    // 验证码校验（仅在管理员启用时）
+    const captchaEnabled = await configService.get('captcha_enabled');
+    if (captchaEnabled === 'true') {
+      if (!body.captchaId || body.captchaCode === undefined) {
+        return res.status(400).json({ error: '请输入图形验证码' });
+      }
+      if (!captchaService.validate(body.captchaId, body.captchaCode)) {
+        return res.status(400).json({ error: '验证码错误或已过期，请刷新后重试' });
+      }
+    }
+
     const result = await authService.sendVerificationCode(body.email, body.type);
     res.json(result);
   } catch (err) {

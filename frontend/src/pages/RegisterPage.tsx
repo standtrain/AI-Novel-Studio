@@ -3,7 +3,7 @@ import { Card, Form, Input, Button, Typography, message, Result, Space } from 'a
 import { UserOutlined, LockOutlined, MailOutlined, NumberOutlined, SendOutlined } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { getRegistrationStatusApi, sendVerifyCodeApi } from '../api/auth';
+import { getRegistrationStatusApi, sendVerifyCodeApi, getCaptchaApi } from '../api/auth';
 import useMobile from '../hooks/useMobile';
 
 const { Title, Text } = Typography;
@@ -47,17 +47,32 @@ const RegisterPage: React.FC = () => {
   const [sendingCode, setSendingCode] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
+  const [captchaEnabled, setCaptchaEnabled] = useState(false);
+  const [captchaId, setCaptchaId] = useState<string | null>(null);
+  const [captchaSvg, setCaptchaSvg] = useState<string | null>(null);
   const register = useAuthStore((s) => s.register);
   const navigate = useNavigate();
   const isMobile = useMobile();
 
+  const refreshCaptcha = async () => {
+    try {
+      const res = await getCaptchaApi();
+      setCaptchaEnabled(res.enabled);
+      setCaptchaId(res.captchaId);
+      setCaptchaSvg(res.svg);
+    } catch { /* 静默 */ }
+  };
+
   useEffect(() => {
-    getRegistrationStatusApi()
-      .then((res: any) => {
-        setAllowRegistration(res.allowRegistration);
-        setEmailVerificationEnabled(res.emailVerificationEnabled || false);
-        setEmailDomainWhitelistEnabled(res.emailDomainWhitelistEnabled || false);
-        setAllowedDomains(res.allowedDomains || []);
+    Promise.all([getRegistrationStatusApi(), getCaptchaApi()])
+      .then(([regRes, capRes]: any[]) => {
+        setAllowRegistration(regRes.allowRegistration);
+        setEmailVerificationEnabled(regRes.emailVerificationEnabled || false);
+        setEmailDomainWhitelistEnabled(regRes.emailDomainWhitelistEnabled || false);
+        setAllowedDomains(regRes.allowedDomains || []);
+        setCaptchaEnabled(capRes.enabled);
+        setCaptchaId(capRes.captchaId);
+        setCaptchaSvg(capRes.svg);
       })
       .catch(() => setAllowRegistration(true))
       .finally(() => setChecking(false));
@@ -78,13 +93,24 @@ const RegisterPage: React.FC = () => {
         return;
       }
     }
+    // 图形验证码校验
+    let captchaCodeVal: string | undefined;
+    if (captchaEnabled) {
+      captchaCodeVal = (document.getElementById('reg-captcha-input') as HTMLInputElement)?.value;
+      if (!captchaCodeVal) {
+        message.warning('请先填写图形验证码');
+        return;
+      }
+    }
     setSendingCode(true);
     try {
-      await sendVerifyCodeApi(email, 'register');
+      await sendVerifyCodeApi(email, 'register', captchaId ?? undefined, captchaCodeVal);
       setCodeSent(true);
       message.success('验证码已发送至邮箱');
+      refreshCaptcha();
     } catch (err: any) {
       message.error(err.response?.data?.error || '发送验证码失败');
+      refreshCaptcha();
     } finally {
       setSendingCode(false);
     }
@@ -209,6 +235,31 @@ const RegisterPage: React.FC = () => {
                         </Button>
                       } />
                   </Form.Item>
+                  {/* 图形验证码（管理员开启时显示，发送验证码前必填） */}
+                  {captchaEnabled && (
+                    <div style={{ marginBottom: 24 }}>
+                      <div style={{ display: 'flex', gap: 12 }}>
+                        <div
+                          style={{
+                            flexShrink: 0, cursor: 'pointer', borderRadius: 8, overflow: 'hidden',
+                            border: '1px solid rgba(99,102,241,0.3)', background: '#f0f2f5',
+                            lineHeight: 0, height: 48,
+                          }}
+                          dangerouslySetInnerHTML={{ __html: captchaSvg || '' }}
+                          onClick={refreshCaptcha}
+                          title="点击刷新验证码"
+                        />
+                        <Input
+                          id="reg-captcha-input"
+                          placeholder="验证码计算结果"
+                          autoComplete="off"
+                          onFocus={() => setFocusedInput('captcha')}
+                          onBlur={() => setFocusedInput(null)}
+                          style={{ ...getInputStyle('captcha'), flex: 1 }}
+                        />
+                      </div>
+                    </div>
+                  )}
                   <Form.Item name="code" rules={[{ required: true, message: '请输入6位验证码' }, { len: 6, message: '验证码为6位数字' }]}>
                     <Input prefix={<NumberOutlined style={{ color: '#22d3ee', fontSize: 18 }} />}
                       placeholder="6位验证码" maxLength={6}

@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Form, Input, Button, Typography, message, Result } from 'antd';
 import { MailOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';
-import { forgotPasswordApi, sendVerifyCodeApi } from '../api/auth';
+import { forgotPasswordApi, sendVerifyCodeApi, getCaptchaApi } from '../api/auth';
 import useMobile from '../hooks/useMobile';
 
 const { Title, Text } = Typography;
@@ -39,18 +39,34 @@ const ForgotPasswordPage: React.FC = () => {
   const [sent, setSent] = useState(false);
   const [sentEmail, setSentEmail] = useState('');
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
+  const [captchaEnabled, setCaptchaEnabled] = useState(false);
+  const [captchaId, setCaptchaId] = useState<string | null>(null);
+  const [captchaSvg, setCaptchaSvg] = useState<string | null>(null);
   const navigate = useNavigate();
   const isMobile = useMobile();
 
-  const onFinish = async (values: { email: string }) => {
+  const refreshCaptcha = async () => {
+    try {
+      const res = await getCaptchaApi();
+      setCaptchaEnabled(res.enabled);
+      setCaptchaId(res.captchaId);
+      setCaptchaSvg(res.svg);
+    } catch { /* 静默 */ }
+  };
+
+  useEffect(() => { refreshCaptcha(); }, []);
+
+  const onFinish = async (values: { email: string; captchaCode?: string }) => {
     setLoading(true);
     try {
-      await sendVerifyCodeApi(values.email, 'reset_password');
+      await sendVerifyCodeApi(values.email, 'reset_password', captchaId ?? undefined, values.captchaCode);
       setSentEmail(values.email);
       setSent(true);
       message.success('验证码已发送，请检查邮箱');
+      refreshCaptcha();
     } catch (err: any) {
       message.error(err.response?.data?.error || '发送验证码失败');
+      refreshCaptcha();
     } finally {
       setLoading(false);
     }
@@ -151,6 +167,30 @@ const ForgotPasswordPage: React.FC = () => {
                   style={getInputStyle('email')}
                 />
               </Form.Item>
+              {/* 图形验证码（管理员开启时显示） */}
+              {captchaEnabled && (
+                <Form.Item name="captchaCode" rules={[{ required: true, message: '请输入验证码结果' }]}>
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    <div
+                      style={{
+                        flexShrink: 0, cursor: 'pointer', borderRadius: 8, overflow: 'hidden',
+                        border: '1px solid rgba(99,102,241,0.3)', background: '#f0f2f5',
+                        lineHeight: 0, height: 48,
+                      }}
+                      dangerouslySetInnerHTML={{ __html: captchaSvg || '' }}
+                      onClick={refreshCaptcha}
+                      title="点击刷新验证码"
+                    />
+                    <Input
+                      placeholder="验证码计算结果"
+                      autoComplete="off"
+                      onFocus={() => setFocusedInput('captcha')}
+                      onBlur={() => setFocusedInput(null)}
+                      style={{ ...getInputStyle('captcha'), flex: 1 }}
+                    />
+                  </div>
+                </Form.Item>
+              )}
               <Form.Item style={{ marginBottom: 16, marginTop: 32 }}>
                 <Button type="primary" htmlType="submit" loading={loading} block
                   style={primaryBtnStyle}

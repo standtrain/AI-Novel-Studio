@@ -9,6 +9,7 @@ import HowItWorksSection from '../components/landing/HowItWorksSection';
 import StatsSection from '../components/landing/StatsSection';
 import FeatureShowcase from '../components/landing/FeatureShowcase';
 import CTASection from '../components/landing/CTASection';
+import SiteFooter from '../components/layout/Footer';
 import './LandingPage.css';
 
 const LandingPage: React.FC = () => {
@@ -42,6 +43,7 @@ const LandingPage: React.FC = () => {
           onStart={() => navigate(isAuthenticated ? '/home' : '/register')}
         />
       </main>
+      <SiteFooter />
     </div>
   );
 };

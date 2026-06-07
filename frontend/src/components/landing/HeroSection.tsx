@@ -1,7 +1,8 @@
 import React from 'react';
 import { Button } from 'antd';
-import { ArrowDownOutlined, RocketOutlined } from '@ant-design/icons';
+import { ArrowDownOutlined, CheckCircleOutlined, RocketOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import useTypewriter from '../../hooks/useTypewriter';
+import useSiteBrand from '../../hooks/useSiteBrand';
 import './HeroSection.css';
 
 interface HeroSectionProps {
@@ -17,6 +18,7 @@ const typewriterTexts = [
 ];
 
 const HeroSection: React.FC<HeroSectionProps> = ({ onStart, onLearnMore }) => {
+  const { siteName } = useSiteBrand();
   const { displayText, isTyping } = useTypewriter(typewriterTexts, {
     typingSpeed: 90,
     deletingSpeed: 45,
@@ -25,47 +27,100 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onStart, onLearnMore }) => {
 
   return (
     <section className="hero-section">
-      <div className="hero-content">
-        <div className="hero-badge">
-          <RocketOutlined /> AI 驱动的新一代文学创作平台
+      <div className="hero-shell">
+        <div className="hero-content">
+          <div className="hero-badge">
+            <RocketOutlined /> AI 驱动的新一代文学创作平台
+          </div>
+
+          <h1 className="hero-title">
+            <span className="hero-title-line">用 AI 书写你的故事</span>
+            <span className="hero-typewriter-wrapper">
+              <span className="hero-typewriter">{displayText}</span>
+              <span className={`hero-cursor${isTyping ? ' blinking' : ''}`}>|</span>
+            </span>
+          </h1>
+
+          <p className="hero-subtitle">
+            从灵感、设定、大纲到逐章正文，{siteName} 帮你把零散创意组织成可持续创作的长篇作品。
+          </p>
+
+          <div className="hero-actions">
+            <Button type="primary" size="large" icon={<RocketOutlined />} onClick={onStart} className="hero-btn-primary">
+              立即开始创作
+            </Button>
+            <Button size="large" onClick={onLearnMore} className="hero-btn-ghost">
+              查看功能
+            </Button>
+          </div>
+
+          <div className="hero-social-proof">
+            <div className="hero-proof-item">
+              <span className="proof-number">10M+</span>
+              <span className="proof-label">已生成文字</span>
+            </div>
+            <div className="hero-proof-divider" />
+            <div className="hero-proof-item">
+              <span className="proof-number">50K+</span>
+              <span className="proof-label">已创作小说</span>
+            </div>
+            <div className="hero-proof-divider" />
+            <div className="hero-proof-item">
+              <span className="proof-number">99.7%</span>
+              <span className="proof-label">内容连贯性</span>
+            </div>
+          </div>
         </div>
 
-        <h1 className="hero-title">
-          <span className="hero-title-line">用 AI 书写你的故事</span>
-          <span className="hero-typewriter-wrapper">
-            <span className="hero-typewriter">{displayText}</span>
-            <span className={`hero-cursor${isTyping ? ' blinking' : ''}`}>|</span>
-          </span>
-        </h1>
-
-        <p className="hero-subtitle">
-          无需写作经验。输入你的创意，AI 自动生成完整大纲、角色设定与逐章内容，
-          三步完成一本专业级小说。
-        </p>
-
-        <div className="hero-actions">
-          <Button type="primary" size="large" icon={<RocketOutlined />} onClick={onStart} className="hero-btn-primary">
-            免费试用
-          </Button>
-          <Button size="large" onClick={onLearnMore} className="hero-btn-ghost">
-            了解更多
-          </Button>
-        </div>
-
-        <div className="hero-social-proof">
-          <div className="hero-proof-item">
-            <span className="proof-number">10M+</span>
-            <span className="proof-label">已生成文字</span>
+        <div className="hero-preview" aria-hidden="true">
+          <div className="preview-toolbar">
+            <span />
+            <span />
+            <span />
+            <strong>创作工作台</strong>
           </div>
-          <div className="hero-proof-divider" />
-          <div className="hero-proof-item">
-            <span className="proof-number">50K+</span>
-            <span className="proof-label">已创作小说</span>
-          </div>
-          <div className="hero-proof-divider" />
-          <div className="hero-proof-item">
-            <span className="proof-number">99.7%</span>
-            <span className="proof-label">内容连贯性</span>
+
+          <div className="preview-main">
+            <div className="preview-sidebar">
+              <div className="preview-book active">数据洪流</div>
+              <div className="preview-book">星港余烬</div>
+              <div className="preview-book">雾城来信</div>
+            </div>
+
+            <div className="preview-panel">
+              <div className="preview-panel-head">
+                <div>
+                  <span className="preview-kicker">都市异能 / 科技爽文</span>
+                  <h3>《数据洪流：黑客之神》</h3>
+                </div>
+                <span className="preview-status">写作中</span>
+              </div>
+
+              <div className="preview-progress">
+                <div>
+                  <span>章节进度</span>
+                  <strong>128 / 200</strong>
+                </div>
+                <div className="preview-progress-track">
+                  <span style={{ width: '64%' }} />
+                </div>
+              </div>
+
+              <div className="preview-chapters">
+                {['第 128 章 数据风暴', '第 129 章 影子节点', '第 130 章 终端回响'].map((title, index) => (
+                  <div className="preview-chapter" key={title}>
+                    <CheckCircleOutlined />
+                    <span>{title}</span>
+                    <em>{index === 0 ? '已完成' : '待生成'}</em>
+                  </div>
+                ))}
+              </div>
+
+              <div className="preview-ai-card">
+                <ThunderboltOutlined />
+                <span>AI 正在根据上下文保持人物动机、伏笔与章节节奏一致</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

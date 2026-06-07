@@ -52,6 +52,22 @@ const notificationDao = {
     return this.getById(id);
   },
 
+  async markChannelSending(id, channel) {
+    const fieldMap = {
+      inmail: 'inmail_sent_at',
+      email: 'email_sent_at',
+    };
+    const field = fieldMap[channel];
+    if (!field) throw new Error('未知通知发送渠道');
+
+    const updated = await db(TABLE)
+      .where('id', id)
+      .whereNull(field)
+      .update({ [field]: db.fn.now(), updated_at: db.fn.now() });
+
+    return updated > 0;
+  },
+
   async delete(id) {
     return db(TABLE).where('id', id).del();
   },

@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { Table, Input, InputNumber, Button, Switch, Typography, message, Space, Upload, Select, Collapse } from 'antd';
 import { SaveOutlined, ReloadOutlined, SafetyCertificateOutlined, UploadOutlined, DeleteOutlined, PictureOutlined, GlobalOutlined, EditOutlined, LockOutlined, MailOutlined, ApiOutlined } from '@ant-design/icons';
 import { getConfigsApi, updateConfigApi, getFaviconInfoApi, uploadFaviconApi, deleteFaviconApi } from '../../api/admin';
+import { refreshSiteBrand } from '../../hooks/useSiteBrand';
+import BrandIcon from '../shared/BrandIcon';
 
 const { Text, Paragraph, Title } = Typography;
 
@@ -100,6 +102,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
       const result = await uploadFaviconApi(file);
       message.success('图标上传成功');
       setFaviconInfo({ hasCustom: true, url: result.url, originalName: result.filename, size: result.size });
+      refreshSiteBrand();
     } catch (err: any) { message.error(err.response?.data?.error || '上传失败'); }
     finally { setFaviconUploading(false); }
     return false;
@@ -111,6 +114,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
       await deleteFaviconApi();
       message.success('已恢复默认图标');
       setFaviconInfo({ hasCustom: false, url: null, originalName: null, size: null });
+      refreshSiteBrand();
     } catch (err: any) { message.error(err.response?.data?.error || '删除失败'); }
     finally { setFaviconDeleting(false); }
   };
@@ -140,6 +144,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
       message.success('保存成功');
       setEditingValues(prev => { const n = { ...prev }; delete n[key]; return n; });
       loadConfigs();
+      if (key === 'site_name' || key === 'site_description') refreshSiteBrand();
     } catch (err: any) { message.error(err.response?.data?.error || '保存失败'); }
     finally { setSavingKeys(prev => { const n = new Set(prev); n.delete(key); return n; }); }
   };
@@ -288,7 +293,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
                       <div style={{ width: 52, height: 52, borderRadius: 10, background: 'rgba(15,23,42,0.6)', border: '2px dashed rgba(99,102,241,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
                         {faviconInfo.hasCustom && faviconInfo.url ? (
                           <img src={faviconInfo.url} alt="站点图标" style={{ width: '100%', height: '100%', objectFit: 'contain' }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                        ) : <span style={{ fontSize: 22, background: 'linear-gradient(135deg, #6366f1, #22d3ee)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>✦</span>}
+                        ) : <BrandIcon size="md" />}
                       </div>
                       <div style={{ flex: 1, minWidth: 140 }}>
                         {faviconInfo.hasCustom ? (

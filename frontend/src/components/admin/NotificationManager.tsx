@@ -6,6 +6,10 @@ import type { Notification } from '../../types';
 
 const { TextArea } = Input;
 
+const formatDateTime = (value?: string | null) => (
+  value ? new Date(value).toLocaleString('zh-CN').slice(0, -3) : ''
+);
+
 const NotificationManager: React.FC = () => {
   const [data, setData] = useState<Notification[]>([]);
   const [total, setTotal] = useState(0);
@@ -14,6 +18,7 @@ const NotificationManager: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [updatingKeys, setUpdatingKeys] = useState<Set<string>>(new Set());
   const [form] = Form.useForm();
 
   const fetchData = useCallback(async (p?: number) => {
@@ -42,6 +47,7 @@ const NotificationManager: React.FC = () => {
   };
 
   const handleSubmit = async () => {
+    if (submitting) return;
     try {
       const values = await form.validateFields();
       setSubmitting(true);
@@ -69,11 +75,15 @@ const NotificationManager: React.FC = () => {
   };
 
   const toggleSwitch = async (record: Notification, field: string, value: boolean) => {
+    const key = `${record.id}:${field}`;
+    if (updatingKeys.has(key)) return;
+    setUpdatingKeys(prev => new Set(prev).add(key));
     try {
       await updateNotificationApi(record.id, { [field]: value });
       message.success('已更新');
       fetchData();
     } catch { message.error('更新失败'); }
+    finally { setUpdatingKeys(prev => { const next = new Set(prev); next.delete(key); return next; }); }
   };
 
   const columns = [
@@ -98,19 +108,48 @@ const NotificationManager: React.FC = () => {
     {
       title: '站内信', dataIndex: 'show_inmail', width: 80,
       render: (v: boolean, record: Notification) => (
-        <Switch size="small" checked={v} onChange={(val) => toggleSwitch(record, 'show_inmail', val)} />
+        <Switch
+          size="small"
+          checked={v}
+          loading={updatingKeys.has(`${record.id}:show_inmail`)}
+          onChange={(val) => toggleSwitch(record, 'show_inmail', val)}
+        />
       ),
     },
     {
       title: '邮件', dataIndex: 'show_email', width: 70,
       render: (v: boolean, record: Notification) => (
-        <Switch size="small" checked={v} onChange={(val) => toggleSwitch(record, 'show_email', val)} />
+        <Switch
+          size="small"
+          checked={v}
+          loading={updatingKeys.has(`${record.id}:show_email`)}
+          onChange={(val) => toggleSwitch(record, 'show_email', val)}
+        />
+      ),
+    },
+    {
+      title: '发送状态', width: 170,
+      render: (_: unknown, record: Notification) => (
+        <Space size={4} wrap>
+          {record.inmail_sent_at && (
+            <Tag color="cyan" title={formatDateTime(record.inmail_sent_at)}>站内信已发</Tag>
+          )}
+          {record.email_sent_at && (
+            <Tag color="green" title={formatDateTime(record.email_sent_at)}>邮件已发</Tag>
+          )}
+          {!record.inmail_sent_at && !record.email_sent_at && <Tag>未批量发送</Tag>}
+        </Space>
       ),
     },
     {
       title: '启用', dataIndex: 'enabled', width: 70,
       render: (v: boolean, record: Notification) => (
-        <Switch size="small" checked={v} onChange={(val) => toggleSwitch(record, 'enabled', val)} />
+        <Switch
+          size="small"
+          checked={v}
+          loading={updatingKeys.has(`${record.id}:enabled`)}
+          onChange={(val) => toggleSwitch(record, 'enabled', val)}
+        />
       ),
     },
     {
@@ -118,7 +157,7 @@ const NotificationManager: React.FC = () => {
     },
     {
       title: '创建时间', dataIndex: 'created_at', width: 150,
-      render: (v: string) => new Date(v).toLocaleString('zh-CN').slice(0, -3),
+      render: (v: string) => formatDateTime(v),
     },
     {
       title: '操作', width: 130,
@@ -151,7 +190,7 @@ const NotificationManager: React.FC = () => {
         loading={loading}
         pagination={{ current: page, total, pageSize: 20, onChange: (p: number) => { setPage(p); fetchData(p); } }}
         size="small"
-        scroll={{ x: 1050 }}
+        scroll={{ x: 1220 }}
       />
 
       <Modal
@@ -160,6 +199,7 @@ const NotificationManager: React.FC = () => {
         onOk={handleSubmit}
         onCancel={() => setModalOpen(false)}
         confirmLoading={submitting}
+        okButtonProps={{ disabled: submitting }}
         okText="保存"
         cancelText="取消"
         destroyOnClose

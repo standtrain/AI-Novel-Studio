@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Drawer } from 'antd';
 import { EditOutlined, LoginOutlined, UserAddOutlined, MenuOutlined } from '@ant-design/icons';
-import { getSiteInfoApi } from '../../api/site';
 import useMobile from '../../hooks/useMobile';
+import useSiteBrand from '../../hooks/useSiteBrand';
+import BrandIcon from '../shared/BrandIcon';
 import './LandingHeader.css';
 
 interface LandingHeaderProps {
@@ -19,23 +20,14 @@ const LandingHeader: React.FC<LandingHeaderProps> = ({
   onEnterApp,
 }) => {
   const [scrolled, setScrolled] = useState(false);
-  const [siteName, setSiteName] = useState('AI小说工作室');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isMobile = useMobile();
+  const { siteName } = useSiteBrand();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 50);
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-
-  useEffect(() => {
-    getSiteInfoApi()
-      .then((info) => {
-        if (info.siteName) setSiteName(info.siteName);
-        if (info.siteDescription) document.title = info.siteName || 'AI小说工作室';
-      })
-      .catch(() => {});
   }, []);
 
   const scrollTo = (id: string) => {
@@ -47,7 +39,7 @@ const LandingHeader: React.FC<LandingHeaderProps> = ({
     <header className={`landing-header${scrolled ? ' scrolled' : ''}`}>
       <div className="header-inner">
         <div className="header-logo" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-          <EditOutlined className="logo-icon" />
+          <BrandIcon size="md" className="logo-icon" />
           <span className="logo-text">{siteName}</span>
         </div>
 

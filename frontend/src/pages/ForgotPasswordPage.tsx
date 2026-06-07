@@ -4,6 +4,7 @@ import { MailOutlined, ArrowLeftOutlined, LockOutlined, NumberOutlined, SendOutl
 import { Link, useNavigate } from 'react-router-dom';
 import { sendVerifyCodeApi, resetPasswordApi, getCaptchaApi } from '../api/auth';
 import useMobile from '../hooks/useMobile';
+import BrandIcon from '../components/shared/BrandIcon';
 
 const { Title, Text } = Typography;
 
@@ -201,19 +202,7 @@ const ForgotPasswordPage: React.FC = () => {
           </Button>
         </div>
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 72, height: 72,
-            background: 'linear-gradient(135deg, rgba(245,158,11,0.15) 0%, rgba(217,119,6,0.15) 100%)',
-            borderRadius: 20, marginBottom: 20,
-            boxShadow: '0 8px 32px rgba(245,158,11,0.2), inset 0 1px 0 rgba(255,255,255,0.1)',
-          }}>
-            <span style={{
-              fontSize: 36,
-              background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)',
-              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-            }}>✦</span>
-          </div>
+          <BrandIcon size="lg" />
           <Title level={2} style={{ color: '#f1f5f9', margin: 0, fontWeight: 700 }}>
             忘记密码
           </Title>

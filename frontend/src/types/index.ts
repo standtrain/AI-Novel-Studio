@@ -248,6 +248,8 @@ export interface Notification {
   show_email: boolean;
   enabled: boolean;
   sort_order: number;
+  inmail_sent_at?: string | null;
+  email_sent_at?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -6,6 +6,7 @@ import {
   ApiOutlined,
 } from '@ant-design/icons';
 import useScrollReveal from '../../hooks/useScrollReveal';
+import useSiteBrand from '../../hooks/useSiteBrand';
 import './FeaturesSection.css';
 
 const features = [
@@ -37,11 +38,12 @@ const features = [
 
 const FeaturesSection: React.FC = () => {
   const { ref, isVisible } = useScrollReveal({ threshold: 0.1 });
+  const { siteName } = useSiteBrand();
 
   return (
     <section id="features" className="landing-section features-section" ref={ref}>
       <div className="section-label">核心功能</div>
-      <h2 className="section-heading">为什么选择 AI Novel Studio？</h2>
+      <h2 className="section-heading">为什么选择 {siteName}？</h2>
       <p className="section-subheading">
         我们将最先进的 AI 技术与小说创作流程深度融合，为你提供一站式写作体验
       </p>

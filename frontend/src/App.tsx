@@ -1,15 +1,17 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider, App as AntApp, theme, Spin } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { useAuthStore } from './store/authStore';
 import AppLayout from './components/layout/AppLayout';
 import ProtectedRoute from './components/shared/ProtectedRoute';
+import useSiteBrand from './hooks/useSiteBrand';
 
 // 路由级代码分割：页面组件懒加载
 const LoginPage = React.lazy(() => import('./pages/LoginPage'));
 const RegisterPage = React.lazy(() => import('./pages/RegisterPage'));
 const ForgotPasswordPage = React.lazy(() => import('./pages/ForgotPasswordPage'));
+const HomePage = React.lazy(() => import('./pages/HomePage'));
 const DashboardPage = React.lazy(() => import('./pages/DashboardPage'));
 const NovelPage = React.lazy(() => import('./pages/NovelPage'));
 const ChapterEditPage = React.lazy(() => import('./pages/ChapterEditPage'));
@@ -18,6 +20,16 @@ const SettingsPage = React.lazy(() => import('./pages/SettingsPage'));
 const AdvancedSettingsPage = React.lazy(() => import('./pages/AdvancedSettingsPage'));
 const TemplateStorePage = React.lazy(() => import('./pages/TemplateStorePage'));
 const LandingPage = React.lazy(() => import('./pages/LandingPage'));
+
+const SiteDocumentMeta: React.FC = () => {
+  const { siteName, siteDescription } = useSiteBrand();
+
+  useEffect(() => {
+    document.title = siteDescription ? `${siteName} - ${siteDescription}` : siteName;
+  }, [siteName, siteDescription]);
+
+  return null;
+};
 
 const App: React.FC = () => {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -82,17 +94,19 @@ const App: React.FC = () => {
   return (
     <ConfigProvider locale={zhCN} theme={themeConfig}>
       <AntApp>
+      <SiteDocumentMeta />
       <BrowserRouter>
         <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#0f172a' }}><Spin size="large" /></div>}>
         <Routes>
-          {/* 根路由始终显示 LandingPage */}
-          <Route path="/" element={<LandingPage />} />
+          {/* 已登录用户进入根路径时默认进入首页，未登录用户仍显示落地页。 */}
+          <Route path="/" element={isAuthenticated ? <Navigate to="/home" replace /> : <LandingPage />} />
 
-          <Route path="/login" element={isAuthenticated ? <Navigate to="/" /> : <LoginPage />} />
-          <Route path="/register" element={isAuthenticated ? <Navigate to="/" /> : <RegisterPage />} />
-          <Route path="/forgot-password" element={isAuthenticated ? <Navigate to="/" /> : <ForgotPasswordPage />} />
+          <Route path="/login" element={isAuthenticated ? <Navigate to="/home" replace /> : <LoginPage />} />
+          <Route path="/register" element={isAuthenticated ? <Navigate to="/home" replace /> : <RegisterPage />} />
+          <Route path="/forgot-password" element={isAuthenticated ? <Navigate to="/home" replace /> : <ForgotPasswordPage />} />
 
           <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+            <Route path="/home" element={<HomePage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/novel/:id" element={<NovelPage />} />
             <Route path="/novel/:id/chapter/:num" element={<ChapterEditPage />} />
@@ -102,8 +116,8 @@ const App: React.FC = () => {
             <Route path="/admin" element={<AdminPage />} />
           </Route>
 
-          {/* 其他路由重定向到首页 */}
-          <Route path="*" element={<Navigate to="/" />} />
+          {/* 未知路由按登录态回到对应入口。 */}
+          <Route path="*" element={<Navigate to={isAuthenticated ? '/home' : '/'} replace />} />
         </Routes>
         </Suspense>
       </BrowserRouter>

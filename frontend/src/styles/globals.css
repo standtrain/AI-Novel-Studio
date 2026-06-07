@@ -558,6 +558,46 @@ samp,
   box-shadow: 0 0 18px rgba(99,102,241,0.26);
 }
 
+.brand-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(34,211,238,0.16));
+  color: #a5b4fc;
+  box-shadow: 0 0 18px rgba(99,102,241,0.26);
+}
+
+.brand-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.brand-icon-fallback {
+  font-size: 1em;
+  line-height: 1;
+  background: linear-gradient(135deg, #818cf8, #22d3ee);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.brand-icon-sm {
+  font-size: 16px;
+}
+
+.brand-icon-md {
+  font-size: 19px;
+}
+
+.brand-icon-lg {
+  font-size: 36px;
+  margin-bottom: 20px;
+  box-shadow: 0 8px 32px rgba(99,102,241,0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+}
+
 .app-sidebar {
   background: rgba(9, 14, 31, 0.56) !important;
   backdrop-filter: blur(18px);

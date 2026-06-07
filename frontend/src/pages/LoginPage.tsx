@@ -6,6 +6,8 @@ import { useAuthStore } from '../store/authStore';
 import { getCaptchaApi } from '../api/auth';
 import { submitAppealApi } from '../api/admin';
 import useMobile from '../hooks/useMobile';
+import useSiteBrand from '../hooks/useSiteBrand';
+import BrandIcon from '../components/shared/BrandIcon';
 
 const { Title, Text } = Typography;
 
@@ -73,6 +75,7 @@ const LoginPage: React.FC = () => {
   const login = useAuthStore((s) => s.login);
   const navigate = useNavigate();
   const isMobile = useMobile();
+  const { siteName } = useSiteBrand();
 
   // 封禁信息弹窗
   const [banInfo, setBanInfo] = useState<any>(null);
@@ -109,7 +112,7 @@ const LoginPage: React.FC = () => {
     try {
       await login(values.username, values.password, captchaId ?? undefined, values.captchaCode);
       message.success('登录成功');
-      navigate('/dashboard');
+      navigate('/home');
     } catch (err: any) {
       if (err.banInfo) {
         // 被封禁，显示详情弹窗
@@ -177,31 +180,13 @@ const LoginPage: React.FC = () => {
       >
         {/* Logo 区域 */}
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
-          <div style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 72,
-            height: 72,
-            background: 'linear-gradient(135deg, rgba(99,102,241,0.2) 0%, rgba(139,92,246,0.2) 100%)',
-            borderRadius: 20,
-            marginBottom: 20,
-            boxShadow: '0 8px 32px rgba(99,102,241,0.3), inset 0 1px 0 rgba(255,255,255,0.1)',
-          }}>
-            <span style={{
-              fontSize: 36,
-              background: 'linear-gradient(135deg, #818cf8 0%, #a78bfa 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              filter: 'drop-shadow(0 0 8px rgba(99,102,241,0.5))',
-            }}>✦</span>
-          </div>
+          <BrandIcon size="lg" />
           <Title level={2} style={{
             color: '#f1f5f9',
             margin: 0,
             fontWeight: 700,
             letterSpacing: 0,
-          }}>AI Novel Studio</Title>
+          }}>{siteName}</Title>
           <Text style={{ color: '#94a3b8', fontSize: 15, marginTop: 8, display: 'block' }}>
             登录以开始你的 AI 创作之旅
           </Text>

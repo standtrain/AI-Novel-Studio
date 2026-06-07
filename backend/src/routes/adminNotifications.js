@@ -11,38 +11,45 @@ const router = Router();
 router.use(authenticate);
 router.use(authorize('admin'));
 
-// 创建通知时的副作用：站内信批量写入、邮件批量发送
-async function handleNotificationSideEffects(notification) {
+// 创建/更新通知时的副作用：站内信批量写入、邮件批量发送。
+// 发送状态由数据库认领，避免重复提交或接口重试导致同一条通知反复发送。
+async function handleNotificationSideEffects(notification, channels = {}) {
   if (!notification.enabled) return;
 
-  if (notification.show_inmail) {
+  if (channels.inmail && notification.show_inmail) {
     try {
-      const users = await db('users').where('status', 'active').select('id');
-      const userIds = users.map((u) => u.id);
-      await inmailDao.batchCreate(userIds, {
-        title: notification.title,
-        content: notification.content,
-        notification_id: notification.id,
-      });
+      const shouldSend = await notificationDao.markChannelSending(notification.id, 'inmail');
+      if (shouldSend) {
+        const users = await db('users').where('status', 'active').select('id');
+        const userIds = users.map((u) => u.id);
+        await inmailDao.batchCreate(userIds, {
+          title: notification.title,
+          content: notification.content,
+          notification_id: notification.id,
+        });
+      }
     } catch (err) {
       console.error('[通知] 站内信批量创建失败:', err.message);
     }
   }
 
-  if (notification.show_email) {
+  if (channels.email && notification.show_email) {
     try {
-      const users = await db('users')
-        .where('status', 'active')
-        .whereNotNull('email')
-        .where('email', '!=', '')
-        .select('email', 'username');
-      // 异步批量发送，不阻塞响应
-      Promise.all(
-        users.map((u) =>
-          emailService.sendNotification(u.email, u.username, notification.title, notification.content)
-            .catch((e) => console.error(`[通知] 邮件发送失败 ${u.email}:`, e.message))
-        )
-      ).catch(() => {});
+      const shouldSend = await notificationDao.markChannelSending(notification.id, 'email');
+      if (shouldSend) {
+        const users = await db('users')
+          .where('status', 'active')
+          .whereNotNull('email')
+          .where('email', '!=', '')
+          .select('email', 'username');
+        // 异步批量发送，不阻塞响应
+        Promise.all(
+          users.map((u) =>
+            emailService.sendNotification(u.email, u.username, notification.title, notification.content)
+              .catch((e) => console.error(`[通知] 邮件发送失败 ${u.email}:`, e.message))
+          )
+        ).catch(() => {});
+      }
     } catch (err) {
       console.error('[通知] 邮件批量发送失败:', err.message);
     }
@@ -91,7 +98,10 @@ router.post('/notifications', async (req, res) => {
       sort_order: parseInt(sort_order, 10) || 0,
     });
     // 异步处理站内信和邮件发送
-    handleNotificationSideEffects(notification);
+    handleNotificationSideEffects(notification, {
+      inmail: notification.show_inmail,
+      email: notification.show_email,
+    });
     res.status(201).json({ notification });
   } catch (err) {
     res.status(500).json({ error: '创建通知失败' });
@@ -115,6 +125,11 @@ router.put('/notifications/:id', async (req, res) => {
     if (enabled !== undefined) data.enabled = !!enabled;
     if (sort_order !== undefined) data.sort_order = parseInt(sort_order, 10) || 0;
     const notification = await notificationDao.update(id, data);
+    const willEnable = enabled !== undefined && !!enabled && !existing.enabled;
+    handleNotificationSideEffects(notification, {
+      inmail: (show_inmail !== undefined && !!show_inmail && !existing.show_inmail) || (willEnable && notification.show_inmail),
+      email: (show_email !== undefined && !!show_email && !existing.show_email) || (willEnable && notification.show_email),
+    });
     res.json({ notification });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '更新通知失败' });

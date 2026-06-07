@@ -1,10 +1,12 @@
-// 邮件发送服务 — 支持 Resend API 和 SMTP 两种方式
+// 邮件发送服务：支持 Resend API 和 SMTP 两种方式。
 const { Resend } = require('resend');
 const nodemailer = require('nodemailer');
 const configService = require('./configService');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('email-service');
+const DEFAULT_SITE_NAME = 'AI Novel Studio';
+const DEFAULT_SITE_DESCRIPTION = 'AI 小说创作平台';
 
 let _resendClient = null;
 let _cachedApiKey = null;
@@ -25,7 +27,7 @@ async function _getSmtpTransporter() {
   const host = await configService.get('smtp_host');
   if (!host) return null;
 
-  const port = parseInt(await configService.get('smtp_port') || '587', 10);
+  const port = parseInt((await configService.get('smtp_port')) || '587', 10);
   const secure = (await configService.get('smtp_secure')) === 'true';
   const user = await configService.get('smtp_user');
   const pass = await configService.get('smtp_pass');
@@ -45,8 +47,62 @@ async function _getSmtpTransporter() {
   return _smtpTransporter;
 }
 
+async function _getEmailBrand() {
+  const siteName = ((await configService.get('site_name')) || DEFAULT_SITE_NAME).trim();
+  const siteDescription = ((await configService.get('site_description')) || DEFAULT_SITE_DESCRIPTION).trim();
+  const configuredFromName = ((await configService.get('email_from_name')) || '').trim();
+
+  // 旧版本把 email_from_name 默认写死为 AI Novel Studio。
+  // 为了避免改站点名后邮件发件人仍显示旧名称，默认值视为“跟随站点名称”。
+  const fromName = configuredFromName && configuredFromName !== DEFAULT_SITE_NAME
+    ? configuredFromName
+    : siteName;
+
+  return { siteName, siteDescription, fromName };
+}
+
+function _escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function _appendQuery(url, key, value) {
+  return `${url}${url.includes('?') ? '&' : '?'}${key}=${encodeURIComponent(value)}`;
+}
+
+function _buildEmailShell({ siteName, siteDescription, title, children }) {
+  const safeSiteName = _escapeHtml(siteName);
+  const safeDescription = _escapeHtml(siteDescription);
+  const safeTitle = _escapeHtml(title);
+
+  return `
+<div style="max-width:520px;margin:0 auto;padding:40px 32px;font-family:'Noto Sans SC','PingFang SC','Microsoft YaHei',system-ui,sans-serif;background:#ffffff;border-radius:12px;border:1px solid #e5e7eb;">
+  <div style="text-align:center;margin-bottom:28px;">
+    <div style="display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);border-radius:12px;margin-bottom:16px;">
+      <span style="font-size:22px;color:#ffffff;line-height:1;font-weight:700;">AI</span>
+    </div>
+    <h2 style="color:#1e293b;margin:0 0 6px;font-size:20px;font-weight:700;">${safeSiteName}</h2>
+    <p style="color:#64748b;font-size:14px;margin:0;">${safeTitle}</p>
+  </div>
+
+  ${children}
+
+  <p style="color:#94a3b8;font-size:12px;text-align:center;margin:0;line-height:1.8;">
+    如果这不是您的操作，请忽略此邮件，无需采取任何措施。<br/>此邮件由系统自动发送，请勿回复。
+  </p>
+
+  <div style="margin-top:24px;padding-top:20px;border-top:1px solid #f1f5f9;text-align:center;">
+    <p style="color:#cbd5e1;font-size:11px;margin:0;">${safeSiteName} · ${safeDescription}</p>
+  </div>
+</div>`;
+}
+
 /**
- * 发送邮件（根据 email_provider 配置自动选择 Resend 或 SMTP）
+ * 发送邮件，根据 email_provider 配置自动选择 Resend 或 SMTP。
  */
 async function sendEmail(to, subject, html) {
   const provider = (await configService.get('email_provider')) || 'resend';
@@ -63,7 +119,7 @@ async function _sendViaResend(to, subject, html) {
     return { success: false, error: 'Resend API Key 未配置' };
   }
 
-  const fromName = (await configService.get('email_from_name')) || 'AI Novel Studio';
+  const { fromName } = await _getEmailBrand();
   const fromEmail = (await configService.get('email_from')) || 'noreply@your-domain.com';
 
   try {
@@ -83,7 +139,7 @@ async function _sendViaSmtp(to, subject, html) {
   }
 
   const fromRaw = (await configService.get('smtp_from')) || '';
-  const fromName = (await configService.get('email_from_name')) || 'AI Novel Studio';
+  const { fromName } = await _getEmailBrand();
   let from = fromRaw;
   if (fromRaw && !fromRaw.includes('<')) {
     from = `${fromName} <${fromRaw}>`;
@@ -100,11 +156,10 @@ async function _sendViaSmtp(to, subject, html) {
 }
 
 // ===== 发送频率控制 =====
-const COOLDOWN_SECONDS = 60; // 同一邮箱+类型 60 秒内不可重复发送
-const _sendCooldown = new Map();   // key: "email:type" → timestamp(ms)
-const _dailySendCount = new Map(); // key: "email:YYYY-MM-DD" → count
+const COOLDOWN_SECONDS = 60;
+const _sendCooldown = new Map(); // key: "email:type" -> timestamp(ms)
+const _dailySendCount = new Map(); // key: "email:YYYY-MM-DD" -> count
 
-// 定期清理过期记录（每 5 分钟）
 setInterval(() => {
   const now = Date.now();
   for (const [key, ts] of _sendCooldown) {
@@ -118,14 +173,13 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 /**
- * 检查发送频率限制，超出则抛出异常
+ * 检查发送频率限制，超出则抛出异常。
  * @param {string} email
  * @param {string} type - register / reset_password / change_email
  */
 async function checkSendLimit(email, type) {
   const emailLower = email.toLowerCase();
 
-  // 60 秒冷却检查
   const cooldownKey = `${emailLower}:${type}`;
   const lastSend = _sendCooldown.get(cooldownKey);
   if (lastSend) {
@@ -136,7 +190,6 @@ async function checkSendLimit(email, type) {
     }
   }
 
-  // 每日上限检查
   const dailyLimitRaw = await configService.get('email_daily_limit');
   const dailyLimit = parseInt(dailyLimitRaw || '0', 10);
   if (dailyLimit > 0) {
@@ -149,24 +202,13 @@ async function checkSendLimit(email, type) {
   }
 }
 
-/**
- * 记录一次成功发送
- */
 function _recordSend(email) {
   const emailLower = email.toLowerCase();
-  const now = Date.now();
-
-  // 记录冷却
-  // 注意：此处 type 已经在 checkSendLimit 中使用，但 record 时不区分 type
-  // 为简化，用统一的 send 标记
   const today = new Date().toISOString().slice(0, 10);
   const dailyKey = `${emailLower}:${today}`;
   _dailySendCount.set(dailyKey, (_dailySendCount.get(dailyKey) || 0) + 1);
 }
 
-/**
- * 记录特定类型的发送（用于冷却）
- */
 function _recordSendWithType(email, type) {
   const emailLower = email.toLowerCase();
   const cooldownKey = `${emailLower}:${type}`;
@@ -175,80 +217,76 @@ function _recordSendWithType(email, type) {
 }
 
 /**
- * 发送邮箱验证码邮件
+ * 发送邮箱验证码邮件。
  */
 async function sendVerificationCode(to, code, purpose) {
-  const siteName = (await configService.get('site_name')) || 'AI Novel Studio';
+  const { siteName, siteDescription } = await _getEmailBrand();
   const expiresMinutes = 10;
-
   const purposeTitleMap = {
     register: '注册账号',
     reset_password: '重置密码',
     change_email: '变更邮箱',
   };
   const purposeText = purposeTitleMap[purpose] || purpose;
+  const safePurposeText = _escapeHtml(purposeText);
+  const safeCode = _escapeHtml(code);
+  const safeSiteName = _escapeHtml(siteName);
 
-  const html = `
-<div style="max-width:520px;margin:0 auto;padding:40px 32px;font-family:'Noto Sans SC','PingFang SC','Microsoft YaHei',system-ui,sans-serif;background:#ffffff;border-radius:12px;border:1px solid #e5e7eb;">
-  <div style="text-align:center;margin-bottom:28px;">
-    <div style="display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);border-radius:12px;margin-bottom:16px;">
-      <span style="font-size:24px;color:#ffffff;line-height:1;">✦</span>
-    </div>
-    <h2 style="color:#1e293b;margin:0 0 6px;font-size:20px;font-weight:700;">${siteName}</h2>
-    <p style="color:#64748b;font-size:14px;margin:0;">${purposeText}验证码</p>
-  </div>
-
+  const children = `
   <div style="background:#f8fafc;border-radius:10px;padding:28px 20px;text-align:center;margin-bottom:24px;border:1px solid #e2e8f0;">
-    <p style="color:#475569;font-size:14px;margin:0 0 6px;">您正在${purposeText}，请在 ${expiresMinutes} 分钟内输入以下验证码完成验证：</p>
+    <p style="color:#475569;font-size:14px;margin:0 0 6px;">您正在${safePurposeText}，请在 ${expiresMinutes} 分钟内输入以下验证码完成验证：</p>
     <div style="font-size:32px;font-weight:700;letter-spacing:10px;color:#1e293b;background:#ffffff;border-radius:8px;padding:14px 24px;display:inline-block;font-family:'SF Mono','Fira Code','Consolas',monospace;border:2px dashed #cbd5e1;margin-top:12px;">
-      ${code}
+      ${safeCode}
     </div>
   </div>
 
   <div style="background:#fffbeb;border-left:4px solid #f59e0b;border-radius:6px;padding:12px 16px;margin-bottom:20px;">
     <p style="color:#92400e;font-size:13px;margin:0;line-height:1.6;">
-      <strong>安全提示：</strong>请勿向任何人透露此验证码，包括自称平台客服的人员。${siteName}工作人员不会以任何理由索要您的验证码。
+      <strong>安全提示：</strong>请勿向任何人透露此验证码，包括自称平台客服的人员。${safeSiteName} 工作人员不会以任何理由索要您的验证码。
     </p>
-  </div>
+  </div>`;
 
-  <p style="color:#94a3b8;font-size:12px;text-align:center;margin:0;line-height:1.8;">
-    如果这不是您的操作，请忽略此邮件，无需采取任何措施。<br/>此邮件由系统自动发送，请勿回复。
-  </p>
-
-  <div style="margin-top:24px;padding-top:20px;border-top:1px solid #f1f5f9;text-align:center;">
-    <p style="color:#cbd5e1;font-size:11px;margin:0;">${siteName} · AI 小说创作平台</p>
-  </div>
-</div>`;
+  const html = _buildEmailShell({
+    siteName,
+    siteDescription,
+    title: `${purposeText}验证码`,
+    children,
+  });
 
   return sendEmail(to, `[${siteName}] ${purposeText}验证码`, html);
 }
 
-/** 发送通知邮件（批量发送时使用，不做频率限制） */
+/**
+ * 发送通知邮件，批量发送时使用，不做频率限制。
+ */
 async function sendNotification(to, username, title, content) {
-  const siteName = (await configService.get('site_name')) || 'AI Novel Studio';
-  const greeting = username ? `${username}，您好` : '您好';
+  const { siteName, siteDescription } = await _getEmailBrand();
+  const greeting = username ? `${_escapeHtml(username)}，您好：` : '您好：';
+  const safeTitle = _escapeHtml(title);
+  const safeContent = _escapeHtml(content).replace(/\r?\n/g, '<br/>');
 
-  const html = `
-<div style="max-width:520px;margin:0 auto;padding:40px 32px;font-family:'Noto Sans SC','PingFang SC','Microsoft YaHei',system-ui,sans-serif;background:#ffffff;border-radius:12px;border:1px solid #e5e7eb;">
-  <div style="text-align:center;margin-bottom:28px;">
-    <div style="display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);border-radius:12px;margin-bottom:16px;">
-      <span style="font-size:24px;color:#ffffff;line-height:1;">✦</span>
-    </div>
-    <h2 style="color:#1e293b;margin:0;font-size:20px;font-weight:700;">${siteName}</h2>
-  </div>
+  const children = `
+  <h3 style="color:#1e293b;margin:0 0 16px;font-size:17px;">${safeTitle}</h3>
+  <p style="color:#475569;font-size:14px;line-height:1.8;margin:0 0 12px;">${greeting}</p>
+  <div style="color:#475569;font-size:14px;line-height:1.8;margin-bottom:24px;">${safeContent}</div>`;
 
-  <h3 style="color:#1e293b;margin:0 0 16px;font-size:17px;">${title}</h3>
-  <div style="color:#475569;font-size:14px;line-height:1.8;white-space:pre-wrap;margin-bottom:24px;">${content}</div>
-
-  <p style="color:#94a3b8;font-size:12px;text-align:center;margin:0;line-height:1.8;">
-    此邮件由系统自动发送，请勿回复。
-  </p>
-  <div style="margin-top:20px;padding-top:16px;border-top:1px solid #f1f5f9;text-align:center;">
-    <p style="color:#cbd5e1;font-size:11px;margin:0;">${siteName} · AI 小说创作平台</p>
-  </div>
-</div>`;
+  const html = _buildEmailShell({
+    siteName,
+    siteDescription,
+    title,
+    children,
+  });
 
   return sendEmail(to, `[${siteName}] ${title}`, html);
 }
 
-module.exports = { sendEmail, sendVerificationCode, sendNotification, checkSendLimit, _recordSendWithType };
+module.exports = {
+  sendEmail,
+  sendVerificationCode,
+  sendNotification,
+  checkSendLimit,
+  _recordSendWithType,
+  // 暴露给轻量脚本验证，业务代码不直接依赖。
+  _getEmailBrand,
+  _appendQuery,
+};

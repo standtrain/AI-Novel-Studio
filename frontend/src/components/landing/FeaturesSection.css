@@ -6,7 +6,7 @@
 .features-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 24px;
+  gap: 18px;
 }
 
 /* 动画状态 */
@@ -24,41 +24,57 @@
 
 /* 玻璃拟态卡片 */
 .feature-card {
-  background: rgba(30,41,59,0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(99,102,241,0.2);
-  border-radius: var(--lp-radius);
-  padding: 36px 32px;
+  position: relative;
+  overflow: hidden;
+  min-height: 220px;
+  background: linear-gradient(180deg, rgba(30,41,59,0.72), rgba(15,23,42,0.66));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(148,163,184,0.14);
+  border-radius: 16px;
+  padding: 30px;
   transition: all 0.3s ease;
-  /* 顶部高光 */
   box-shadow:
-    0 4px 6px -1px rgba(0,0,0,0.3),
-    inset 0 1px 0 rgba(255,255,255,0.05);
+    0 18px 46px rgba(2,6,23,0.28),
+    inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.feature-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(99,102,241,0.12), transparent 42%, rgba(34,211,238,0.08));
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
 
 @media (hover: hover) and (pointer: fine) {
   .feature-card:hover {
-    transform: translateY(-6px);
-    border-color: rgba(99,102,241,0.5);
+    transform: translateY(-5px);
+    border-color: rgba(34,211,238,0.24);
     box-shadow:
-      0 20px 40px rgba(0,0,0,0.4),
-      0 0 30px rgba(99,102,241,0.1),
+      0 24px 56px rgba(2,6,23,0.42),
+      0 0 30px rgba(34,211,238,0.08),
       inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+
+  .feature-card:hover::before {
+    opacity: 1;
   }
 }
 
 /* 图标 - 带发光效果 */
 .feature-icon-wrap {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
+  position: relative;
+  z-index: 1;
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 26px;
-  margin-bottom: 1.5rem;
-  position: relative;
+  margin-bottom: 1.25rem;
   transition: all 0.3s ease;
 }
 
@@ -109,16 +125,20 @@
 
 /* 文字 */
 .feature-card-title {
+  position: relative;
+  z-index: 1;
   font-family: var(--lp-font-display);
-  font-size: 1.3rem;
+  font-size: 1.22rem;
   font-weight: 700;
   color: var(--lp-text-heading);
   margin-bottom: 0.6rem;
 }
 
 .feature-card-desc {
+  position: relative;
+  z-index: 1;
   font-size: 0.95rem;
-  color: var(--lp-text-muted);
+  color: #9aa9bd;
   line-height: 1.75;
 }
 

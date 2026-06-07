@@ -2,7 +2,6 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import ParticleBackground from '../components/landing/ParticleBackground';
-import FloatingDecorations from '../components/landing/FloatingDecorations';
 import LandingHeader from '../components/landing/LandingHeader';
 import HeroSection from '../components/landing/HeroSection';
 import FeaturesSection from '../components/landing/FeaturesSection';
@@ -23,16 +22,15 @@ const LandingPage: React.FC = () => {
   return (
     <div className="landing-root">
       <ParticleBackground />
-      <FloatingDecorations />
       <LandingHeader
         isAuthenticated={isAuthenticated}
         onLogin={() => navigate('/login')}
         onRegister={() => navigate('/register')}
-        onEnterApp={() => navigate('/dashboard')}
+        onEnterApp={() => navigate('/home')}
       />
       <main>
         <HeroSection
-          onStart={() => navigate(isAuthenticated ? '/dashboard' : '/register')}
+          onStart={() => navigate(isAuthenticated ? '/home' : '/register')}
           onLearnMore={scrollToFeatures}
         />
         <FeaturesSection />
@@ -41,7 +39,7 @@ const LandingPage: React.FC = () => {
         <FeatureShowcase />
         <CTASection
           isAuthenticated={isAuthenticated}
-          onStart={() => navigate(isAuthenticated ? '/dashboard' : '/register')}
+          onStart={() => navigate(isAuthenticated ? '/home' : '/register')}
         />
       </main>
     </div>

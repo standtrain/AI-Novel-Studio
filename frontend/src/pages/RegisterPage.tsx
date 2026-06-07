@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { getRegistrationStatusApi, sendVerifyCodeApi, getCaptchaApi } from '../api/auth';
 import useMobile from '../hooks/useMobile';
+import BrandIcon from '../components/shared/BrandIcon';
 
 const { Title, Text } = Typography;
 
@@ -132,7 +133,7 @@ const RegisterPage: React.FC = () => {
     try {
       await register(values.username, values.email, values.password, values.code);
       message.success('注册成功');
-      navigate('/dashboard');
+      navigate('/home');
     } catch (err: any) {
       message.error(err.message);
     } finally {
@@ -180,20 +181,7 @@ const RegisterPage: React.FC = () => {
         ) : (
           <>
             <div style={{ textAlign: 'center', marginBottom: 36 }}>
-              <div style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                width: 72, height: 72,
-                background: 'linear-gradient(135deg, rgba(34,211,238,0.2) 0%, rgba(6,182,212,0.2) 100%)',
-                borderRadius: 20, marginBottom: 20,
-                boxShadow: '0 8px 32px rgba(34,211,238,0.25), inset 0 1px 0 rgba(255,255,255,0.1)',
-              }}>
-                <span style={{
-                  fontSize: 36,
-                  background: 'linear-gradient(135deg, #67e8f9 0%, #22d3ee 100%)',
-                  WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-                  filter: 'drop-shadow(0 0 8px rgba(34,211,238,0.5))',
-                }}>✦</span>
-              </div>
+              <BrandIcon size="lg" />
               <Title level={2} style={{ color: '#f1f5f9', margin: 0, fontWeight: 700, letterSpacing: 0 }}>创建账号</Title>
               <Text style={{ color: '#94a3b8', fontSize: 15, marginTop: 8, display: 'block' }}>开始你的 AI 创作之旅</Text>
             </div>

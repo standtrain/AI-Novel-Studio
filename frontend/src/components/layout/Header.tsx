@@ -19,9 +19,9 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
 
   const handleLogout = () => {
     Modal.confirm({
-      title: '确认退出',
-      icon: <ExclamationCircleOutlined />,
-      content: '确定要退出登录吗？',
+      title: <span style={{ color: '#f1f5f9' }}>确认退出</span>,
+      icon: <ExclamationCircleOutlined style={{ color: '#ef4444' }} />,
+      content: <span style={{ color: '#ef4444' }}>确定要退出登录吗？</span>,
       okText: '退出',
       cancelText: '取消',
       okButtonProps: { danger: true },

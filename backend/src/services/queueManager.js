@@ -1,11 +1,6 @@
 /**
  * 队列管理器
- * 负责 API 请求的排队、优先级调度、强制插队
- *
- * 核心功能：
- * 1. 429 错误时自动加入排队队列
- * 2. 按优先级排序，高优先级先执行
- * 3. 高优先级用户（>90）可强制中断低优先级任务
+ * 负责 AI SSE 任务的排队、优先级调度、等待老化和高优先级插队。
  */
 
 const { createLogger } = require('../utils/logger');
@@ -13,39 +8,74 @@ const { db } = require('../config/database');
 
 const logger = createLogger('queue');
 
-// 强制插队阈值：优先级 > FORCE_INTERRUPT_THRESHOLD 时可中断他人
+// 优先级高于该值时，可以中断低优先级任务。
 const FORCE_INTERRUPT_THRESHOLD = 90;
+// 普通等待任务每等待 60 秒增加 1 点临时调度分，避免低优先级任务长期饥饿。
+const AGING_INTERVAL_MS = 60 * 1000;
+const MAX_AGING_BONUS = 30;
+// 当前实现保持单任务执行，避免多个大模型流式请求同时压垮 provider。
+const MAX_RUNNING_TASKS = 1;
 
-// 任务状态
 const STATUS = {
   WAITING: 'waiting',
   RUNNING: 'running',
   COMPLETED: 'completed',
+  FAILED: 'failed',
   CANCELLED: 'cancelled',
   INTERRUPTED: 'interrupted',
 };
 
-// 正在运行的任务 Map
-// key: `${userId}:${novelId}:${phase}`
-// value: { abortController, userId, groupPriority, status, startTime }
 const runningTasks = new Map();
-
-// 等待队列（按优先级排序）
-// [{ userId, novelId, phase, groupPriority, createdAt, resolve, reject }]
 const waitingQueue = [];
+const reservedTasks = new Map();
+let sequence = 0;
+let processing = false;
 
-/**
- * 发送 SSE 错误事件
- */
-function sendSSEError(res, message) {
-  if (res && !res.writableEnded) {
-    res.write(`event: error\ndata: ${JSON.stringify({ message })}\n\n`);
-  }
+function buildTaskKey(userId, novelId, phase) {
+  return `${userId}:${novelId || 0}:${phase}`;
 }
 
-/**
- * 获取用户分组优先级
- */
+function normalizePriority(value) {
+  const priority = parseInt(value, 10);
+  if (!Number.isFinite(priority)) return 10;
+  return Math.max(1, Math.min(priority, 100));
+}
+
+function getAgingBonus(task, now = Date.now()) {
+  return Math.min(MAX_AGING_BONUS, Math.floor((now - task.createdAt) / AGING_INTERVAL_MS));
+}
+
+function getEffectivePriority(task, now = Date.now()) {
+  return task.groupPriority + getAgingBonus(task, now);
+}
+
+function compareTasks(a, b, now = Date.now()) {
+  const effectiveDiff = getEffectivePriority(b, now) - getEffectivePriority(a, now);
+  if (effectiveDiff !== 0) return effectiveDiff;
+  const priorityDiff = b.groupPriority - a.groupPriority;
+  if (priorityDiff !== 0) return priorityDiff;
+  const timeDiff = a.createdAt - b.createdAt;
+  if (timeDiff !== 0) return timeDiff;
+  return a.sequence - b.sequence;
+}
+
+function sortWaitingQueue() {
+  const now = Date.now();
+  waitingQueue.sort((a, b) => compareTasks(a, b, now));
+}
+
+function sendSSE(res, event, data) {
+  if (!res || res.writableEnded) return;
+  try {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  } catch { /* 客户端已断开 */ }
+}
+
+function getQueuePosition(task) {
+  sortWaitingQueue();
+  return waitingQueue.findIndex((item) => item.id === task.id) + 1;
+}
+
 async function getUserGroupPriority(userId) {
   try {
     const user = await db('users')
@@ -53,255 +83,265 @@ async function getUserGroupPriority(userId) {
       .select('user_groups.queue_priority')
       .where('users.id', userId)
       .first();
-    return user?.queue_priority ?? 10;
+    return normalizePriority(user?.queue_priority ?? 10);
   } catch (err) {
     logger.warn(`获取用户优先级失败 userId=${userId}: ${err.message}`);
     return 10;
   }
 }
 
-/**
- * 从队列中移除指定任务
- */
-function removeFromQueue(userId, novelId, phase) {
-  const key = `${userId}:${novelId}:${phase}`;
-  const index = waitingQueue.findIndex(t =>
-    `${t.userId}:${t.novelId}:${t.phase}` === key
-  );
-  if (index !== -1) {
-    const task = waitingQueue.splice(index, 1)[0];
-    // 拒绝 pending 的 Promise
-    if (task.reject) {
-      task.reject({ message: '任务被取消' });
-    }
-    return task;
-  }
-  return null;
+function findWaitingTask(userId, novelId, phase) {
+  const key = buildTaskKey(userId, novelId, phase);
+  return waitingQueue.find((task) => task.key === key);
 }
 
-/**
- * 查找最低优先级的运行中任务
- */
-function findLowestPriorityRunningTask() {
-  if (runningTasks.size === 0) return null;
+function removeFromQueue(userId, novelId, phase, reason = '任务已取消') {
+  const key = buildTaskKey(userId, novelId, phase);
+  const index = waitingQueue.findIndex((task) => task.key === key);
+  if (index === -1) return null;
 
+  const task = waitingQueue.splice(index, 1)[0];
+  task.cancelled = true;
+  updateQueueTaskStatus(task.id, STATUS.CANCELLED, { interrupted_reason: reason });
+  if (task.reject) task.reject({ status: STATUS.CANCELLED, message: reason });
+  return task;
+}
+
+function findLowestPriorityRunningTask() {
   let lowest = null;
   for (const [key, task] of runningTasks) {
-    if (lowest === null || task.groupPriority < lowest.groupPriority) {
+    if (!lowest || task.groupPriority < lowest.groupPriority) {
       lowest = { key, ...task };
     }
   }
   return lowest;
 }
 
-/**
- * 中断指定的运行中任务
- */
 async function interruptTask(taskKey, reason) {
   const task = runningTasks.get(taskKey);
   if (!task) return false;
 
-  logger.info(`中断任务 ${taskKey}，原因: ${reason}`);
-
-  // 调用 AbortController 中断 SSE 响应
-  if (task.abortController) {
-    task.abortController.abort();
-  }
-
-  // 通知被中断的客户端
-  if (task.res) {
-    sendSSEError(task.res, '网络错误，请稍后重试');
-  }
-
-  // 从运行中移除
+  logger.info(`中断任务 ${taskKey}，原因：${reason}`);
+  if (task.abortController) task.abortController.abort();
+  sendSSE(task.res, 'error', { message: '任务被更高优先级请求中断，请稍后重试' });
   runningTasks.delete(taskKey);
 
-  // 更新数据库状态
-  try {
-    await db('queue_tasks')
-      .where({ user_id: task.userId, novel_id: task.novelId, phase: task.phase, status: STATUS.RUNNING })
-      .update({ status: STATUS.INTERRUPTED, interrupted_reason: reason });
-  } catch (err) {
-    logger.warn(`更新任务状态失败: ${err.message}`);
-  }
-
+  await updateQueueTaskStatus(task.taskId, STATUS.INTERRUPTED, { interrupted_reason: reason });
+  processQueue();
   return true;
 }
 
-/**
- * 强制插队：高优先级用户中断低优先级任务
- */
 async function forceInterruptForHighPriority(userId, userPriority) {
-  if (userPriority <= FORCE_INTERRUPT_THRESHOLD) {
-    return false;
-  }
+  const priority = normalizePriority(userPriority);
+  if (priority <= FORCE_INTERRUPT_THRESHOLD) return false;
 
-  // 找到最低优先级的运行中任务
   const lowest = findLowestPriorityRunningTask();
-  if (!lowest || lowest.groupPriority >= userPriority) {
-    return false;
-  }
+  if (!lowest || lowest.groupPriority >= priority) return false;
 
-  // 中断该任务
-  return await interruptTask(lowest.key, `被高优先级用户(${userId})强制中断`);
+  return interruptTask(lowest.key, `被高优先级用户 ${userId} 插队中断`);
 }
 
-/**
- * 检查是否需要排队
- */
-async function checkNeedWait(userId) {
-  // 如果有正在运行的任务，需要排队
-  for (const [key, task] of runningTasks) {
-    if (task.userId === userId) {
-      return false; // 用户自己的任务已在运行
-    }
-  }
-  return runningTasks.size > 0;
+function hasCapacity() {
+  return runningTasks.size + reservedTasks.size < MAX_RUNNING_TASKS;
 }
 
-/**
- * 获取下一个可执行的任务
- */
+function checkNeedWait() {
+  return !hasCapacity();
+}
+
 function getNextExecutableTask() {
   if (waitingQueue.length === 0) return null;
-
-  // 按优先级降序排列（优先级高的在前）
-  waitingQueue.sort((a, b) => b.groupPriority - a.groupPriority);
-  return waitingQueue[0];
+  sortWaitingQueue();
+  return waitingQueue.shift();
 }
 
-/**
- * 入队等待
- * 返回一个 Promise，当轮到该任务时 resolve
- */
-function enqueue(userId, novelId, phase, groupPriority, res) {
-  return new Promise(async (resolve, reject) => {
-    const task = {
-      userId,
-      novelId,
-      phase,
-      groupPriority,
-      createdAt: Date.now(),
-      res,
-      resolve,
-      reject,
-    };
+async function enqueue(userId, novelId, phase, groupPriority, res) {
+  const priority = normalizePriority(groupPriority);
+  const existing = findWaitingTask(userId, novelId, phase);
+  if (existing) {
+    sendSSE(res, 'queue', {
+      status: 'waiting',
+      position: getQueuePosition(existing),
+      priority: existing.groupPriority,
+      message: '相同任务已在队列中，请等待执行',
+    });
+    throw { status: 409, message: '相同任务已在队列中，请等待执行' };
+  }
 
-    // 检查是否需要强制插队
-    if (groupPriority > FORCE_INTERRUPT_THRESHOLD) {
-      await forceInterruptForHighPriority(userId, groupPriority);
-    }
+  const taskId = await createQueueTask(userId, novelId, phase, priority);
+  const task = {
+    id: taskId,
+    key: buildTaskKey(userId, novelId, phase),
+    userId,
+    novelId: novelId || 0,
+    phase,
+    groupPriority: priority,
+    createdAt: Date.now(),
+    sequence: ++sequence,
+    res,
+    cancelled: false,
+  };
 
-    // 添加到队列 + 持久化到数据库
-    waitingQueue.push(task);
-    createQueueTask(userId, novelId, phase, groupPriority);
-    logger.info(`任务入队: userId=${userId}, novelId=${novelId}, phase=${phase}, priority=${groupPriority}`);
-
-    // 尝试立即执行（如果没有正在运行的任务）
-    await processQueue();
+  const waitPromise = new Promise((resolve, reject) => {
+    task.resolve = resolve;
+    task.reject = reject;
   });
+
+  if (priority > FORCE_INTERRUPT_THRESHOLD) {
+    await forceInterruptForHighPriority(userId, priority);
+  }
+
+  if (hasCapacity()) {
+    reservedTasks.set(task.key, task);
+    sendSSE(res, 'queue', {
+      status: 'running',
+      priority,
+      waitedMs: 0,
+      message: '已获得执行权，开始执行任务',
+    });
+    logger.info(`任务直接执行: id=${taskId}, userId=${userId}, novelId=${novelId || 0}, phase=${phase}, priority=${priority}`);
+    task.resolve(task);
+    return waitPromise;
+  }
+
+  waitingQueue.push(task);
+  sortWaitingQueue();
+
+  sendSSE(res, 'queue', {
+    status: 'waiting',
+    position: getQueuePosition(task),
+    priority,
+    waitingCount: waitingQueue.length,
+    message: '当前已有任务运行，已加入等待队列',
+  });
+
+  logger.info(`任务入队: id=${taskId}, userId=${userId}, novelId=${novelId || 0}, phase=${phase}, priority=${priority}`);
+  processQueue();
+
+  return waitPromise;
 }
 
-/**
- * 处理队列
- */
 async function processQueue() {
-  if (runningTasks.size > 0) {
-    return; // 已有任务在运行，等待完成
+  if (processing || !hasCapacity()) return;
+  processing = true;
+
+  try {
+    while (hasCapacity()) {
+      const next = getNextExecutableTask();
+      if (!next) break;
+      if (next.cancelled) continue;
+
+      logger.info(`队列任务开始执行: id=${next.id}, userId=${next.userId}, phase=${next.phase}, priority=${next.groupPriority}`);
+      sendSSE(next.res, 'queue', {
+        status: 'running',
+        priority: next.groupPriority,
+        waitedMs: Date.now() - next.createdAt,
+        message: '排队结束，开始执行任务',
+      });
+      reservedTasks.set(next.key, next);
+      next.resolve(next);
+      break;
+    }
+  } finally {
+    processing = false;
   }
-
-  const next = waitingQueue.shift();
-  if (!next) return;
-
-  logger.info(`任务开始执行: userId=${next.userId}, phase=${next.phase}`);
-  next.resolve();
 }
 
-/**
- * 注册运行中的任务
- */
-function registerRunning(userId, novelId, phase, abortController, res, groupPriority) {
-  const key = `${userId}:${novelId}:${phase}`;
-
-  // 如果已有该任务，先移除
-  if (runningTasks.has(key)) {
-    runningTasks.delete(key);
-  }
+function registerRunning(userId, novelId, phase, abortController, res, groupPriority, taskId = null) {
+  const key = buildTaskKey(userId, novelId, phase);
+  const priority = normalizePriority(groupPriority);
 
   runningTasks.set(key, {
+    taskId,
     abortController,
     res,
     userId,
-    groupPriority,
+    groupPriority: priority,
     phase,
-    novelId,
+    novelId: novelId || 0,
     startTime: Date.now(),
   });
+  reservedTasks.delete(key);
 
-  logger.info(`注册运行任务: ${key}, priority=${groupPriority}`);
-  updateQueueTaskStatus(userId, novelId, phase, STATUS.RUNNING);
-
-  // 从等待队列移除（如果还在）
-  removeFromQueue(userId, novelId, phase);
-
-  // 尝试处理队列中的下一个任务
-  processQueue();
+  logger.info(`注册运行任务: ${key}, queueTaskId=${taskId || '-'}, priority=${priority}`);
+  updateQueueTaskStatus(taskId, STATUS.RUNNING);
 }
 
-/**
- * 取消注册运行中的任务
- */
-function unregisterRunning(userId, novelId, phase) {
-  const key = `${userId}:${novelId}:${phase}`;
+function unregisterRunning(userId, novelId, phase, status = STATUS.COMPLETED) {
+  const key = buildTaskKey(userId, novelId, phase);
+  const task = runningTasks.get(key);
   runningTasks.delete(key);
-  updateQueueTaskStatus(userId, novelId, phase, STATUS.COMPLETED);
-  logger.info(`取消运行任务: ${key}`);
-
-  // 处理队列中的下一个任务
+  reservedTasks.delete(key);
+  updateQueueTaskStatus(task?.taskId, status);
+  logger.info(`结束运行任务: ${key}, status=${status}`);
   processQueue();
 }
 
-/**
- * 获取队列状态（用于管理界面）
- */
+function cancelWaitingByResponse(res, reason = '客户端断开连接，排队任务已取消') {
+  const index = waitingQueue.findIndex((task) => task.res === res);
+  if (index === -1) {
+    for (const [key, task] of reservedTasks) {
+      if (task.res === res) {
+        reservedTasks.delete(key);
+        task.cancelled = true;
+        updateQueueTaskStatus(task.id, STATUS.CANCELLED, { interrupted_reason: reason });
+        if (task.reject) task.reject({ status: STATUS.CANCELLED, message: reason });
+        processQueue();
+        return true;
+      }
+    }
+    return false;
+  }
+  const task = waitingQueue.splice(index, 1)[0];
+  task.cancelled = true;
+  reservedTasks.delete(task.key);
+  updateQueueTaskStatus(task.id, STATUS.CANCELLED, { interrupted_reason: reason });
+  if (task.reject) task.reject({ status: STATUS.CANCELLED, message: reason });
+  return true;
+}
+
 function getQueueStatus() {
+  const now = Date.now();
   const running = [];
   for (const [key, task] of runningTasks) {
     running.push({
       key,
+      taskId: task.taskId,
       userId: task.userId,
       groupPriority: task.groupPriority,
       phase: task.phase,
       novelId: task.novelId,
+      runningMs: now - task.startTime,
       startTime: new Date(task.startTime).toISOString(),
     });
   }
 
+  sortWaitingQueue();
   return {
+    maxRunningTasks: MAX_RUNNING_TASKS,
+    runningCount: runningTasks.size,
     runningTasks: running,
     waitingCount: waitingQueue.length,
-    waitingTasks: waitingQueue.map(t => ({
-      userId: t.userId,
-      groupPriority: t.groupPriority,
-      phase: t.phase,
-      novelId: t.novelId,
-      waitingMs: Date.now() - t.createdAt,
+    waitingTasks: waitingQueue.map((task, index) => ({
+      taskId: task.id,
+      position: index + 1,
+      userId: task.userId,
+      groupPriority: task.groupPriority,
+      effectivePriority: getEffectivePriority(task, now),
+      phase: task.phase,
+      novelId: task.novelId,
+      waitingMs: now - task.createdAt,
     })),
   };
 }
 
-/**
- * 数据库队列操作
- */
-
-// 创建队列任务记录
 async function createQueueTask(userId, novelId, phase, groupPriority) {
   try {
     const [id] = await db('queue_tasks').insert({
       user_id: userId,
-      novel_id: novelId,
+      novel_id: novelId || 0,
       phase,
-      user_group_priority: groupPriority,
+      user_group_priority: normalizePriority(groupPriority),
       status: STATUS.WAITING,
     });
     return id;
@@ -311,29 +351,30 @@ async function createQueueTask(userId, novelId, phase, groupPriority) {
   }
 }
 
-// 更新队列任务状态
-async function updateQueueTaskStatus(userId, novelId, phase, status) {
+async function updateQueueTaskStatus(taskId, status, extra = {}) {
+  if (!taskId) return;
   try {
     await db('queue_tasks')
-      .where({ user_id: userId, novel_id: novelId, phase })
-      .update({ status });
+      .where('id', taskId)
+      .update({ status, updated_at: db.fn.now(), ...extra });
   } catch (err) {
     logger.warn(`更新队列任务状态失败: ${err.message}`);
   }
 }
 
-const queueManager = {
+module.exports = {
   getUserGroupPriority,
   checkNeedWait,
   enqueue,
   registerRunning,
   unregisterRunning,
+  cancelWaitingByResponse,
+  removeFromQueue,
   getQueueStatus,
   forceInterruptForHighPriority,
   createQueueTask,
   updateQueueTaskStatus,
   STATUS,
   FORCE_INTERRUPT_THRESHOLD,
+  MAX_RUNNING_TASKS,
 };
-
-module.exports = queueManager;

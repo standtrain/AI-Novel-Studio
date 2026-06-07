@@ -152,22 +152,31 @@ function _cancelTask(novelId, phase) {
   const existing = _activeTasks.get(key);
   if (existing) {
     logger.info(`取消旧的进行中任务：${key}`);
-    existing.abort();
+    const abortController = existing.abortController || existing;
+    abortController.abort();
     _activeTasks.delete(key);
+    if (existing.userId) {
+      queueManager.unregisterRunning(existing.userId, existing.queueNovelId ?? novelId, existing.queuePhase ?? phase, queueManager.STATUS.CANCELLED);
+    }
   }
 }
 
-function _registerTask(novelId, phase, abortController) {
+function _registerTask(novelId, phase, abortController, queueMeta = {}) {
   const key = _taskKey(novelId, phase);
   _cancelTask(novelId, phase);
-  _activeTasks.set(key, abortController);
+  _activeTasks.set(key, { abortController, ...queueMeta });
 }
 
-function _cleanupTask(novelId, phase, abortController) {
+function _cleanupTask(novelId, phase, abortController, status = queueManager.STATUS.COMPLETED) {
   const key = _taskKey(novelId, phase);
   // 仅当 Map 中的 AbortController 与当前一致时才删除，防止旧任务误清新任务
-  if (_activeTasks.get(key) === abortController) {
+  const existing = _activeTasks.get(key);
+  const currentAbortController = existing?.abortController || existing;
+  if (currentAbortController === abortController) {
     _activeTasks.delete(key);
+    if (existing?.userId) {
+      queueManager.unregisterRunning(existing.userId, existing.queueNovelId ?? novelId, existing.queuePhase ?? phase, status);
+    }
   }
 }
 
@@ -177,8 +186,9 @@ function _rejectIfActive(novelId, phase) {
   const key = _taskKey(novelId, phase);
   const existing = _activeTasks.get(key);
   if (existing) {
+    const abortController = existing.abortController || existing;
     // 检查任务是否已被abort或响应已结束
-    if (existing.signal?.aborted) {
+    if (abortController.signal?.aborted) {
       _activeTasks.delete(key);
     } else {
       throw { status: 409, message: '该操作正在进行中，请等待完成' };
@@ -189,7 +199,8 @@ function _rejectIfActive(novelId, phase) {
     const writeKey = _taskKey(novelId, 'write_chapter');
     const writeTask = _activeTasks.get(writeKey);
     if (writeTask) {
-      if (writeTask.signal?.aborted) {
+      const writeAbortController = writeTask.abortController || writeTask;
+      if (writeAbortController.signal?.aborted) {
         _activeTasks.delete(writeKey);
       } else {
         throw { status: 409, message: '章节正在生成中，请等待完成后再操作' };
@@ -222,7 +233,7 @@ function _isAutoMode(req) {
   return req.query?.auto === 'true';
 }
 
-function _onClose(req, res, abortController, novelId, phase) {
+function _onClose(req, res, abortController, novelId, phase, onAbort) {
   req.on('close', () => {
     if (!res.writableEnded) {
       if (req.query?.background === 'true') {
@@ -231,10 +242,37 @@ function _onClose(req, res, abortController, novelId, phase) {
         logger.info(`客户端断开连接，取消生成（novelId=${novelId}, phase=${phase}）`);
         abortController.abort();
         // 清理任务记录，允许用户重新发起请求
-        _cleanupTask(novelId, phase, abortController);
+        _cleanupTask(novelId, phase, abortController, queueManager.STATUS.CANCELLED);
+        onAbort?.();
       }
     }
   });
+}
+
+async function _waitForQueueTurn(req, res, userId, novelId, phase, abortController) {
+  const groupPriority = await queueManager.getUserGroupPriority(userId);
+  let queueTask = null;
+  let cancelledWhileWaiting = false;
+
+  const cancelWaiting = () => {
+    if (queueTask) return;
+    cancelledWhileWaiting = true;
+    queueManager.cancelWaitingByResponse(res);
+  };
+
+  req.on('close', cancelWaiting);
+  try {
+    queueTask = await queueManager.enqueue(userId, novelId, phase, groupPriority, res);
+  } finally {
+    req.off?.('close', cancelWaiting);
+  }
+  if (cancelledWhileWaiting || res.writableEnded || abortController.signal.aborted) {
+    queueManager.cancelWaitingByResponse(res);
+    throw { status: queueManager.STATUS.CANCELLED, message: '任务已取消' };
+  }
+
+  queueManager.registerRunning(userId, novelId, phase, abortController, res, groupPriority, queueTask?.id);
+  return { queueTaskId: queueTask?.id, groupPriority };
 }
 
 // ========== 工具函数 ==========
@@ -333,8 +371,6 @@ function _runSSETask(req, res, novelId, phase, agent, opts) {
   if (rejectIfActive) {
     _rejectIfActive(novelId, phase);
   }
-  _registerTask(novelId, phase, abortController);
-  agent._abortSignal = abortController.signal;
 
   setupSSE(res);
   const onProgress = (event, data) => {
@@ -343,23 +379,40 @@ function _runSSETask(req, res, novelId, phase, agent, opts) {
   };
   _onClose(req, res, abortController, novelId, phase);
 
-  task(onProgress)
-    .then(async (result) => {
+  (async () => {
+    try {
+      await _waitForQueueTurn(req, res, req.user.id, novelId, phase, abortController);
+      _registerTask(novelId, phase, abortController, {
+        userId: req.user.id,
+        queueNovelId: novelId,
+        queuePhase: phase,
+      });
+      agent._abortSignal = abortController.signal;
+
+      const result = await task(onProgress);
       try {
         await onDone(result, res);
       } catch (innerErr) {
         logger.error(logLabel + '成功回调失败：' + innerErr.message);
         sendSSE(res, 'error', { message: '数据保存失败' });
+        _safeEnd(res);
+        _cleanupTask(novelId, phase, abortController, queueManager.STATUS.FAILED);
+        return;
       }
       _safeEnd(res);
-      _cleanupTask(novelId, phase, abortController);
-    })
-    .catch((err) => {
+      _cleanupTask(novelId, phase, abortController, queueManager.STATUS.COMPLETED);
+    } catch (err) {
+      if (err.status === queueManager.STATUS.CANCELLED || abortController.signal.aborted) {
+        _safeEnd(res);
+        _cleanupTask(novelId, phase, abortController, queueManager.STATUS.CANCELLED);
+        return;
+      }
       logger.error(logLabel + '失败：' + err.message);
       sendSSE(res, 'error', { message: err.message });
       _safeEnd(res);
-      _cleanupTask(novelId, phase, abortController);
-    });
+      _cleanupTask(novelId, phase, abortController, queueManager.STATUS.FAILED);
+    }
+  })();
 }
 
 const agentService = {
@@ -565,8 +618,6 @@ const agentService = {
       execute: (req, res) => {
         const abortController = new AbortController();
         _rejectIfActive(novelId, 'write_chapter');
-        _registerTask(novelId, 'write_chapter', abortController);
-        writingAgent._abortSignal = abortController.signal;
 
         setupSSE(res);
         const onProgress = (event, data) => {
@@ -578,6 +629,14 @@ const agentService = {
 
         (async () => {
           try {
+            await _waitForQueueTurn(req, res, userId, novelId, 'write_chapter', abortController);
+            _registerTask(novelId, 'write_chapter', abortController, {
+              userId,
+              queueNovelId: novelId,
+              queuePhase: 'write_chapter',
+            });
+            writingAgent._abortSignal = abortController.signal;
+
             // ===== Step 1: 上下文组装 → 写作任务书 =====
             sendSSE(res, 'progress', { step: 'context', message: 'Step 1/5: 正在组装写作任务书...' });
 
@@ -628,7 +687,7 @@ const agentService = {
             if (!chapter || !chapter.content || chapter.content.trim().length === 0) {
               sendSSE(res, 'error', { message: '生成章节内容为空，请重试' });
               _safeEnd(res);
-              _cleanupTask(novelId, 'write_chapter', abortController);
+              _cleanupTask(novelId, 'write_chapter', abortController, queueManager.STATUS.FAILED);
               return;
             }
 
@@ -809,14 +868,19 @@ ${finalContent}
 
             sendSSE(res, 'done', {});
             _safeEnd(res);
-            _cleanupTask(novelId, 'write_chapter', abortController);
+            _cleanupTask(novelId, 'write_chapter', abortController, queueManager.STATUS.COMPLETED);
 
           } catch (err) {
+            if (err.status === queueManager.STATUS.CANCELLED || abortController.signal.aborted) {
+              _safeEnd(res);
+              _cleanupTask(novelId, 'write_chapter', abortController, queueManager.STATUS.CANCELLED);
+              return;
+            }
             if (res.writableEnded) return;
             logger.error('章节写作失败：' + err.message);
             sendSSE(res, 'error', { message: err.message });
             _safeEnd(res);
-            _cleanupTask(novelId, 'write_chapter', abortController);
+            _cleanupTask(novelId, 'write_chapter', abortController, queueManager.STATUS.FAILED);
           }
         })();
       },
@@ -940,7 +1004,7 @@ ${finalContent}
     return {
       execute: (req, res) => {
         const abortController = new AbortController();
-        _registerTask(novelId, 'revise_' + phase, abortController);
+        const queuePhase = 'revise_' + phase;
 
         setupSSE(res);
         const onProgress = (event, data) => {
@@ -948,10 +1012,17 @@ ${finalContent}
           sendSSE(res, event, data);
         };
 
-        _onClose(req, res, abortController, novelId, 'revise_' + phase);
+        _onClose(req, res, abortController, novelId, queuePhase);
 
         (async () => {
           try {
+            await _waitForQueueTurn(req, res, userId, novelId, queuePhase, abortController);
+            _registerTask(novelId, queuePhase, abortController, {
+              userId,
+              queueNovelId: novelId,
+              queuePhase,
+            });
+
             const agent = await _createAgent(ctx, userId, phase);
             agent._abortSignal = abortController.signal;
 
@@ -1051,13 +1122,18 @@ ${finalContent}
             });
             onProgress('done', {});
             _safeEnd(res);
-            _cleanupTask(novelId, 'revise_' + phase, abortController);
+            _cleanupTask(novelId, queuePhase, abortController, queueManager.STATUS.COMPLETED);
           } catch (err) {
+            if (err.status === queueManager.STATUS.CANCELLED || abortController.signal.aborted) {
+              _safeEnd(res);
+              _cleanupTask(novelId, queuePhase, abortController, queueManager.STATUS.CANCELLED);
+              return;
+            }
             if (res.writableEnded) return;
             logger.error('修订失败：' + err.message);
             sendSSE(res, 'error', { message: err.message });
             _safeEnd(res);
-            _cleanupTask(novelId, 'revise_' + phase, abortController);
+            _cleanupTask(novelId, queuePhase, abortController, queueManager.STATUS.FAILED);
           }
         })();
       },

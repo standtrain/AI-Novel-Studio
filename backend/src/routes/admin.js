@@ -12,6 +12,7 @@ const { getProvidersFull, updateProviders, clearCache, listProviders, listSelect
 const modelTokenService = require('../services/modelTokenService');
 const { createLogger } = require('../utils/logger');
 const { parsePositiveInt, parseOptionalPositiveInt, parsePagination } = require('../utils/requestParser');
+const { LEGAL_DOCUMENTS } = require('../constants/legalDefaults');
 
 const router = Router();
 const logger = createLogger('admin-routes');
@@ -33,6 +34,23 @@ async function validateDefaultGroupConfig(value) {
   if (!group) throw { status: 404, message: '默认分组不存在' };
   if (toBoolean(group.is_admin)) throw { status: 400, message: '不能将管理员分组设为默认注册分组' };
   return groupId;
+}
+
+function normalizeConfigValue(key, value) {
+  const legalKeys = Object.values(LEGAL_DOCUMENTS).map(doc => doc.key);
+  if (!legalKeys.includes(key)) return value;
+
+  if (typeof value !== 'string') {
+    throw { status: 400, message: '协议内容必须为文本' };
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    throw { status: 400, message: '协议内容不能为空' };
+  }
+  if (normalized.length > 20000) {
+    throw { status: 400, message: '协议内容不能超过 20000 个字符' };
+  }
+  return normalized;
 }
 
 // 所有管理后台路由都需要 admin 权限
@@ -303,10 +321,11 @@ router.get('/config', async (req, res) => {
 router.put('/config/:key', async (req, res) => {
   try {
     const { key } = req.params;
-    const { value } = req.body;
+    let { value } = req.body;
     if (value === undefined) {
       return res.status(400).json({ error: '缺少配置值' });
     }
+    value = normalizeConfigValue(key, value);
     if (key === 'default_group') {
       await validateDefaultGroupConfig(value);
     }

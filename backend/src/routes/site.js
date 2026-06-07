@@ -1,6 +1,7 @@
 const express = require('express');
 const configService = require('../services/configService');
 const authenticate = require('../middleware/authenticate');
+const { LEGAL_DOCUMENTS } = require('../constants/legalDefaults');
 
 const router = express.Router();
 
@@ -18,6 +19,30 @@ router.get('/info', async (_req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: '获取站点信息失败' });
+  }
+});
+
+// GET /api/site/legal/:type —— 公开协议页面内容，前端按纯文本转义展示
+router.get('/legal/:type', async (req, res) => {
+  try {
+    const { type } = req.params;
+    if (!Object.prototype.hasOwnProperty.call(LEGAL_DOCUMENTS, type)) {
+      return res.status(400).json({ error: '协议类型不正确' });
+    }
+
+    const doc = LEGAL_DOCUMENTS[type];
+    const configuredContent = await configService.get(doc.key);
+    const content = typeof configuredContent === 'string' && configuredContent.trim()
+      ? configuredContent
+      : doc.defaultContent;
+
+    res.json({
+      type,
+      title: doc.title,
+      content,
+    });
+  } catch (err) {
+    res.status(500).json({ error: '获取协议内容失败' });
   }
 });
 

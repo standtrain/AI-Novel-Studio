@@ -6,6 +6,14 @@ export interface SiteInfo {
   faviconUrl?: string;
 }
 
+export type LegalDocumentType = 'terms' | 'privacy';
+
+export interface LegalDocument {
+  type: LegalDocumentType;
+  title: string;
+  content: string;
+}
+
 export async function getSiteInfoApi(): Promise<SiteInfo> {
   const { data } = await client.get('/site/info');
   return data;
@@ -13,6 +21,11 @@ export async function getSiteInfoApi(): Promise<SiteInfo> {
 
 export async function getWritingPromptApi(): Promise<{ prompt: string }> {
   const { data } = await client.get('/site/writing-prompt');
+  return data;
+}
+
+export async function getLegalDocumentApi(type: LegalDocumentType): Promise<LegalDocument> {
+  const { data } = await client.get(`/site/legal/${type}`);
   return data;
 }
 

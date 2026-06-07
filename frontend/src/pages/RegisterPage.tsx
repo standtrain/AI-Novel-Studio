@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Card, Form, Input, Result, Space, Tag, Typography, message } from 'antd';
+import { Button, Card, Checkbox, Form, Input, Result, Space, Tag, Typography, message } from 'antd';
 import {
   LockOutlined,
   MailOutlined,
@@ -17,6 +17,14 @@ import useSiteBrand from '../hooks/useSiteBrand';
 import BrandIcon from '../components/shared/BrandIcon';
 
 const { Title, Text, Paragraph } = Typography;
+
+interface RegisterFormValues {
+  username: string;
+  email: string;
+  password: string;
+  code?: string;
+  agreement?: boolean;
+}
 
 const RegisterPage: React.FC = () => {
   const [form] = Form.useForm();
@@ -109,7 +117,7 @@ const RegisterPage: React.FC = () => {
     }
   };
 
-  const onFinish = async (values: { username: string; email: string; password: string; code?: string }) => {
+  const onFinish = async (values: RegisterFormValues) => {
     const email = values.email.trim();
     if (!validateEmailDomain(email)) {
       message.warning(`仅支持以下邮箱域名注册：${allowedDomains.join('、')}`);
@@ -302,6 +310,28 @@ const RegisterPage: React.FC = () => {
                       placeholder="设置登录密码"
                       autoComplete="new-password"
                     />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="agreement"
+                    valuePropName="checked"
+                    className="auth-agreement-item"
+                    rules={[
+                      {
+                        validator: (_, checked) => (
+                          checked
+                            ? Promise.resolve()
+                            : Promise.reject(new Error('请先阅读并同意服务条款和隐私政策'))
+                        ),
+                      },
+                    ]}
+                  >
+                    <Checkbox>
+                      我已阅读并同意
+                      <Link to="/terms" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}> 服务条款 </Link>
+                      和
+                      <Link to="/privacy" target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}> 隐私政策</Link>
+                    </Checkbox>
                   </Form.Item>
 
                   <Button

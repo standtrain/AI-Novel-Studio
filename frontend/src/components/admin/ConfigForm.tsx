@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Input, InputNumber, Button, Switch, Typography, message, Space, Upload, Select, Collapse } from 'antd';
-import { SaveOutlined, ReloadOutlined, SafetyCertificateOutlined, UploadOutlined, DeleteOutlined, PictureOutlined, GlobalOutlined, EditOutlined, LockOutlined, MailOutlined, ApiOutlined } from '@ant-design/icons';
+import { SaveOutlined, ReloadOutlined, SafetyCertificateOutlined, UploadOutlined, DeleteOutlined, PictureOutlined, GlobalOutlined, EditOutlined, LockOutlined, MailOutlined, ApiOutlined, FileTextOutlined } from '@ant-design/icons';
 import { getConfigsApi, updateConfigApi, getFaviconInfoApi, uploadFaviconApi, deleteFaviconApi } from '../../api/admin';
 import { refreshSiteBrand } from '../../hooks/useSiteBrand';
 import BrandIcon from '../shared/BrandIcon';
@@ -23,6 +23,12 @@ const CONFIG_CATEGORIES: { key: string; label: string; icon: React.ReactNode; ke
     label: '站点信息',
     icon: <GlobalOutlined />,
     keys: ['site_name', 'site_description'],
+  },
+  {
+    key: 'legal',
+    label: '协议内容',
+    icon: <FileTextOutlined />,
+    keys: ['terms_content', 'privacy_content'],
   },
   {
     key: 'writing',
@@ -178,6 +184,26 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
     }
 
     const inputStyle = { background: modified ? 'rgba(251,191,36,0.08)' : undefined, borderColor: modified ? 'rgba(251,191,36,0.4)' : undefined };
+
+    if (record.config_key === 'terms_content' || record.config_key === 'privacy_content') {
+      return (
+        <Input.TextArea
+          value={currentVal}
+          onChange={(e) => setEditingValues({ ...editingValues, [record.config_key]: e.target.value })}
+          rows={12}
+          maxLength={20000}
+          showCount
+          placeholder={record.config_key === 'terms_content' ? '填写服务条款正文' : '填写隐私政策正文'}
+          style={{
+            ...inputStyle,
+            background: inputStyle.background || 'rgba(15,23,42,0.5)',
+            color: '#f1f5f9',
+            fontSize: 13,
+            lineHeight: 1.7,
+          }}
+        />
+      );
+    }
 
     if (record.config_key === 'cors_origins' || record.config_key === 'email_domain_whitelist') {
       return (

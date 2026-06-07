@@ -1,9 +1,13 @@
+const { DEFAULT_TERMS_CONTENT, DEFAULT_PRIVACY_CONTENT } = require('../src/constants/legalDefaults');
+
 exports.seed = async function (knex) {
   await knex('site_config').del();
 
   await knex('site_config').insert([
     { config_key: 'site_name', config_value: 'AI Novel Studio', description: '网站名称' },
     { config_key: 'site_description', config_value: '基于AI的小说创作平台', description: '网站描述' },
+    { config_key: 'terms_content', config_value: DEFAULT_TERMS_CONTENT, description: '服务条款页面正文' },
+    { config_key: 'privacy_content', config_value: DEFAULT_PRIVACY_CONTENT, description: '隐私政策页面正文' },
     { config_key: 'max_tokens_per_request', config_value: '0', description: '单次请求最大token数（0=不限制）' },
     { config_key: 'default_temperature', config_value: '0.7', description: '默认temperature参数' },
     { config_key: 'chapters_per_batch', config_value: '20', description: '章节大纲每批生成章节数' },

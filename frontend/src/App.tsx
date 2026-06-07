@@ -23,6 +23,7 @@ const TemplateStorePage = React.lazy(() => import('./pages/TemplateStorePage'));
 const TicketsPage = React.lazy(() => import('./pages/TicketsPage'));
 const ChatPage = React.lazy(() => import('./pages/ChatPage'));
 const LandingPage = React.lazy(() => import('./pages/LandingPage'));
+const LegalPage = React.lazy(() => import('./pages/LegalPage'));
 
 const SiteDocumentMeta: React.FC = () => {
   const { siteName, siteDescription, faviconUrl, brandVersion } = useSiteBrand();
@@ -108,6 +109,8 @@ const App: React.FC = () => {
           <Route path="/login" element={isAuthenticated ? <Navigate to="/home" replace /> : <LoginPage />} />
           <Route path="/register" element={isAuthenticated ? <Navigate to="/home" replace /> : <RegisterPage />} />
           <Route path="/forgot-password" element={isAuthenticated ? <Navigate to="/home" replace /> : <ForgotPasswordPage />} />
+          <Route path="/terms" element={<LegalPage type="terms" />} />
+          <Route path="/privacy" element={<LegalPage type="privacy" />} />
 
           <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
             <Route path="/home" element={<HomePage />} />

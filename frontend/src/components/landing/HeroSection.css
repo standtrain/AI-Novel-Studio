@@ -6,22 +6,21 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 72px 48px 92px;
+  padding: 72px 48px 86px;
   z-index: 1;
 }
 
 .hero-section::before {
   content: '';
   position: absolute;
-  inset: 24px 48px 60px;
+  inset: 0;
   background:
-    linear-gradient(135deg, rgba(99,102,241,0.12), rgba(34,211,238,0.04)),
-    radial-gradient(circle at 76% 28%, rgba(34,211,238,0.18), transparent 34%),
-    radial-gradient(circle at 20% 78%, rgba(167,139,250,0.12), transparent 32%);
-  border: 1px solid rgba(148,163,184,0.08);
-  border-radius: 28px;
+    linear-gradient(180deg, rgba(99,102,241,0.08), transparent 54%),
+    linear-gradient(90deg, rgba(15,23,42,0.18), transparent 48%, rgba(15,23,42,0.22));
+  border: none;
+  border-radius: 0;
   pointer-events: none;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 28px 80px rgba(2,6,23,0.36);
+  box-shadow: none;
 }
 
 .hero-section::after {
@@ -31,10 +30,10 @@
   background-image:
     linear-gradient(rgba(148,163,184,0.045) 1px, transparent 1px),
     linear-gradient(90deg, rgba(148,163,184,0.045) 1px, transparent 1px);
-  background-size: 48px 48px;
+  background-size: 56px 56px;
   mask-image: linear-gradient(to bottom, transparent, #000 18%, #000 78%, transparent);
   pointer-events: none;
-  opacity: 0.5;
+  opacity: 0.28;
 }
 
 .hero-shell {
@@ -43,8 +42,8 @@
   width: 100%;
   max-width: 1180px;
   display: grid;
-  grid-template-columns: minmax(0, 0.92fr) minmax(420px, 1.08fr);
-  gap: 48px;
+  grid-template-columns: minmax(0, 0.94fr) minmax(420px, 1.06fr);
+  gap: 42px;
   align-items: center;
 }
 
@@ -64,13 +63,13 @@
   padding: 7px 14px;
   background: rgba(15,23,42,0.62);
   color: #a5f3fc;
-  border-radius: 999px;
+  border-radius: 8px;
   font-size: 0.9rem;
   font-weight: 600;
   margin-bottom: 1.5rem;
-  animation: fadeInUp 0.8s ease-out;
-  border: 1px solid rgba(34,211,238,0.24);
-  box-shadow: 0 10px 30px rgba(8,47,73,0.18);
+  animation: fadeInUp 0.58s ease-out;
+  border: 1px solid rgba(129,140,248,0.22);
+  box-shadow: 0 10px 24px rgba(99,102,241,0.16);
 }
 
 .hero-title {
@@ -84,24 +83,21 @@
 
 .hero-title-line {
   display: block;
-  font-size: 3.65rem;
+  font-size: 3.25rem;
   margin-bottom: 0.5rem;
-  animation: fadeInUp 0.8s ease-out 0.15s both;
-  background: linear-gradient(135deg, #f8fafc 0%, #dbeafe 48%, #67e8f9 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  animation: fadeInUp 0.58s ease-out 0.12s both;
+  color: #f8fafc;
 }
 
 .hero-typewriter-wrapper {
   display: block;
-  font-size: 3.2rem;
-  background: linear-gradient(135deg, #818cf8 0%, #22d3ee 100%);
+  font-size: 2.7rem;
+  background: linear-gradient(135deg, #a5b4fc 0%, #67e8f9 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   min-height: 1.3em;
-  animation: fadeInUp 0.8s ease-out 0.3s both;
+  animation: fadeInUp 0.58s ease-out 0.2s both;
 }
 
 .hero-typewriter {
@@ -136,7 +132,7 @@
   line-height: 1.8;
   max-width: 520px;
   margin: 0 0 2rem;
-  animation: fadeInUp 0.8s ease-out 0.45s both;
+  animation: fadeInUp 0.58s ease-out 0.28s both;
 }
 
 .hero-actions {
@@ -145,18 +141,18 @@
   flex-wrap: wrap;
   justify-content: flex-start;
   margin-bottom: 2.25rem;
-  animation: fadeInUp 0.8s ease-out 0.6s both;
+  animation: fadeInUp 0.58s ease-out 0.36s both;
 }
 
 .hero-btn-primary {
-  border-radius: 12px !important;
+  border-radius: 8px !important;
   height: 48px !important;
   padding: 0 28px !important;
   font-size: 1.05rem !important;
   font-weight: 600 !important;
-  background: linear-gradient(135deg, #6366f1 0%, #2563eb 52%, #0891b2 100%) !important;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
   border: none !important;
-  transition: all 0.3s ease !important;
+  transition: transform 0.18s ease, box-shadow 0.18s ease !important;
   position: relative;
   overflow: hidden;
 }
@@ -172,7 +168,7 @@
 
 .hero-btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 32px rgba(37,99,235,0.32);
+  box-shadow: 0 12px 28px rgba(99,102,241,0.36);
 }
 
 .hero-btn-primary:hover::before {
@@ -180,7 +176,7 @@
 }
 
 .hero-btn-ghost {
-  border-radius: 12px !important;
+  border-radius: 8px !important;
   height: 48px !important;
   padding: 0 28px !important;
   font-size: 1.05rem !important;
@@ -188,7 +184,7 @@
   border: 1px solid rgba(148,163,184,0.28) !important;
   color: #dbeafe !important;
   background: rgba(15,23,42,0.38) !important;
-  transition: all 0.3s ease !important;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, color 0.18s ease !important;
 }
 
 .hero-btn-ghost:hover {
@@ -204,19 +200,19 @@
   align-items: center;
   gap: 28px;
   color: var(--lp-text-muted);
-  animation: fadeInUp 0.8s ease-out 0.75s both;
+  animation: fadeInUp 0.58s ease-out 0.44s both;
 }
 
 .hero-proof-item {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
+  max-width: 158px;
 }
 
 .proof-number {
-  font-family: var(--lp-font-mono);
-  font-size: 1.35rem;
+  font-size: 1rem;
   font-weight: 700;
   background: linear-gradient(135deg, var(--lp-text-heading) 0%, var(--lp-accent) 100%);
   -webkit-background-clip: text;
@@ -227,6 +223,7 @@
 .proof-label {
   font-size: 0.82rem;
   color: var(--lp-text-muted);
+  line-height: 1.55;
 }
 
 .hero-proof-divider {
@@ -239,11 +236,11 @@
   position: relative;
   min-width: 0;
   border: 1px solid rgba(148,163,184,0.16);
-  border-radius: 22px;
+  border-radius: 8px;
   background: linear-gradient(180deg, rgba(30,41,59,0.84), rgba(15,23,42,0.92));
-  box-shadow: 0 28px 90px rgba(2,6,23,0.54), inset 0 1px 0 rgba(255,255,255,0.06);
+  box-shadow: 0 20px 58px rgba(2,6,23,0.44), inset 0 1px 0 rgba(255,255,255,0.06);
   overflow: hidden;
-  animation: fadeInUp 0.8s ease-out 0.48s both;
+  animation: fadeInUp 0.58s ease-out 0.32s both;
 }
 
 .hero-preview::before {
@@ -300,7 +297,7 @@
 
 .preview-book {
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: 8px;
   color: #94a3b8;
   font-size: 0.82rem;
   white-space: nowrap;
@@ -342,7 +339,7 @@
 .preview-status {
   flex-shrink: 0;
   padding: 5px 10px;
-  border-radius: 999px;
+  border-radius: 8px;
   color: #bbf7d0;
   background: rgba(34,197,94,0.14);
   border: 1px solid rgba(34,197,94,0.18);
@@ -351,7 +348,7 @@
 
 .preview-progress {
   padding: 16px;
-  border-radius: 14px;
+  border-radius: 8px;
   background: rgba(15,23,42,0.46);
   border: 1px solid rgba(148,163,184,0.12);
   margin-bottom: 16px;
@@ -371,7 +368,7 @@
 
 .preview-progress-track {
   height: 8px;
-  border-radius: 999px;
+  border-radius: 8px;
   background: rgba(148,163,184,0.16);
   overflow: hidden;
 }
@@ -395,7 +392,7 @@
   align-items: center;
   gap: 10px;
   padding: 11px 12px;
-  border-radius: 12px;
+  border-radius: 8px;
   background: rgba(30,41,59,0.58);
   border: 1px solid rgba(148,163,184,0.1);
   color: #cbd5e1;
@@ -423,7 +420,7 @@
   align-items: center;
   gap: 10px;
   padding: 13px 14px;
-  border-radius: 14px;
+  border-radius: 8px;
   color: #c4b5fd;
   background: rgba(99,102,241,0.14);
   border: 1px solid rgba(167,139,250,0.18);
@@ -461,7 +458,7 @@
 }
 
 @keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(30px); }
+  from { opacity: 0; transform: translateY(18px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -473,7 +470,7 @@
   }
   .hero-section::before {
     inset: 12px;
-    border-radius: 20px;
+    border-radius: 0;
   }
   .hero-shell {
     grid-template-columns: 1fr;
@@ -485,7 +482,7 @@
     margin: 0 auto;
   }
   .hero-title-line {
-    font-size: 2.35rem;
+    font-size: 2.25rem;
   }
   .hero-typewriter-wrapper {
     font-size: 2.05rem;
@@ -503,7 +500,7 @@
     gap: 24px;
   }
   .proof-number {
-    font-size: 1.3rem;
+    font-size: 1rem;
   }
 }
 
@@ -514,6 +511,11 @@
   }
   .hero-proof-divider {
     display: none;
+  }
+  .hero-proof-item {
+    align-items: center;
+    max-width: 240px;
+    text-align: center;
   }
   .hero-title-line,
   .hero-typewriter-wrapper {

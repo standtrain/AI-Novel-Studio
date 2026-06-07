@@ -56,18 +56,18 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onStart, onLearnMore }) => {
 
           <div className="hero-social-proof">
             <div className="hero-proof-item">
-              <span className="proof-number">10M+</span>
-              <span className="proof-label">已生成文字</span>
+              <span className="proof-number">灵感梳理</span>
+              <span className="proof-label">把零散想法归档成设定</span>
             </div>
             <div className="hero-proof-divider" />
             <div className="hero-proof-item">
-              <span className="proof-number">50K+</span>
-              <span className="proof-label">已创作小说</span>
+              <span className="proof-number">长篇规划</span>
+              <span className="proof-label">从大纲延伸到章节节奏</span>
             </div>
             <div className="hero-proof-divider" />
             <div className="hero-proof-item">
-              <span className="proof-number">99.7%</span>
-              <span className="proof-label">内容连贯性</span>
+              <span className="proof-number">持续打磨</span>
+              <span className="proof-label">多轮修改保持上下文</span>
             </div>
           </div>
         </div>
@@ -82,36 +82,36 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onStart, onLearnMore }) => {
 
           <div className="preview-main">
             <div className="preview-sidebar">
-              <div className="preview-book active">数据洪流</div>
-              <div className="preview-book">星港余烬</div>
-              <div className="preview-book">雾城来信</div>
+              <div className="preview-book active">主线设定</div>
+              <div className="preview-book">人物关系</div>
+              <div className="preview-book">章节节奏</div>
             </div>
 
             <div className="preview-panel">
               <div className="preview-panel-head">
                 <div>
-                  <span className="preview-kicker">都市异能 / 科技爽文</span>
-                  <h3>《数据洪流：黑客之神》</h3>
+                  <span className="preview-kicker">故事设定 / 大纲 / 正文协作</span>
+                  <h3>长篇创作项目</h3>
                 </div>
-                <span className="preview-status">写作中</span>
+                <span className="preview-status">持续推进</span>
               </div>
 
               <div className="preview-progress">
                 <div>
-                  <span>章节进度</span>
-                  <strong>128 / 200</strong>
+                  <span>创作阶段</span>
+                  <strong>大纲到正文</strong>
                 </div>
                 <div className="preview-progress-track">
-                  <span style={{ width: '64%' }} />
+                  <span style={{ width: '58%' }} />
                 </div>
               </div>
 
               <div className="preview-chapters">
-                {['第 128 章 数据风暴', '第 129 章 影子节点', '第 130 章 终端回响'].map((title, index) => (
+                {['近期情节节点', '角色动机回收', '伏笔与节奏校对'].map((title, index) => (
                   <div className="preview-chapter" key={title}>
                     <CheckCircleOutlined />
                     <span>{title}</span>
-                    <em>{index === 0 ? '已完成' : '待生成'}</em>
+                    <em>{index === 0 ? '已整理' : '待打磨'}</em>
                   </div>
                 ))}
               </div>

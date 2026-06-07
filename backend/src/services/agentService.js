@@ -255,6 +255,7 @@ function _onClose(req, res, abortController, novelId, phase, onAbort) {
       } else {
         logger.info(`客户端断开连接，取消生成（novelId=${novelId}, phase=${phase}）`);
         abortController.abort();
+        queueManager.cancelWaitingByResponse(res);
         // 清理任务记录，允许用户重新发起请求
         _cleanupTask(novelId, phase, abortController, queueManager.STATUS.CANCELLED);
         onAbort?.();

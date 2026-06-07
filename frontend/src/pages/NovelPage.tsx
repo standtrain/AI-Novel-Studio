@@ -1418,6 +1418,14 @@ const rowStyle: React.CSSProperties = {
   marginTop: 10,
 };
 
+const getTextAreaAutoSize = (value: any, minRows: number, maxRows: number, charsPerRow = 72) => {
+  const text = String(value || '');
+  const explicitLines = text.split(/\r?\n/).length;
+  const wrappedLines = Math.ceil(text.length / charsPerRow);
+  const estimatedRows = Math.max(minRows, Math.min(maxRows, explicitLines + wrappedLines));
+  return { minRows: estimatedRows, maxRows };
+};
+
 const InlineDirectEditor: React.FC<{
   phase: string;
   data: any;
@@ -1593,7 +1601,7 @@ const InlineDirectEditor: React.FC<{
         <TextArea
           value={fallbackText}
           onChange={e => onFallbackTextChange(e.target.value)}
-          rows={18}
+          autoSize={getTextAreaAutoSize(fallbackText, 12, 34, phase === 'chapter_content' ? 48 : 72)}
           style={{ fontFamily: phase === 'chapter_content' ? 'inherit' : 'var(--font-mono)', fontSize: phase === 'chapter_content' ? 15 : 13 }}
         />
       ) : phase === 'outline' ? (
@@ -1604,8 +1612,8 @@ const InlineDirectEditor: React.FC<{
             <InputNumber value={data?.chapterCount} onChange={value => setField('chapterCount', value || 0)} placeholder="章节数" min={0} precision={0} style={{ width: 120 }} />
           </Space.Compact>
           <Input value={data?.theme} onChange={e => setField('theme', e.target.value)} placeholder="主题" style={fieldStyle} maxLength={200} />
-          <TextArea value={data?.setting} onChange={e => setField('setting', e.target.value)} placeholder="世界观/设定" rows={3} style={fieldStyle} maxLength={12000} />
-          <TextArea value={data?.mainPlot} onChange={e => setField('mainPlot', e.target.value)} placeholder="主线剧情" rows={3} style={fieldStyle} maxLength={12000} />
+          <TextArea value={data?.setting} onChange={e => setField('setting', e.target.value)} placeholder="世界观/设定" autoSize={getTextAreaAutoSize(data?.setting, 3, 14)} style={fieldStyle} maxLength={12000} />
+          <TextArea value={data?.mainPlot} onChange={e => setField('mainPlot', e.target.value)} placeholder="主线剧情" autoSize={getTextAreaAutoSize(data?.mainPlot, 3, 14)} style={fieldStyle} maxLength={12000} />
           <Text style={{ color: '#94a3b8', fontSize: 12 }}>支线</Text>
           {list('subPlots').map((plot: string, index: number) => (
             <Space.Compact key={index} style={{ width: '100%', marginTop: 6 }}>
@@ -1629,12 +1637,12 @@ const InlineDirectEditor: React.FC<{
                 <Input value={char.gender} onChange={e => setNested('characters', index, 'gender', e.target.value)} placeholder="性别" maxLength={10} />
                 <Input value={char.role} onChange={e => setNested('characters', index, 'role', e.target.value)} placeholder="定位" maxLength={50} />
               </Space.Compact>
-              <TextArea value={char.appearance} onChange={e => setNested('characters', index, 'appearance', e.target.value)} placeholder="外貌" rows={2} style={fieldStyle} maxLength={4000} />
-              <TextArea value={char.personality} onChange={e => setNested('characters', index, 'personality', e.target.value)} placeholder="性格" rows={2} style={fieldStyle} maxLength={4000} />
-              <TextArea value={char.background} onChange={e => setNested('characters', index, 'background', e.target.value)} placeholder="背景" rows={2} style={fieldStyle} maxLength={4000} />
-              <TextArea value={char.motivation} onChange={e => setNested('characters', index, 'motivation', e.target.value)} placeholder="动机" rows={2} style={fieldStyle} maxLength={4000} />
-              <TextArea value={char.arc} onChange={e => setNested('characters', index, 'arc', e.target.value)} placeholder="成长弧" rows={2} style={fieldStyle} maxLength={4000} />
-              <TextArea value={char.relationships} onChange={e => setNested('characters', index, 'relationships', e.target.value)} placeholder="关系，可填 JSON 数组或逐行文本" rows={2} />
+              <TextArea value={char.appearance} onChange={e => setNested('characters', index, 'appearance', e.target.value)} placeholder="外貌" autoSize={getTextAreaAutoSize(char.appearance, 2, 8)} style={fieldStyle} maxLength={4000} />
+              <TextArea value={char.personality} onChange={e => setNested('characters', index, 'personality', e.target.value)} placeholder="性格" autoSize={getTextAreaAutoSize(char.personality, 2, 8)} style={fieldStyle} maxLength={4000} />
+              <TextArea value={char.background} onChange={e => setNested('characters', index, 'background', e.target.value)} placeholder="背景" autoSize={getTextAreaAutoSize(char.background, 2, 10)} style={fieldStyle} maxLength={4000} />
+              <TextArea value={char.motivation} onChange={e => setNested('characters', index, 'motivation', e.target.value)} placeholder="动机" autoSize={getTextAreaAutoSize(char.motivation, 2, 8)} style={fieldStyle} maxLength={4000} />
+              <TextArea value={char.arc} onChange={e => setNested('characters', index, 'arc', e.target.value)} placeholder="成长弧" autoSize={getTextAreaAutoSize(char.arc, 2, 8)} style={fieldStyle} maxLength={4000} />
+              <TextArea value={char.relationships} onChange={e => setNested('characters', index, 'relationships', e.target.value)} placeholder="关系，可填 JSON 数组或逐行文本" autoSize={getTextAreaAutoSize(char.relationships, 2, 8)} />
             </div>
           ))}
           <Button icon={<PlusOutlined />} onClick={() => addListItem('characters', { name: '', age: '', gender: '', role: '', appearance: '', personality: '', background: '', motivation: '', arc: '', relationships: '[]' })} style={{ marginTop: 10 }}>添加角色</Button>
@@ -1651,8 +1659,8 @@ const InlineDirectEditor: React.FC<{
                 <InputNumber value={chapter.chapter} onChange={value => setNested('chapters', index, 'chapter', value || 0)} min={1} precision={0} style={{ width: 120 }} />
                 <Input value={chapter.title} onChange={e => setNested('chapters', index, 'title', e.target.value)} placeholder="章节标题" maxLength={200} />
               </Space.Compact>
-              <TextArea value={chapter.synopsis} onChange={e => setNested('chapters', index, 'synopsis', e.target.value)} placeholder="简介/梗概" rows={2} style={fieldStyle} maxLength={8000} />
-              <TextArea value={chapter.conflict} onChange={e => setNested('chapters', index, 'conflict', e.target.value)} placeholder="核心冲突" rows={2} style={fieldStyle} maxLength={4000} />
+              <TextArea value={chapter.synopsis} onChange={e => setNested('chapters', index, 'synopsis', e.target.value)} placeholder="简介/梗概" autoSize={getTextAreaAutoSize(chapter.synopsis, 2, 12)} style={fieldStyle} maxLength={8000} />
+              <TextArea value={chapter.conflict} onChange={e => setNested('chapters', index, 'conflict', e.target.value)} placeholder="核心冲突" autoSize={getTextAreaAutoSize(chapter.conflict, 2, 8)} style={fieldStyle} maxLength={4000} />
               <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
                 <Input value={chapter.turningPoint} onChange={e => setNested('chapters', index, 'turningPoint', e.target.value)} placeholder="转折点" maxLength={2000} />
                 <Input value={chapter.emotionalTone} onChange={e => setNested('chapters', index, 'emotionalTone', e.target.value)} placeholder="情绪基调" maxLength={100} />
@@ -1702,8 +1710,8 @@ const InlineDirectEditor: React.FC<{
       ) : (
         <div>
           <Input value={data?.title} onChange={e => setField('title', e.target.value)} placeholder="章节标题" style={fieldStyle} maxLength={200} />
-          <TextArea value={data?.summary} onChange={e => setField('summary', e.target.value)} placeholder="章节摘要" rows={2} style={fieldStyle} maxLength={4000} />
-          <TextArea value={data?.content} onChange={e => setField('content', e.target.value)} placeholder="章节正文" rows={20} maxLength={200000} />
+          <TextArea value={data?.summary} onChange={e => setField('summary', e.target.value)} placeholder="章节摘要" autoSize={getTextAreaAutoSize(data?.summary, 2, 10)} style={fieldStyle} maxLength={4000} />
+          <TextArea value={data?.content} onChange={e => setField('content', e.target.value)} placeholder="章节正文" autoSize={getTextAreaAutoSize(data?.content, 18, 48, 48)} maxLength={200000} />
         </div>
       )}
       </div>

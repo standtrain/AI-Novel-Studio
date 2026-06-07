@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import useSiteBrand from '../../hooks/useSiteBrand';
+import { withAssetVersion } from '../../utils/favicon';
 
 type BrandIconSize = 'sm' | 'md' | 'lg';
 
@@ -15,19 +16,15 @@ const sizeMap: Record<BrandIconSize, number> = {
 };
 
 const BrandIcon: React.FC<BrandIconProps> = ({ size = 'md', className }) => {
-  const { faviconUrl } = useSiteBrand();
+  const { faviconUrl, brandVersion } = useSiteBrand();
   const [imageFailed, setImageFailed] = useState(false);
-  const [version, setVersion] = useState(() => Date.now());
   const iconSize = sizeMap[size];
   const normalizedFaviconUrl = faviconUrl || '/favicon.svg';
-  const imageSrc = `${normalizedFaviconUrl}${normalizedFaviconUrl.includes('?') ? '&' : '?'}v=${version}`;
+  const imageSrc = withAssetVersion(normalizedFaviconUrl, brandVersion);
 
   useEffect(() => {
-    const nextVersion = Date.now();
-    setVersion(nextVersion);
     setImageFailed(false);
-    updateDocumentFavicon(normalizedFaviconUrl, nextVersion);
-  }, [normalizedFaviconUrl]);
+  }, [imageSrc]);
 
   return (
     <span
@@ -41,21 +38,6 @@ const BrandIcon: React.FC<BrandIconProps> = ({ size = 'md', className }) => {
       )}
     </span>
   );
-};
-
-const updateDocumentFavicon = (faviconUrl: string, version: number) => {
-  const href = `${faviconUrl}${faviconUrl.includes('?') ? '&' : '?'}v=${version}`;
-  const rels = ['icon', 'shortcut icon'];
-
-  rels.forEach((rel) => {
-    let link = document.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
-    if (!link) {
-      link = document.createElement('link');
-      link.rel = rel;
-      document.head.appendChild(link);
-    }
-    link.href = href;
-  });
 };
 
 export default BrandIcon;

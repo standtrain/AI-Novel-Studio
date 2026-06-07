@@ -1,26 +1,41 @@
 import { useEffect, useState } from 'react';
 import { getSiteInfoApi, type SiteInfo } from '../api/site';
 
-const DEFAULT_SITE_INFO: SiteInfo = {
+export interface SiteBrandInfo extends SiteInfo {
+  brandVersion: number;
+}
+
+let brandVersion = Date.now();
+
+const DEFAULT_SITE_INFO: SiteBrandInfo = {
   siteName: 'AI Novel Studio',
   siteDescription: '基于 AI 的小说创作平台',
   faviconUrl: '/favicon.svg',
+  brandVersion,
 };
 
-let cachedSiteInfo: SiteInfo | null = null;
-let loadingPromise: Promise<SiteInfo> | null = null;
+let cachedSiteInfo: SiteBrandInfo | null = null;
+let loadingPromise: Promise<SiteBrandInfo> | null = null;
+let requestSerial = 0;
 
 const loadSiteInfo = async () => {
   if (loadingPromise) return loadingPromise;
 
+  const currentSerial = requestSerial;
   loadingPromise = getSiteInfoApi()
     .then((info) => {
-      cachedSiteInfo = { ...DEFAULT_SITE_INFO, ...info };
-      return cachedSiteInfo;
+      const nextInfo = { ...DEFAULT_SITE_INFO, ...info, brandVersion };
+      if (currentSerial === requestSerial) {
+        cachedSiteInfo = nextInfo;
+      }
+      return cachedSiteInfo || nextInfo;
     })
     .catch(() => {
-      cachedSiteInfo = DEFAULT_SITE_INFO;
-      return cachedSiteInfo;
+      const nextInfo = { ...DEFAULT_SITE_INFO, brandVersion };
+      if (currentSerial === requestSerial) {
+        cachedSiteInfo = nextInfo;
+      }
+      return cachedSiteInfo || nextInfo;
     })
     .finally(() => {
       loadingPromise = null;
@@ -30,14 +45,17 @@ const loadSiteInfo = async () => {
 };
 
 export const refreshSiteBrand = () => {
+  requestSerial += 1;
   cachedSiteInfo = null;
+  loadingPromise = null;
+  brandVersion = Date.now();
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('site-brand-refresh'));
   }
 };
 
 const useSiteBrand = () => {
-  const [siteInfo, setSiteInfo] = useState<SiteInfo>(cachedSiteInfo || DEFAULT_SITE_INFO);
+  const [siteInfo, setSiteInfo] = useState<SiteBrandInfo>(cachedSiteInfo || DEFAULT_SITE_INFO);
 
   useEffect(() => {
     let mounted = true;

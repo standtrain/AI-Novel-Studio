@@ -6,6 +6,7 @@ import { useAuthStore } from './store/authStore';
 import AppLayout from './components/layout/AppLayout';
 import ProtectedRoute from './components/shared/ProtectedRoute';
 import useSiteBrand from './hooks/useSiteBrand';
+import { updateDocumentFavicon } from './utils/favicon';
 
 // 路由级代码分割：页面组件懒加载
 const LoginPage = React.lazy(() => import('./pages/LoginPage'));
@@ -22,11 +23,12 @@ const TemplateStorePage = React.lazy(() => import('./pages/TemplateStorePage'));
 const LandingPage = React.lazy(() => import('./pages/LandingPage'));
 
 const SiteDocumentMeta: React.FC = () => {
-  const { siteName, siteDescription } = useSiteBrand();
+  const { siteName, siteDescription, faviconUrl, brandVersion } = useSiteBrand();
 
   useEffect(() => {
     document.title = siteDescription ? `${siteName} - ${siteDescription}` : siteName;
-  }, [siteName, siteDescription]);
+    updateDocumentFavicon(faviconUrl, brandVersion);
+  }, [siteName, siteDescription, faviconUrl, brandVersion]);
 
   return null;
 };

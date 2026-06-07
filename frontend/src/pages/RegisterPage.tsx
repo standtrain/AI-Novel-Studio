@@ -146,9 +146,7 @@ const RegisterPage: React.FC = () => {
             <span>{siteName}</span>
           </div>
           <Title className="auth-title">创建你的创作空间</Title>
-          <Paragraph className="auth-subtitle">
-            {siteDescription || '注册后即可管理小说项目、章节草稿、提示词模板和 AI 创作偏好。'}
-          </Paragraph>
+          {siteDescription && <Paragraph className="auth-subtitle">{siteDescription}</Paragraph>}
           <div className="auth-benefit-grid">
             <div className="auth-benefit-item">
               <RocketOutlined />

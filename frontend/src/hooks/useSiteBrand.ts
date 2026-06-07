@@ -9,7 +9,7 @@ let brandVersion = Date.now();
 
 const DEFAULT_SITE_INFO: SiteBrandInfo = {
   siteName: 'AI Novel Studio',
-  siteDescription: '基于 AI 的小说创作平台',
+  siteDescription: '',
   faviconUrl: '/favicon.svg',
   brandVersion,
 };

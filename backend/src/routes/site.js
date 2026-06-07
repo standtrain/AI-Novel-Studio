@@ -14,7 +14,7 @@ router.get('/info', async (_req, res) => {
     const hasCustomFavicon = !!(faviconPath && faviconPath.trim());
     res.json({
       siteName: siteName || 'AI Novel Studio',
-      siteDescription: siteDescription || '基于AI的小说创作平台',
+      siteDescription: typeof siteDescription === 'string' ? siteDescription.trim() : '',
       faviconUrl: hasCustomFavicon ? `/uploads/${faviconPath}` : '/favicon.svg',
     });
   } catch (err) {

@@ -107,9 +107,7 @@ const LoginPage: React.FC = () => {
             <span>{siteName}</span>
           </div>
           <Title className="auth-title">欢迎回来</Title>
-          <Paragraph className="auth-subtitle">
-            {siteDescription || '继续进入你的 AI 小说创作工作台，管理灵感、章节和创作配置。'}
-          </Paragraph>
+          {siteDescription && <Paragraph className="auth-subtitle">{siteDescription}</Paragraph>}
           <div className="auth-benefit-grid">
             <div className="auth-benefit-item">
               <RocketOutlined />

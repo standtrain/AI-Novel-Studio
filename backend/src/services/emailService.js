@@ -6,7 +6,6 @@ const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('email-service');
 const DEFAULT_SITE_NAME = 'AI Novel Studio';
-const DEFAULT_SITE_DESCRIPTION = 'AI 小说创作平台';
 
 let _resendClient = null;
 let _cachedApiKey = null;
@@ -49,7 +48,7 @@ async function _getSmtpTransporter() {
 
 async function _getEmailBrand() {
   const siteName = ((await configService.get('site_name')) || DEFAULT_SITE_NAME).trim();
-  const siteDescription = ((await configService.get('site_description')) || DEFAULT_SITE_DESCRIPTION).trim();
+  const siteDescription = ((await configService.get('site_description')) || '').trim();
   const configuredFromName = ((await configService.get('email_from_name')) || '').trim();
 
   // 旧版本把 email_from_name 默认写死为 AI Novel Studio。
@@ -78,6 +77,7 @@ function _buildEmailShell({ siteName, siteDescription, title, children }) {
   const safeSiteName = _escapeHtml(siteName);
   const safeDescription = _escapeHtml(siteDescription);
   const safeTitle = _escapeHtml(title);
+  const safeFooter = safeDescription ? `${safeSiteName} · ${safeDescription}` : safeSiteName;
 
   return `
 <div style="max-width:520px;margin:0 auto;padding:40px 32px;font-family:'Noto Sans SC','PingFang SC','Microsoft YaHei',system-ui,sans-serif;background:#ffffff;border-radius:12px;border:1px solid #e5e7eb;">
@@ -96,7 +96,7 @@ function _buildEmailShell({ siteName, siteDescription, title, children }) {
   </p>
 
   <div style="margin-top:24px;padding-top:20px;border-top:1px solid #f1f5f9;text-align:center;">
-    <p style="color:#cbd5e1;font-size:11px;margin:0;">${safeSiteName} · ${safeDescription}</p>
+    <p style="color:#cbd5e1;font-size:11px;margin:0;">${safeFooter}</p>
   </div>
 </div>`;
 }

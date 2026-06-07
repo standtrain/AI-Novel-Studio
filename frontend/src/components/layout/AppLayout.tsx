@@ -10,6 +10,7 @@ const { Content } = Layout;
 
 const AppLayout: React.FC = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const isMobile = useMobile();
   const navigate = useNavigate();
   const location = useLocation();
@@ -25,8 +26,13 @@ const AppLayout: React.FC = () => {
     <Layout className="app-shell">
       <Header onMenuToggle={() => setDrawerOpen(true)} />
       <Layout style={{ background: 'transparent' }}>
-        {/* 桌面端：固定侧边栏 */}
-        {!isMobile && <Sidebar />}
+        {/* 桌面端：可折叠侧边栏 */}
+        {!isMobile && (
+          <Sidebar
+            collapsed={sidebarCollapsed}
+            onCollapse={setSidebarCollapsed}
+          />
+        )}
 
         {/* 移动端：抽屉式菜单 */}
         {isMobile && (

@@ -289,7 +289,7 @@ const ForgotPasswordPage: React.FC = () => {
               maxLength={6}
               onFocus={() => setFocusedInput('code')}
               onBlur={() => setFocusedInput(null)}
-              style={{ ...getInputStyle('code'), letterSpacing: 4, fontSize: 20, textAlign: 'center' }}
+              style={{ ...getInputStyle('code'), letterSpacing: 4, textAlign: 'center' }}
             />
           </Form.Item>
 

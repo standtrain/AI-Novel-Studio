@@ -28,6 +28,23 @@ function toBoolean(value) {
   return value === true || value === 1 || value === '1' || value === 'true';
 }
 
+function parseSearchKeyword(value, fieldName = '搜索词', maxLength = 100) {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value !== 'string') {
+    const err = new Error(`${fieldName}必须为字符串`);
+    err.status = 400;
+    throw err;
+  }
+  const keyword = value.trim();
+  if (!keyword) return undefined;
+  if (keyword.length > maxLength) {
+    const err = new Error(`${fieldName}不能超过 ${maxLength} 个字符`);
+    err.status = 400;
+    throw err;
+  }
+  return keyword;
+}
+
 async function validateDefaultGroupConfig(value) {
   const groupId = parsePositiveInt(value, '默认分组ID');
   const group = await userGroupDao.findById(groupId);
@@ -85,10 +102,10 @@ router.get('/stats', async (req, res) => {
 // 全局搜索（跨模块：用户、小说、配置项、通知）
 router.get('/search', async (req, res) => {
   try {
-    const { q } = req.query;
-    if (!q || !q.trim()) return res.json({ users: [], novels: [], configs: [], notifications: [] });
+    const q = parseSearchKeyword(req.query.q);
+    if (!q) return res.json({ users: [], novels: [], configs: [], notifications: [] });
 
-    const term = `%${q.trim()}%`;
+    const term = `%${q}%`;
     const { db } = require('../config/database');
 
     // 搜索用户（用户名、邮箱、状态）
@@ -150,7 +167,7 @@ router.get('/users', async (req, res) => {
     const { page, limit } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
     const { status, group_id } = req.query;
     const groupId = parseOptionalPositiveInt(group_id, '用户组ID');
-    const keyword = req.query.q?.trim() || undefined;
+    const keyword = parseSearchKeyword(req.query.q);
     const result = await userDao.list({ page, limit, status, groupId, keyword });
     res.json({ ...result, rows: result.rows.map(sanitizeAdminUser) });
   } catch (err) {
@@ -483,7 +500,7 @@ router.get('/novels', async (req, res) => {
     const userId = parseOptionalPositiveInt(req.query.user_id, '用户ID');
     if (userId) base = base.where('novels.user_id', userId);
     if (req.query.status) base = base.where('novels.status', req.query.status);
-    const keyword = req.query.q?.trim();
+    const keyword = parseSearchKeyword(req.query.q);
     if (keyword) {
       const kw = `%${keyword}%`;
       base = base.where(function () {

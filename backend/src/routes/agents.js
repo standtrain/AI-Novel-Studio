@@ -6,6 +6,26 @@ const agentService = require('../services/agentService');
 const { parsePositiveInt, parseOptionalPositiveInt } = require('../utils/requestParser');
 
 const router = Router();
+const MIN_IMPORT_TEXT_LENGTH = 100;
+const MAX_IMPORT_TEXT_LENGTH = 200000;
+const MAX_IMPORT_INSTRUCTIONS_LENGTH = 1000;
+const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
+
+function cleanImportText(value) {
+  return typeof value === 'string' ? value.replace(/\u0000/g, '').trim() : '';
+}
+
+function validateBase64Payload(base64) {
+  if (!base64 || !/^[A-Za-z0-9+/=\r\n]+$/.test(base64)) {
+    throw { status: 400, message: '文档编码格式不正确' };
+  }
+  const compact = base64.replace(/\s/g, '');
+  const estimatedBytes = Math.floor((compact.length * 3) / 4);
+  if (estimatedBytes > MAX_IMPORT_FILE_BYTES) {
+    throw { status: 413, message: '文档文件过大，请上传不超过5MB的文件' };
+  }
+  return compact;
+}
 
 // 所有 Agent 创作路由都需要认证
 router.use(authenticate);
@@ -42,22 +62,26 @@ router.post('/import-analyze', async (req, res) => {
     const contentType = req.get('Content-Type') || '';
     if (contentType.includes('text/plain')) {
       // 原始文本体，直接作为 text 字段
-      text = typeof req.body === 'string' ? req.body : '';
+      text = cleanImportText(req.body);
       if (!text) {
         return res.status(400).json({ error: '请求体为空' });
       }
     } else {
-      text = req.body?.text || '';
+      text = cleanImportText(req.body?.text);
       if (!text) {
         return res.status(400).json({ error: '请提供文本内容或文件' });
       }
+    }
+
+    if (text.length > MAX_IMPORT_TEXT_LENGTH && !text.startsWith('[DOCX_BASE64]') && !text.startsWith('[DOC_BASE64]')) {
+      return res.status(413).json({ error: `文本内容过长，请控制在${MAX_IMPORT_TEXT_LENGTH}字以内` });
     }
 
     // DOCX/DOC 文件（base64 编码），使用对应库解析
     if (text.startsWith('[DOCX_BASE64]') || text.startsWith('[DOC_BASE64]')) {
       const isDoc = text.startsWith('[DOC_BASE64]');
       const prefixLen = isDoc ? 12 : 13; // '[DOC_BASE64]'=12, '[DOCX_BASE64]'=13
-      const base64 = text.substring(prefixLen);
+      const base64 = validateBase64Payload(text.substring(prefixLen));
       try {
         const buffer = Buffer.from(base64, 'base64');
         if (isDoc) {
@@ -72,18 +96,22 @@ router.post('/import-analyze', async (req, res) => {
           const result = await mammoth.extractRawText({ buffer });
           text = result.value;
         }
-        if (!text || text.trim().length < 100) {
+        text = cleanImportText(text);
+        if (!text || text.length < MIN_IMPORT_TEXT_LENGTH) {
           return res.status(400).json({ error: '文档内容过短或解析失败，请确认文件包含足够的中文内容' });
         }
+        if (text.length > MAX_IMPORT_TEXT_LENGTH) {
+          return res.status(413).json({ error: `文档解析后内容过长，请控制在${MAX_IMPORT_TEXT_LENGTH}字以内` });
+        }
       } catch (parseErr) {
-        return res.status(400).json({ error: '文档解析失败：' + parseErr.message });
+        return res.status(400).json({ error: '文档解析失败，请确认文件格式正确' });
       }
     }
 
-    if (text.length < 100) {
+    if (text.length < MIN_IMPORT_TEXT_LENGTH) {
       return res.status(400).json({ error: '文本内容过短，请至少提供100字以上的内容' });
     }
-    const instructions = req.body?.instructions || '';
+    const instructions = cleanImportText(req.body?.instructions).substring(0, MAX_IMPORT_INSTRUCTIONS_LENGTH);
     const task = agentService.runImportAnalysis(req.user.id, text, instructions);
     task.execute(req, res);
   } catch (err) {

@@ -13,9 +13,27 @@ const CHAPTER_PATTERNS = [
 
 // 最大分析文本长度
 const MAX_TEXT_LENGTH = 50000;
+const MAX_INSTRUCTIONS_LENGTH = 1000;
 
 // 默认全书总章数（100-200 范围）
 const DEFAULT_TOTAL_CHAPTERS = 150;
+
+function cleanText(value, maxLength = null) {
+  if (value === undefined || value === null) return '';
+  const text = String(value).replace(/\u0000/g, '').trim();
+  return maxLength ? text.substring(0, maxLength) : text;
+}
+
+function cleanArray(value, maxItems = 20, itemMaxLength = 200) {
+  return (Array.isArray(value) ? value : [])
+    .map(item => {
+      if (item === undefined || item === null) return null;
+      if (typeof item === 'string') return cleanText(item, itemMaxLength) || null;
+      return item;
+    })
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
 
 
 class ImportAgent extends BaseAgent {
@@ -36,7 +54,7 @@ class ImportAgent extends BaseAgent {
       ? rawText.substring(0, MAX_TEXT_LENGTH)
       : rawText;
     const warnings = [];
-    this._instructions = instructions;
+    this._instructions = cleanText(instructions, MAX_INSTRUCTIONS_LENGTH);
 
     if (text.length < 100) {
       throw Object.assign(new Error('文本内容过短，请至少提供100字以上的内容'), { status: 400 });
@@ -89,7 +107,6 @@ class ImportAgent extends BaseAgent {
     }
 
     // 构建已提交章节的内容 Map（保留原文，不生成新正文）
-    const importedNumbers = new Set(chapters.map(c => c.chapter_number));
     const chapterContents = new Map();
     for (const ch of chapters) {
       chapterContents.set(ch.chapter_number, ch.text.trim());
@@ -98,31 +115,31 @@ class ImportAgent extends BaseAgent {
     // 组装结果
     const result = {
       novel: {
-        title: overview.title || '',
-        genre: overview.genre || '',
-        theme: overview.theme || '',
-        setting: overview.setting || '',
-        main_plot: overview.main_plot || '',
-        sub_plots: overview.sub_plots || [],
+        title: cleanText(overview.title, 200),
+        genre: cleanText(overview.genre, 100),
+        theme: cleanText(overview.theme),
+        setting: cleanText(overview.setting),
+        main_plot: cleanText(overview.main_plot),
+        sub_plots: cleanArray(overview.sub_plots, 20, 200),
         chapterCount: totalChapters,
       },
       characters: characters.map(c => ({
-        name: c.name || '未知',
-        role: c.role || '配角',
-        age: c.age || '',
-        gender: c.gender || '未知',
-        personality: c.personality || '',
-        abilities: c.abilities || '',
-        relationships: c.relationships || [],
+        name: cleanText(c.name, 100) || '未知',
+        role: cleanText(c.role, 50) || '配角',
+        age: cleanText(c.age, 50),
+        gender: cleanText(c.gender, 10) || '未知',
+        personality: cleanText(c.personality, 500),
+        abilities: cleanText(c.abilities, 500),
+        relationships: cleanArray(c.relationships, 30, 200),
         importance: c.importance || 'medium',
       })),
       chapters: chapterOutlines.map(ch => ({
         chapter_number: ch.chapter_number,
-        title: ch.title || '',
-        summary: ch.summary || '',
-        key_events: ch.key_events || [],
-        characters_involved: ch.characters_involved || [],
-        hook: ch.hook || '',
+        title: cleanText(ch.title, 200),
+        summary: cleanText(ch.summary, 255),
+        key_events: cleanArray(ch.key_events, 20, 200),
+        characters_involved: cleanArray(ch.characters_involved, 50, 100),
+        hook: cleanText(ch.hook, 500),
         content: chapterContents.get(ch.chapter_number) || '',
       })),
       warnings,

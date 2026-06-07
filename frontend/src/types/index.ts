@@ -281,6 +281,22 @@ export interface Inmail {
   created_at: string;
 }
 
+// 对话消息
+export interface ChatMessage {
+  id?: number;
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+// 对话
+export interface Conversation {
+  id: number;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  messages?: ChatMessage[];
+}
+
 // 可选模型（供用户偏好选择）
 export interface SelectableModel {
   providerName: string;

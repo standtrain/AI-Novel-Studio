@@ -109,6 +109,7 @@ function normalizeImportedChapter(ch, index) {
       : '';
   const scenes = normalizeArray(pickFirst(ch, ['scenes', 'key_events', 'keyEvents']));
   const charactersInvolved = normalizeArray(pickFirst(ch, ['characters_involved', 'charactersInvolved']));
+  const contentWordCount = content ? countWords(content) : 0;
   const status = content
     ? 'completed'
     : (['outline', 'writing', 'completed'].includes(ch.status) ? ch.status : 'outline');
@@ -126,7 +127,7 @@ function normalizeImportedChapter(ch, index) {
     content: content || null,
     summary: toText(ch.summary, null, 255),
     status,
-    word_count: toNonNegativeInt(pickFirst(ch, ['word_count', 'wordCount']), content ? countWords(content) : 0),
+    word_count: content ? contentWordCount : toNonNegativeInt(pickFirst(ch, ['word_count', 'wordCount']), 0),
     created_at: new Date(),
     updated_at: new Date(),
   };

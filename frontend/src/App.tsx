@@ -20,6 +20,7 @@ const AdminPage = React.lazy(() => import('./pages/AdminPage'));
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage'));
 const AdvancedSettingsPage = React.lazy(() => import('./pages/AdvancedSettingsPage'));
 const TemplateStorePage = React.lazy(() => import('./pages/TemplateStorePage'));
+const ChatPage = React.lazy(() => import('./pages/ChatPage'));
 const LandingPage = React.lazy(() => import('./pages/LandingPage'));
 
 const SiteDocumentMeta: React.FC = () => {
@@ -114,6 +115,7 @@ const App: React.FC = () => {
             <Route path="/novel/:id/chapter/:num" element={<ChapterEditPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/advanced" element={<AdvancedSettingsPage />} />
+            <Route path="/chat" element={<ChatPage />} />
             <Route path="/templates" element={<TemplateStorePage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Route>

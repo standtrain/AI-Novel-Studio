@@ -22,6 +22,7 @@ const exportRoutes = require('./routes/export');
 const templateRoutes = require('./routes/templates');
 const adminNotificationRoutes = require('./routes/adminNotifications');
 const inmailRoutes = require('./routes/inmails');
+const chatRoutes = require('./routes/chat');
 
 const logger = createLogger('app');
 
@@ -133,6 +134,7 @@ app.use('/api/mcp-endpoint', mcpEndpointRoutes);
 app.use('/api/templates', templateRoutes);
 app.use('/api/admin', adminNotificationRoutes);
 app.use('/api/inmails', inmailRoutes);
+app.use('/api/chat', chatRoutes);
 
 const path = require('path');
 const fs = require('fs');

@@ -108,7 +108,7 @@ async function readSSEStream(response: Response, onEvent: SSEEventHandler, contr
 
 // 通用 SSE 请求工厂，消除 6 个方法中的重复代码
 // 支持409错误自动重试（取消后重新发起请求时后端任务可能还未清理）
-function startSSE(
+export function startSSE(
   url: string,
   body: string,
   onEvent: SSEEventHandler,

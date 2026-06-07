@@ -32,6 +32,7 @@ const PHASE_MAP = {
   review: 'write_chapter',
   polish: 'write_chapter',
   data_extraction: 'write_chapter',
+  chat: 'all',
 };
 
 function _normalizePhase(phase) {
@@ -1473,6 +1474,11 @@ agentService.runImportAnalysis = function (userId, text, instructions) {
           if (!res.writableEnded) sendSSE(res, event, data);
         }, instructions);
 
+        if (abortController.signal.aborted || res.writableEnded) {
+          finalStatus = queueManager.STATUS.CANCELLED;
+          return;
+        }
+
         sendSSE(res, 'result', result);
         // 同时返回可导入的数据格式，方便前端直接调用 importNovelApi
         sendSSE(res, 'import_payload', {
@@ -1525,7 +1531,7 @@ agentService.runImportAnalysis = function (userId, text, instructions) {
         if (!res.writableEnded) {
           logger.error('智能导入分析失败：' + err.message);
           if (finalStatus !== queueManager.STATUS.CANCELLED) {
-            sendSSE(res, 'error', { message: err.message });
+            sendSSE(res, 'error', { message: err.status && err.status < 500 ? err.message : '智能导入分析失败，请稍后重试' });
           }
         }
         _safeEnd(res);
@@ -1760,6 +1766,129 @@ agentService.planRevise = function (userId, novelId, feedback) {
       } finally {
         if (queueSlot) {
           _cleanupTask(novelId, 'plan_revise', abortController, finalStatus);
+        }
+      }
+    },
+  };
+};
+
+// ========== 通用AI多轮对话（支持持久化） ==========
+agentService.chat = function (userId, message, conversationId) {
+  if (!message || message.trim().length < 1) {
+    throw { status: 400, message: '请输入消息内容' };
+  }
+
+  const chatDao = require('../dao/chatDao');
+
+  return {
+    execute: async (req, res) => {
+      const abortController = new AbortController();
+      let agent;
+      try {
+        const ctx = { novel: null, characters: [], allChapters: [] };
+        agent = await _createAgent(ctx, userId, 'chat');
+      } catch (err) {
+        setupSSE(res);
+        sendSSE(res, 'error', { message: 'AI 服务初始化失败：' + err.message });
+        _safeEnd(res);
+        return;
+      }
+      agent._abortSignal = abortController.signal;
+
+      setupSSE(res);
+      _onClose(req, res, abortController, 0, 'chat');
+
+      let queueSlot = null;
+      let finalStatus = queueManager.STATUS.COMPLETED;
+      let resolvedConvId = conversationId;
+      try {
+        queueSlot = await _acquireQueueSlot(req, res, userId, 0, 'chat', abortController);
+        agent._abortSignal = abortController.signal;
+
+        // 自动创建对话（无 conversationId 时）
+        if (!resolvedConvId) {
+          const title = message.trim().substring(0, 50);
+          resolvedConvId = await chatDao.create(userId, title);
+        } else {
+          const conv = await chatDao.findById(resolvedConvId, userId);
+          if (!conv) {
+            throw { status: 404, message: '对话不存在' };
+          }
+        }
+
+        // 保存用户消息
+        await chatDao.addMessage(resolvedConvId, 'user', message.trim());
+        await chatDao.touch(resolvedConvId, userId);
+
+        // 检查是否为首条消息，自动设置标题
+        const msgCount = (await chatDao.listMessages(resolvedConvId)).length;
+        if (msgCount <= 1) {
+          const autoTitle = message.trim().substring(0, 50);
+          await chatDao.updateTitle(resolvedConvId, userId, autoTitle);
+        }
+
+        // 发送 conversationId 给前端用于后续请求
+        sendSSE(res, 'conversation', { conversationId: resolvedConvId });
+
+        // 从数据库构建权威上下文，避免信任前端 history 或重复加入当前消息。
+        const maxHistory = 20;
+        const dbMessages = await chatDao.listMessages(resolvedConvId);
+        const messages = dbMessages
+          .slice(-maxHistory)
+          .filter((msg) => (msg.role === 'user' || msg.role === 'assistant') && msg.content)
+          .map((msg) => ({ role: msg.role, content: String(msg.content) }));
+
+        const systemPrompt =
+          '你是一位专业的小说创作助手。你可以：\n' +
+          '1. 与用户讨论写作创意、故事构思、角色设计、世界观设定\n' +
+          '2. 提供写作建议、文学技巧、叙事结构分析\n' +
+          '3. 回答关于小说创作、出版、类型文学的任何问题\n' +
+          '4. 进行头脑风暴，帮助用户突破写作瓶颈\n' +
+          '请用热情、专业且富有启发性的方式回答，像一位经验丰富的写作导师。';
+
+        const { content, usage, model, provider, skipReasons } = await agent.callLLMStream(
+          systemPrompt,
+          message.trim(),
+          0.8,
+          (chunk) => {
+            if (!res.writableEnded) sendSSE(res, 'chunk', { text: chunk });
+          },
+          'chat',
+          abortController.signal,
+          undefined,
+          { messages }
+        );
+
+        if (skipReasons && skipReasons.length > 0) {
+          sendSSE(res, 'model_fallback', {
+            preferredModel: agent.preferredModel,
+            actualModel: model,
+            reasons: skipReasons,
+          });
+        }
+
+        // 保存 AI 回复
+        if (content && content.trim()) {
+          await chatDao.addMessage(resolvedConvId, 'assistant', content.trim());
+          await chatDao.touch(resolvedConvId, userId);
+        }
+
+        await _recordUsage(userId, 0, 'chat', usage, model, provider);
+        sendSSE(res, 'done', { conversationId: resolvedConvId });
+        _safeEnd(res);
+
+      } catch (err) {
+        finalStatus = err.status === queueManager.STATUS.CANCELLED || abortController.signal.aborted
+          ? queueManager.STATUS.CANCELLED
+          : queueManager.STATUS.FAILED;
+        if (finalStatus !== queueManager.STATUS.CANCELLED && !res.writableEnded) {
+          logger.error('AI对话失败：' + err.message);
+          sendSSE(res, 'error', { message: err.status && err.status < 500 ? err.message : 'AI 对话处理失败，请稍后重试' });
+        }
+        _safeEnd(res);
+      } finally {
+        if (queueSlot) {
+          _releaseQueueSlot(queueSlot, finalStatus);
         }
       }
     },

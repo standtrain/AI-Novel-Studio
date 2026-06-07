@@ -1,6 +1,6 @@
 import React from 'react';
 import { Layout, Menu, Button, Tooltip, Modal } from 'antd';
-import { HomeOutlined, EditOutlined, SettingOutlined, UserOutlined, ExperimentOutlined, ShopOutlined, MessageOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { HomeOutlined, EditOutlined, SettingOutlined, UserOutlined, ExperimentOutlined, ShopOutlined, MessageOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ExclamationCircleOutlined, CustomerServiceOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 
@@ -12,6 +12,7 @@ export const getMenuItems = (isAdmin: boolean) => [
   { key: '/dashboard', icon: <EditOutlined />, label: '我的小说' },
   { key: '/chat', icon: <MessageOutlined />, label: 'AI 对话' },
   { key: '/templates', icon: <ShopOutlined />, label: '模板商店' },
+  { key: '/tickets', icon: <CustomerServiceOutlined />, label: '提交工单' },
   ...(isAdmin ? [{ key: '/admin', icon: <SettingOutlined />, label: '管理后台' }] : []),
   { key: '/advanced', icon: <ExperimentOutlined />, label: '高级设置' },
   { key: '/settings', icon: <UserOutlined />, label: '个人设置' },
@@ -22,6 +23,7 @@ export const getSelectedKey = (pathname: string) => {
   if (pathname.startsWith('/admin')) return '/admin';
   if (pathname.startsWith('/chat')) return '/chat';
   if (pathname.startsWith('/templates')) return '/templates';
+  if (pathname.startsWith('/tickets')) return '/tickets';
   if (pathname.startsWith('/advanced')) return '/advanced';
   if (pathname.startsWith('/settings')) return '/settings';
   return '/dashboard';

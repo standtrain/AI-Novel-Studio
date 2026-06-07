@@ -3,6 +3,17 @@ const { db } = require('../config/database');
 const TABLE = 'inmails';
 
 const inmailDao = {
+  /** 创建单条站内信：用于工单回复等点对点通知 */
+  async create(userId, { title, content, notification_id }) {
+    const [id] = await db(TABLE).insert({
+      user_id: userId,
+      notification_id: notification_id || null,
+      title,
+      content,
+    });
+    return db(TABLE).where({ id }).first();
+  },
+
   /** 获取用户站内信列表 */
   async listByUser(userId, { page = 1, limit = 20, unreadOnly = false } = {}) {
     const offset = (page - 1) * limit;

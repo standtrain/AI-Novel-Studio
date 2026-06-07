@@ -1,6 +1,6 @@
 import React from 'react';
 import { Layout, Button, Space, Dropdown, Modal } from 'antd';
-import { UserOutlined, LogoutOutlined, HomeOutlined, EditOutlined, SettingOutlined, MenuOutlined, ShopOutlined, ExperimentOutlined, ExclamationCircleOutlined, MailOutlined } from '@ant-design/icons';
+import { UserOutlined, LogoutOutlined, HomeOutlined, EditOutlined, SettingOutlined, MenuOutlined, ShopOutlined, ExperimentOutlined, ExclamationCircleOutlined, MailOutlined, CustomerServiceOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import useMobile from '../../hooks/useMobile';
@@ -41,6 +41,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
       { key: 'home', icon: <HomeOutlined />, label: '首页', onClick: () => navigate('/home') },
       { key: 'dashboard', icon: <EditOutlined />, label: '我的小说', onClick: () => navigate('/dashboard') },
       { key: 'templates', icon: <ShopOutlined />, label: '模板商店', onClick: () => navigate('/templates') },
+      { key: 'tickets', icon: <CustomerServiceOutlined />, label: '提交工单', onClick: () => navigate('/tickets') },
       ...(isAdmin ? [{ key: 'admin', icon: <SettingOutlined />, label: '管理后台', onClick: () => navigate('/admin') }] : []),
       { key: 'advanced', icon: <ExperimentOutlined />, label: '高级设置', onClick: () => navigate('/advanced') },
       { key: 'settings', icon: <UserOutlined />, label: '个人设置', onClick: () => navigate('/settings') },

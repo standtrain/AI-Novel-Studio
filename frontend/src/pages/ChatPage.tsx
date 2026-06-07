@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Button, Input, Typography, App, Spin, Modal, Tooltip } from 'antd';
+import { Button, Input, Typography, App, Spin, Modal, Tooltip, Space } from 'antd';
 import {
   SendOutlined, StopOutlined, RobotOutlined, DeleteOutlined,
   PlusOutlined, MessageOutlined, ExclamationCircleOutlined,
   FileAddOutlined, LoadingOutlined, SearchOutlined,
+  CopyOutlined, UserOutlined, CheckOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import useMobile from '../hooks/useMobile';
@@ -11,6 +12,7 @@ import { startChatStream } from '../api/chat';
 import { startImportAnalysisStream } from '../api/agents';
 import { importNovelApi } from '../api/novels';
 import { listConversationsApi, getConversationApi, deleteConversationApi } from '../api/conversations';
+import PageShell from '../components/shared/PageShell';
 import type { ChatMessage, Conversation, ImportNovelData } from '../types';
 
 const { TextArea } = Input;
@@ -22,6 +24,22 @@ const SUGGESTED_PROMPTS = [
   '给我的主角设计一个背景故事',
   '分析一下悬疑小说的节奏把控技巧',
 ];
+
+// 消息组件基础样式常量
+const msgBubbleBase: React.CSSProperties = {
+  padding: '12px 18px',
+  borderRadius: 16,
+  fontSize: 14,
+  lineHeight: 1.75,
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+};
+
+const roleIconStyle: React.CSSProperties = {
+  fontSize: 18,
+  flexShrink: 0,
+  marginTop: 4,
+};
 
 const ChatPage: React.FC = () => {
   const isMobile = useMobile();
@@ -42,10 +60,13 @@ const ChatPage: React.FC = () => {
   const abortRef = useRef<AbortController | null>(null);
   const streamingRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const convIdRef = useRef<number | null>(null);
+  const userScrolledUpRef = useRef(false);
 
   // 自增 key 确保同一对话切换时组件强制刷新
   const [chatKey, setChatKey] = useState(0);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
   // 智能导入状态
   const [importingMsgIdx, setImportingMsgIdx] = useState<number | null>(null);
@@ -117,6 +138,18 @@ const ChatPage: React.FC = () => {
     });
   };
 
+  // 复制消息内容
+  const handleCopy = async (idx: number, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedIdx(idx);
+      msgApi.success('已复制');
+      setTimeout(() => setCopiedIdx(null), 2000);
+    } catch {
+      msgApi.error('复制失败');
+    }
+  };
+
   // 加载对话列表
   const loadConversations = useCallback(async () => {
     try {
@@ -163,9 +196,22 @@ const ChatPage: React.FC = () => {
     })();
   }, [activeConvId]);
 
+  // 智能滚动：仅当用户未主动上滚时自动滚到底部
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    if (!userScrolledUpRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, streamContent]);
+
+  const handleMessagesScroll = useCallback(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const threshold = 80;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    userScrolledUpRef.current = !atBottom;
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -306,18 +352,25 @@ const ChatPage: React.FC = () => {
   };
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: isMobile ? 'column' : 'row',
-        height: isMobile ? 'auto' : 'calc(100vh - 120px)',
-        minHeight: isMobile ? 'calc(100vh - 160px)' : 560,
-        maxWidth: 1180,
-        margin: '0 auto',
-        gap: 0,
-        overflow: 'hidden',
-      }}
+    <PageShell
+      title="AI 对话"
+      subtitle="管理会话历史，和 AI 一起构思、分析并导入小说素材"
+      icon={<MessageOutlined />}
+      compact
+      toolMode
+      contentClassName="chat-page-content"
     >
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          height: isMobile ? 'auto' : 'calc(100vh - 236px)',
+          minHeight: isMobile ? 'calc(100vh - 300px)' : 520,
+          width: '100%',
+          gap: 0,
+          overflow: 'hidden',
+        }}
+      >
       {/* ====== 对话历史 ====== */}
       <div
         style={{
@@ -524,6 +577,8 @@ const ChatPage: React.FC = () => {
 
         {/* 消息区域 */}
         <div
+          ref={messagesContainerRef}
+          onScroll={handleMessagesScroll}
           style={{
             flex: 1,
             overflowY: 'auto',
@@ -538,31 +593,47 @@ const ChatPage: React.FC = () => {
             </div>
           ) : messages.length === 0 && !isStreaming ? (
             <div style={{ textAlign: 'center', paddingTop: 60 }}>
-              <RobotOutlined
-                style={{ fontSize: 48, color: '#6366f1', marginBottom: 16, opacity: 0.6 }}
-              />
-              <Title level={5} style={{ color: '#94a3b8' }}>
-                开始对话
-              </Title>
-              <Text style={{ color: '#64748b', fontSize: 13 }}>
-                输入你想讨论的话题，或点击下方快捷提问
-              </Text>
-              <div style={{ marginTop: 20, display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
-                {SUGGESTED_PROMPTS.map((prompt, i) => (
-                  <Button
-                    key={i}
-                    size="small"
-                    style={{
-                      borderColor: 'rgba(99,102,241,0.3)',
-                      color: '#cbd5e1',
-                      background: 'rgba(30,41,59,0.6)',
-                    }}
-                    onClick={() => setInputValue(prompt)}
-                  >
-                    {prompt}
-                  </Button>
-                ))}
-              </div>
+              {activeConvId ? (
+                <>
+                  <MessageOutlined
+                    style={{ fontSize: 40, color: '#6366f1', marginBottom: 12, opacity: 0.5 }}
+                  />
+                  <Title level={5} style={{ color: '#94a3b8' }}>
+                    对话为空
+                  </Title>
+                  <Text style={{ color: '#64748b', fontSize: 13 }}>
+                    输入消息开始一段新对话
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <RobotOutlined
+                    style={{ fontSize: 52, color: '#6366f1', marginBottom: 20, opacity: 0.45 }}
+                  />
+                  <Title level={4} style={{ color: '#cbd5e1', marginBottom: 8 }}>
+                    AI 对话助手
+                  </Title>
+                  <Text style={{ color: '#64748b', fontSize: 13 }}>
+                    选择左侧对话或新建话题，开始畅聊
+                  </Text>
+                  <div style={{ marginTop: 24, display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8 }}>
+                    {SUGGESTED_PROMPTS.map((prompt, i) => (
+                      <Button
+                        key={i}
+                        size="small"
+                        style={{
+                          borderColor: 'rgba(99,102,241,0.3)',
+                          color: '#cbd5e1',
+                          background: 'rgba(30,41,59,0.6)',
+                        }}
+                        onClick={() => { setInputValue(prompt); handleNewConversation(); }}
+                      >
+                        {prompt}
+                      </Button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <>
@@ -571,47 +642,86 @@ const ChatPage: React.FC = () => {
                   key={i}
                   style={{
                     display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                    marginBottom: 14,
+                    flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
+                    alignItems: 'flex-start',
+                    gap: 10,
+                    marginBottom: 16,
                   }}
                 >
+                  {/* 角色头像 */}
                   <div
                     style={{
-                      maxWidth: isMobile ? '92%' : '75%',
-                      padding: '10px 16px',
-                      borderRadius: 14,
-                      background:
-                        msg.role === 'user'
-                          ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)'
-                          : 'rgba(30,41,59,0.85)',
-                      border:
-                        msg.role === 'user'
-                          ? 'none'
-                          : '1px solid rgba(99,102,241,0.15)',
-                      color: '#f1f5f9',
-                      fontSize: 14,
-                      lineHeight: 1.75,
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
+                      ...roleIconStyle,
+                      color: msg.role === 'user' ? '#818cf8' : '#34d399',
                     }}
                   >
-                    {msg.content}
+                    {msg.role === 'user' ? <UserOutlined /> : <RobotOutlined />}
                   </div>
-                  {msg.role === 'assistant' && msg.content.length >= 100 && (
-                    <div style={{ marginTop: 6 }}>
-                      <Button
-                        type="link"
-                        size="small"
-                        icon={importingMsgIdx === i ? <LoadingOutlined /> : <FileAddOutlined />}
-                        onClick={() => handleImportAsNovel(i, msg.content)}
-                        disabled={importingMsgIdx !== null}
-                        style={{ color: '#818cf8', padding: 0, fontSize: 12 }}
-                      >
-                        {importingMsgIdx === i ? '正在导入…' : '导入为小说'}
-                      </Button>
+
+                  <div
+                    style={{
+                      maxWidth: isMobile ? '88%' : '72%',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                    }}
+                  >
+                    {/* 角色标签 */}
+                    <Text style={{ color: '#64748b', fontSize: 11, marginBottom: 4, marginLeft: 4, marginRight: 4 }}>
+                      {msg.role === 'user' ? '我' : 'AI'}
+                    </Text>
+
+                    <div
+                      style={{
+                        ...msgBubbleBase,
+                        background:
+                          msg.role === 'user'
+                            ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)'
+                            : 'rgba(30,41,59,0.85)',
+                        border:
+                          msg.role === 'user'
+                            ? 'none'
+                            : '1px solid rgba(99,102,241,0.15)',
+                        color: '#f1f5f9',
+                        borderTopLeftRadius: msg.role === 'assistant' ? 4 : 16,
+                        borderTopRightRadius: msg.role === 'user' ? 4 : 16,
+                      }}
+                    >
+                      {msg.content}
                     </div>
-                  )}
+
+                    {/* AI 回复操作按钮 */}
+                    {msg.role === 'assistant' && (
+                      <Space size={4} style={{ marginTop: 6 }}>
+                        <Tooltip title="复制">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={copiedIdx === i ? <CheckOutlined /> : <CopyOutlined />}
+                            onClick={() => handleCopy(i, msg.content)}
+                            style={{
+                              color: copiedIdx === i ? '#34d399' : '#64748b',
+                              fontSize: 12,
+                              padding: '0 6px',
+                              height: 26,
+                            }}
+                          />
+                        </Tooltip>
+                        {msg.content.length >= 100 && (
+                          <Button
+                            type="link"
+                            size="small"
+                            icon={importingMsgIdx === i ? <LoadingOutlined /> : <FileAddOutlined />}
+                            onClick={() => handleImportAsNovel(i, msg.content)}
+                            disabled={importingMsgIdx !== null}
+                            style={{ color: '#818cf8', padding: 0, fontSize: 12 }}
+                          >
+                            {importingMsgIdx === i ? '正在导入…' : '导入为小说'}
+                          </Button>
+                        )}
+                      </Space>
+                    )}
+                  </div>
                 </div>
               ))}
 
@@ -620,26 +730,30 @@ const ChatPage: React.FC = () => {
                 <div
                   style={{
                     display: 'flex',
-                    justifyContent: 'flex-start',
-                    marginBottom: 14,
+                    alignItems: 'flex-start',
+                    gap: 10,
+                    marginBottom: 16,
                   }}
                 >
-                  <div
-                    style={{
-                      maxWidth: isMobile ? '92%' : '75%',
-                      padding: '10px 16px',
-                      borderRadius: 14,
-                      background: 'rgba(30,41,59,0.85)',
-                      border: '1px solid rgba(99,102,241,0.15)',
-                      color: '#f1f5f9',
-                      fontSize: 14,
-                      lineHeight: 1.75,
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                    }}
-                  >
-                    {streamContent || <Spin size="small" />}
-                    {streamContent && <span className="stream-cursor" />}
+                  <div style={{ ...roleIconStyle, color: '#34d399' }}>
+                    <RobotOutlined />
+                  </div>
+                  <div style={{ maxWidth: isMobile ? '88%' : '72%' }}>
+                    <Text style={{ color: '#64748b', fontSize: 11, marginBottom: 4, display: 'block', marginLeft: 4 }}>
+                      AI
+                    </Text>
+                    <div
+                      style={{
+                        ...msgBubbleBase,
+                        background: 'rgba(30,41,59,0.85)',
+                        border: '1px solid rgba(99,102,241,0.15)',
+                        color: '#f1f5f9',
+                        borderTopLeftRadius: 4,
+                      }}
+                    >
+                      {streamContent || <Spin size="small" />}
+                      {streamContent && <span className="stream-cursor" />}
+                    </div>
                   </div>
                 </div>
               )}
@@ -701,7 +815,8 @@ const ChatPage: React.FC = () => {
           )}
         </div>
       </div>
-    </div>
+      </div>
+    </PageShell>
   );
 };
 

@@ -4,6 +4,7 @@ import { PlusOutlined, BookOutlined, EditOutlined, ExclamationCircleOutlined, Im
 import { useNavigate } from 'react-router-dom';
 import NovelCard from '../components/novel/NovelCard';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
+import PageShell from '../components/shared/PageShell';
 import { listNovelsApi, createNovelApi, deleteNovelApi, importNovelApi } from '../api/novels';
 import { startImportAnalysisStream, startNovelPlanningStream, startNovelPlanReviseStream } from '../api/agents';
 import { getTemplatesApi, createNovelFromTemplateApi, NovelTemplate } from '../api/templates';
@@ -747,41 +748,11 @@ const DashboardPage: React.FC = () => {
   if (loading) return <LoadingSpinner tip="加载小说列表..." />;
 
   return (
-    <div style={{ animation: 'fadeIn 0.5s ease-out' }}>
-      {/* 页面头部 */}
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        marginBottom: 32,
-        padding: '24px 28px',
-        background: 'rgba(30,41,59,0.6)',
-        backdropFilter: 'blur(12px)',
-        borderRadius: 20,
-        border: '1px solid rgba(99,102,241,0.15)',
-        flexWrap: 'wrap',
-        gap: 16,
-      }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-            <div style={{
-              width: 44,
-              height: 44,
-              background: 'linear-gradient(135deg, rgba(99,102,241,0.2) 0%, rgba(139,92,246,0.2) 100%)',
-              borderRadius: 12,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 4px 12px rgba(99,102,241,0.2)',
-            }}>
-              <BookOutlined style={{ fontSize: 22, color: '#818cf8' }} />
-            </div>
-            <Title level={3} style={{ color: '#f1f5f9', margin: 0, fontWeight: 700 }}>我的小说</Title>
-          </div>
-          <Text style={{ color: '#64748b', fontSize: 14 }}>
-            共 {novels.length} 部作品，持续创作中...
-          </Text>
-        </div>
+    <PageShell
+      title="我的小说"
+      subtitle={<>共 {novels.length} 部作品，持续创作中...</>}
+      icon={<BookOutlined />}
+      actions={(
         <Button
           type="primary"
           icon={<PlusOutlined />}
@@ -791,38 +762,16 @@ const DashboardPage: React.FC = () => {
             paddingInline: 24,
             fontSize: 15,
             fontWeight: 600,
-            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 50%, #7c3aed 100%)',
             border: 'none',
-            borderRadius: 12,
-            boxShadow: '0 4px 15px rgba(99,102,241,0.4), inset 0 1px 0 rgba(255,255,255,0.15)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            transition: 'all 0.3s ease',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'translateY(-2px)';
-            e.currentTarget.style.boxShadow = '0 8px 25px rgba(99,102,241,0.5), inset 0 1px 0 rgba(255,255,255,0.2)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.boxShadow = '0 4px 15px rgba(99,102,241,0.4), inset 0 1px 0 rgba(255,255,255,0.15)';
           }}
         >
           创建新小说
         </Button>
-      </div>
+      )}
+    >
 
-      <div style={{
-        display: 'grid',
+      <div className="unified-page-filter-bar" style={{
         gridTemplateColumns: isMobile ? '1fr' : 'minmax(240px, 360px) 1fr',
-        gap: 12,
-        alignItems: 'center',
-        marginBottom: 20,
-        padding: 14,
-        background: 'rgba(15,23,42,0.42)',
-        border: '1px solid rgba(99,102,241,0.14)',
-        borderRadius: 16,
       }}>
         <Input
           allowClear
@@ -863,12 +812,9 @@ const DashboardPage: React.FC = () => {
       </div>
 
       {novels.length === 0 ? (
-        <div style={{
+        <div className="unified-page-empty-panel" style={{
           padding: '80px 40px',
-          background: 'rgba(30,41,59,0.4)',
-          borderRadius: 20,
           border: '1px dashed rgba(99,102,241,0.2)',
-          textAlign: 'center',
         }}>
           <div style={{
             width: 80,
@@ -888,12 +834,8 @@ const DashboardPage: React.FC = () => {
           </Text>
         </div>
       ) : filteredNovels.length === 0 ? (
-        <div style={{
-          padding: '48px 24px',
-          background: 'rgba(30,41,59,0.32)',
-          borderRadius: 16,
+        <div className="unified-page-empty-panel" style={{
           border: '1px dashed rgba(99,102,241,0.18)',
-          textAlign: 'center',
         }}>
           <Empty description="没有匹配的小说" />
           <Button
@@ -907,9 +849,10 @@ const DashboardPage: React.FC = () => {
         <Row gutter={[20, 20]}>
           {filteredNovels.map((novel, index) => (
             <Col key={novel.id} xs={24} sm={12} md={8} lg={6}>
-              <div style={{
-                animation: `slideUp 0.5s ease-out ${Math.min(index, 8) * 0.06}s both`,
-              }}>
+              <div
+                className="unified-page-grid-item"
+                style={{ '--page-item-delay': `${Math.min(index, 8) * 50}ms` } as React.CSSProperties}
+              >
                 <NovelCard novel={novel} onClick={() => navigate(`/novel/${novel.id}`)} onDelete={() => handleDeleteClick(novel)} />
               </div>
             </Col>
@@ -2075,24 +2018,7 @@ const DashboardPage: React.FC = () => {
         </div>
       </Modal>
 
-      {/* 动画样式 */}
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes slideUp {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-      `}</style>
-    </div>
+    </PageShell>
   );
 };
 

@@ -202,10 +202,12 @@ class BaseAgent {
 
         const stream = await client.chat.completions.create({
           model,
-          messages: [
-            { role: 'system', content: enrichedSystemPrompt },
-            { role: 'user', content: userPrompt },
-          ],
+          messages: options.messages
+            ? [{ role: 'system', content: enrichedSystemPrompt }, ...options.messages]
+            : [
+                { role: 'system', content: enrichedSystemPrompt },
+                { role: 'user', content: userPrompt },
+              ],
           temperature: effectiveTemperature,
           max_tokens: maxTokens,
           stream: true,

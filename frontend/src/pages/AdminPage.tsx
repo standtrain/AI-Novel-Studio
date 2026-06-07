@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Tabs, Typography, Input, List, Tag, Button, message, Divider } from 'antd';
-import { BarChartOutlined, TeamOutlined, SettingOutlined, ApiOutlined, BookOutlined, FolderOutlined, ThunderboltOutlined, LinkOutlined, StopOutlined, ShopOutlined, LockOutlined, SearchOutlined, UserOutlined, FileTextOutlined, ToolOutlined, BellOutlined } from '@ant-design/icons';
+import { Tabs, Typography, Input, List, Tag } from 'antd';
+import { BarChartOutlined, TeamOutlined, SettingOutlined, ApiOutlined, BookOutlined, FolderOutlined, ThunderboltOutlined, LinkOutlined, StopOutlined, ShopOutlined, LockOutlined, BellOutlined, CustomerServiceOutlined, MessageOutlined } from '@ant-design/icons';
 import StatsPanel from '../components/admin/StatsPanel';
 import UserTable from '../components/admin/UserTable';
 import GroupManager from '../components/admin/GroupManager';
@@ -12,12 +12,15 @@ import McpServerManager from '../components/admin/McpServerManager';
 import ModelTokenLimitManager from '../components/admin/ModelTokenLimitManager';
 import TemplateReview from '../components/admin/TemplateReview';
 import BanManager from '../components/admin/BanManager';
+import TicketManager from '../components/admin/TicketManager';
 import NotificationManager from '../components/admin/NotificationManager';
+import ChatManager from '../components/admin/ChatManager';
 import { adminSearchApi, AdminSearchResult } from '../api/admin';
 import { useAuthStore } from '../store/authStore';
 import { Navigate } from 'react-router-dom';
+import PageShell from '../components/shared/PageShell';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const useLazyTabs = (defaultKey: string) => {
   const [activeKey, setActiveKey] = useState(defaultKey);
@@ -119,15 +122,19 @@ const AdminPage: React.FC = () => {
     { key: 'mcp', label: <span><LinkOutlined /> MCP 服务器</span>, children: renderedKeys.has('mcp') ? <McpServerManager /> : null },
     { key: 'config', label: <span><SettingOutlined /> 站点配置</span>, children: renderedKeys.has('config') ? <ConfigForm searchTerm={searchTerm} /> : null },
     { key: 'templates', label: <span><ShopOutlined /> 模板审核</span>, children: renderedKeys.has('templates') ? <TemplateReview /> : null },
+    { key: 'tickets', label: <span><CustomerServiceOutlined /> 工单管理</span>, children: renderedKeys.has('tickets') ? <TicketManager /> : null },
     { key: 'bans', label: <span><LockOutlined /> 封禁管理</span>, children: renderedKeys.has('bans') ? <BanManager /> : null },
     { key: 'notifications', label: <span><BellOutlined /> 通知管理</span>, children: renderedKeys.has('notifications') ? <NotificationManager /> : null },
+    { key: 'chat', label: <span><MessageOutlined /> 对话管理</span>, children: renderedKeys.has('chat') ? <ChatManager /> : null },
   ];
 
   return (
-    <div>
-      <div ref={searchRef} style={{ position: 'relative', marginBottom: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <Title level={4} style={{ margin: 0 }}>管理后台</Title>
+    <PageShell
+      title="管理后台"
+      subtitle="统一管理用户、模型、通知、工单与站点配置"
+      icon={<SettingOutlined />}
+      actions={(
+        <div ref={searchRef} style={{ position: 'relative', width: 360, maxWidth: '100%' }}>
           <Input.Search
             placeholder="全局搜索（用户、小说、配置、通知）..."
             value={searchTerm}
@@ -136,17 +143,16 @@ const AdminPage: React.FC = () => {
             onSearch={(v) => doSearch(v)}
             loading={searching}
             allowClear
-            style={{ width: 360 }}
+            style={{ width: '100%' }}
           />
-        </div>
 
-        {/* 全局搜索结果下拉面板 */}
-        {showResults && searchTerm.trim() && (
-          <div style={{
-            position: 'absolute',
-            top: 56,
-            right: 0,
-            width: 520,
+          {/* 全局搜索结果下拉面板 */}
+          {showResults && searchTerm.trim() && (
+            <div style={{
+              position: 'absolute',
+              top: 46,
+              right: 0,
+              width: 'min(520px, calc(100vw - 48px))',
             maxHeight: 480,
             overflow: 'auto',
             background: 'rgba(15,23,42,0.98)',
@@ -309,9 +315,11 @@ const AdminPage: React.FC = () => {
             )}
           </div>
         )}
-      </div>
+        </div>
+      )}
+    >
       <Tabs activeKey={activeKey} onChange={onChange} items={tabItems} />
-    </div>
+    </PageShell>
   );
 };
 

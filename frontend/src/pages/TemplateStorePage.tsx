@@ -4,9 +4,9 @@ import { Card, Row, Col, Typography, Tag, Button, Modal, Spin, Empty, Input, mes
 import {
   ThunderboltOutlined, HeartOutlined, RocketOutlined, SearchOutlined,
   AppleOutlined, SmileOutlined, ReadOutlined, EditOutlined, BookOutlined,
-  PlusOutlined, CrownOutlined, UserOutlined, SendOutlined, LockOutlined,
-  GlobalOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined,
-  QuestionCircleOutlined, DeleteOutlined, ShopOutlined,
+  PlusOutlined, UserOutlined, SendOutlined,
+  ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined,
+  DeleteOutlined, ShopOutlined,
 } from '@ant-design/icons';
 import {
   getTemplatesApi, getTemplateCategoriesApi, createNovelFromTemplateApi,
@@ -16,6 +16,7 @@ import {
 } from '../api/templates';
 import { useAuthStore } from '../store/authStore';
 import useMobile from '../hooks/useMobile';
+import PageShell from '../components/shared/PageShell';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -308,22 +309,28 @@ const TemplateStorePage: React.FC = () => {
   );
 
   if (loading) {
-    return <div style={{ textAlign: 'center', paddingTop: 120 }}><Spin size="large" tip="加载模板商店..." /></div>;
+    return (
+      <PageShell
+        title="模板商店"
+        subtitle="选择一个模板快速开始创作，或创建属于自己的模板"
+        icon={<ShopOutlined />}
+      >
+        <div className="unified-page-empty-panel" style={{ paddingTop: 72, paddingBottom: 72 }}>
+          <Spin size="large" tip="加载模板商店..." />
+        </div>
+      </PageShell>
+    );
   }
 
   return (
-    <div style={{ maxWidth: 1200, margin: '0 auto', animation: 'fadeIn 0.5s ease-out' }}>
-      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <Title level={3} style={{ marginBottom: 4 }}>
-            <CrownOutlined style={{ color: '#f59e0b', marginRight: 8 }} />模板商店
-          </Title>
-          <Text type="secondary">选择一个模板快速开始创作，或创建属于自己的模板</Text>
-        </div>
-        {isAuth && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateTemplate}>创建模板</Button>
-        )}
-      </div>
+    <PageShell
+      title="模板商店"
+      subtitle="选择一个模板快速开始创作，或创建属于自己的模板"
+      icon={<ShopOutlined />}
+      actions={isAuth ? (
+        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateTemplate}>创建模板</Button>
+      ) : undefined}
+    >
 
       <Tabs
         activeKey={activeStoreTab}
@@ -347,7 +354,10 @@ const TemplateStorePage: React.FC = () => {
                   <Row gutter={[16, 16]}>
                     {filteredTemplates.map((tpl, index) => (
                       <Col key={tpl.id} xs={24} sm={12} md={8} lg={6}>
-                        <div style={{ animation: `slideUp 0.5s ease-out ${index * 0.1}s both` }}>
+                        <div
+                          className="unified-page-grid-item"
+                          style={{ '--page-item-delay': `${Math.min(index, 10) * 55}ms` } as React.CSSProperties}
+                        >
                           {renderTemplateCard(tpl)}
                         </div>
                       </Col>
@@ -370,7 +380,10 @@ const TemplateStorePage: React.FC = () => {
                   <Row gutter={[16, 16]}>
                     {myTemplates.map((tpl, index) => (
                       <Col key={tpl.id} xs={24} sm={12} md={8} lg={6}>
-                        <div style={{ animation: `slideUp 0.5s ease-out ${index * 0.1}s both` }}>
+                        <div
+                          className="unified-page-grid-item"
+                          style={{ '--page-item-delay': `${Math.min(index, 10) * 55}ms` } as React.CSSProperties}
+                        >
                           {renderTemplateCard(tpl, true)}
                         </div>
                       </Col>
@@ -492,7 +505,7 @@ const TemplateStorePage: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
-    </div>
+    </PageShell>
   );
 };
 export default TemplateStorePage;

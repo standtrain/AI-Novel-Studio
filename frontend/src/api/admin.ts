@@ -310,3 +310,27 @@ export async function deleteNotificationApi(id: number) {
   const { data } = await client.delete(`/admin/notifications/${id}`);
   return data as { success: boolean; message: string };
 }
+
+// ========== 对话历史管理 ==========
+
+export async function getAdminConversationsApi(params?: {
+  page?: number; limit?: number; user_id?: number; keyword?: string;
+}) {
+  const { data } = await client.get('/admin/conversations', { params });
+  return data;
+}
+
+export async function getAdminConversationDetailApi(id: number) {
+  const { data } = await client.get(`/admin/conversations/${id}`);
+  return data;
+}
+
+export async function deleteAdminConversationApi(id: number) {
+  const { data } = await client.delete(`/admin/conversations/${id}`);
+  return data;
+}
+
+export async function deleteAdminMessageApi(convId: number, msgId: number) {
+  const { data } = await client.delete(`/admin/conversations/${convId}/messages/${msgId}`);
+  return data;
+}

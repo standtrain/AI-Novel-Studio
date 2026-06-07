@@ -1,13 +1,12 @@
 import React, { useState, useCallback } from 'react';
-import { Tabs, Typography } from 'antd';
+import { Tabs } from 'antd';
 import { ExperimentOutlined, FireOutlined, LinkOutlined, RobotOutlined, EditOutlined } from '@ant-design/icons';
 import SkillsConfig from '../components/settings/SkillsConfig';
 import McpConfig from '../components/settings/McpConfig';
 import ModelPreference from '../components/settings/ModelPreference';
 import GlobalPromptConfig from '../components/settings/GlobalPromptConfig';
 import TemperaturePreference from '../components/settings/TemperaturePreference';
-
-const { Title } = Typography;
+import PageShell from '../components/shared/PageShell';
 
 // Tab 懒渲染：仅在首次激活后渲染子组件，切换后保留已渲染的内容
 const useLazyTabs = (defaultKey: string) => {
@@ -59,10 +58,13 @@ const AdvancedSettingsPage: React.FC = () => {
   ];
 
   return (
-    <div>
-      <Title level={4}>高级设置</Title>
+    <PageShell
+      title="高级设置"
+      subtitle="管理创作温度、模型偏好、工具连接与全局提示词"
+      icon={<ExperimentOutlined />}
+    >
       <Tabs activeKey={activeKey} onChange={onChange} items={tabItems} />
-    </div>
+    </PageShell>
   );
 };
 

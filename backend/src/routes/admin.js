@@ -918,4 +918,60 @@ router.get('/favicon', authenticate, authorize('admin'), async (_req, res) => {
   }
 });
 
+// ========== 对话历史管理 ==========
+const chatDao = require('../dao/chatDao');
+
+// GET /api/admin/conversations — 所有用户对话列表
+router.get('/conversations', async (req, res) => {
+  try {
+    const { page, limit } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
+    const userId = parseOptionalPositiveInt(req.query.user_id, '用户ID');
+    const keyword = req.query.keyword?.trim() || undefined;
+    const result = await chatDao.listAll({ page, limit, userId, keyword });
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || '获取对话列表失败' });
+  }
+});
+
+// GET /api/admin/conversations/:id — 对话详情（含消息）
+router.get('/conversations/:id', async (req, res) => {
+  try {
+    const convId = parsePositiveInt(req.params.id, '对话ID');
+    const conv = await chatDao.findAnyById(convId);
+    if (!conv) return res.status(404).json({ error: '对话不存在' });
+    const messages = await chatDao.listMessages(convId);
+    res.json({ ...conv, messages });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || '获取对话详情失败' });
+  }
+});
+
+// DELETE /api/admin/conversations/:id — 删除对话
+router.delete('/conversations/:id', async (req, res) => {
+  try {
+    const convId = parsePositiveInt(req.params.id, '对话ID');
+    const conv = await chatDao.findAnyById(convId);
+    if (!conv) return res.status(404).json({ error: '对话不存在' });
+    await chatDao.deleteAny(convId);
+    res.json({ success: true, message: '对话已删除' });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || '删除对话失败' });
+  }
+});
+
+// DELETE /api/admin/conversations/:convId/messages/:msgId — 删除单条消息
+router.delete('/conversations/:convId/messages/:msgId', async (req, res) => {
+  try {
+    const convId = parsePositiveInt(req.params.convId, '对话ID');
+    const msgId = parsePositiveInt(req.params.msgId, '消息ID');
+    const conv = await chatDao.findAnyById(convId);
+    if (!conv) return res.status(404).json({ error: '对话不存在' });
+    await chatDao.deleteAnyMessage(msgId);
+    res.json({ success: true, message: '消息已删除' });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || '删除消息失败' });
+  }
+});
+
 module.exports = router;

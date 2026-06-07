@@ -54,6 +54,61 @@ const chatDao = {
     return parseInt(total, 10);
   },
 
+  // ========== 管理员方法 ==========
+
+  async listAll({ page = 1, limit = 20, userId, keyword } = {}) {
+    const offset = (page - 1) * limit;
+    let query = db(CONV_TABLE)
+      .select(
+        'chat_conversations.id',
+        'chat_conversations.user_id',
+        'chat_conversations.title',
+        'chat_conversations.created_at',
+        'chat_conversations.updated_at',
+        'users.username',
+        'users.email'
+      )
+      .leftJoin('users', 'chat_conversations.user_id', 'users.id')
+      .orderBy('chat_conversations.updated_at', 'desc');
+
+    let countQuery = db(CONV_TABLE);
+
+    if (userId) {
+      query = query.where('chat_conversations.user_id', userId);
+      countQuery = countQuery.where('user_id', userId);
+    }
+    if (keyword) {
+      query = query.where('chat_conversations.title', 'like', `%${keyword}%`);
+      countQuery = countQuery.where('title', 'like', `%${keyword}%`);
+    }
+
+    const [rows, [{ total }]] = await Promise.all([
+      query.limit(limit).offset(offset),
+      countQuery.count('* as total'),
+    ]);
+    return { rows, total: parseInt(total, 10), page, limit };
+  },
+
+  async findAnyById(id) {
+    return db(CONV_TABLE)
+      .select(
+        'chat_conversations.*',
+        'users.username',
+        'users.email'
+      )
+      .leftJoin('users', 'chat_conversations.user_id', 'users.id')
+      .where('chat_conversations.id', id)
+      .first();
+  },
+
+  async deleteAny(id) {
+    return db(CONV_TABLE).where('id', id).del();
+  },
+
+  async deleteAnyMessage(msgId) {
+    return db(MSG_TABLE).where('id', msgId).del();
+  },
+
   // ========== 消息 ==========
 
   async listMessages(conversationId) {

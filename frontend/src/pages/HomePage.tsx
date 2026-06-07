@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Card, Empty, Space, Tag, Typography, message } from 'antd';
-import { BarChartOutlined, BookOutlined, EnterOutlined, PlusOutlined } from '@ant-design/icons';
+import { BarChartOutlined, BookOutlined, EnterOutlined, HomeOutlined, PlusOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import DashboardCharts from '../components/dashboard/DashboardCharts';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
+import PageShell from '../components/shared/PageShell';
 import useMobile from '../hooks/useMobile';
 import { listNovelsApi } from '../api/novels';
 import type { Novel } from '../types';
@@ -64,35 +65,26 @@ const HomePage: React.FC = () => {
   if (loading) return <LoadingSpinner tip="加载首页数据..." />;
 
   return (
-    <div style={{ width: '100%' }}>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        gap: 16,
-        marginBottom: 24,
-        flexWrap: 'wrap',
-      }}>
-        <div>
-          <Title level={3} style={{ color: '#f1f5f9', marginBottom: 6 }}>首页</Title>
-          <Text style={{ color: '#94a3b8' }}>查看创作概览，快速回到最近的小说工作台</Text>
-        </div>
+    <PageShell
+      title="首页"
+      subtitle="查看创作概览，快速回到最近的小说工作台"
+      icon={<HomeOutlined />}
+      actions={(
         <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/dashboard')}>
           新建或管理小说
         </Button>
-      </div>
-
+      )}
+    >
       {continueNovel ? (
-        <div style={{
+        <div className="unified-page-feature-card" style={{
           display: 'grid',
           gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) auto',
           gap: 18,
           alignItems: 'center',
-          marginBottom: 20,
           padding: 26,
           background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(34,211,238,0.1))',
           border: '1px solid rgba(129,140,248,0.28)',
-          borderRadius: 18,
+          borderRadius: 8,
           boxShadow: '0 18px 44px rgba(15,23,42,0.32)',
         }}>
           <div style={{ minWidth: 0 }}>
@@ -133,10 +125,8 @@ const HomePage: React.FC = () => {
       ) : (
         <Card
           style={{
-            marginBottom: 20,
             background: 'rgba(30,41,59,0.52)',
             border: '1px dashed rgba(99,102,241,0.22)',
-            borderRadius: 18,
           }}
         >
           <Empty
@@ -156,12 +146,11 @@ const HomePage: React.FC = () => {
         style={{
           background: 'rgba(30,41,59,0.52)',
           border: '1px solid rgba(99,102,241,0.16)',
-          borderRadius: 18,
         }}
       >
         <DashboardCharts novels={novels} statusLabelMap={statusLabelMap} />
       </Card>
-    </div>
+    </PageShell>
   );
 };
 

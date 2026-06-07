@@ -23,6 +23,8 @@ const templateRoutes = require('./routes/templates');
 const adminNotificationRoutes = require('./routes/adminNotifications');
 const inmailRoutes = require('./routes/inmails');
 const chatRoutes = require('./routes/chat');
+const ticketRoutes = require('./routes/tickets');
+const adminTicketRoutes = require('./routes/adminTickets');
 
 const logger = createLogger('app');
 
@@ -135,6 +137,8 @@ app.use('/api/templates', templateRoutes);
 app.use('/api/admin', adminNotificationRoutes);
 app.use('/api/inmails', inmailRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/tickets', ticketRoutes);
+app.use('/api/admin', adminTicketRoutes);
 
 const path = require('path');
 const fs = require('fs');

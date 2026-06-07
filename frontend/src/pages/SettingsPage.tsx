@@ -8,8 +8,9 @@ import { useAuthStore } from '../store/authStore';
 import { sendChangeEmailCodeApi, changeEmailApi, getCaptchaApi, sendVerifyCodeApi, resetPasswordApi } from '../api/auth';
 import client from '../api/client';
 import useMobile from '../hooks/useMobile';
+import PageShell from '../components/shared/PageShell';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const SettingsPage: React.FC = () => {
   const { user, token, logout, setUser } = useAuthStore();
@@ -241,21 +242,12 @@ const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div style={{ width: '100%', maxWidth: 1180, margin: '0 auto' }}>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'flex-start',
-        gap: 16,
-        marginBottom: 20,
-        flexWrap: 'wrap',
-      }}>
-        <div>
-          <Title level={3} style={{ color: '#f1f5f9', marginBottom: 6 }}>个人设置</Title>
-          <Text style={{ color: '#94a3b8' }}>管理账号资料、邮箱验证和登录密码</Text>
-        </div>
-      </div>
-
+    <PageShell
+      title="个人设置"
+      subtitle="管理账号资料、邮箱验证和登录密码"
+      icon={<UserOutlined />}
+      className="settings-page-shell"
+    >
       <div style={{
         display: 'grid',
         gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.35fr) minmax(320px, 0.85fr)',
@@ -551,7 +543,7 @@ const SettingsPage: React.FC = () => {
           </Button>
         </Form>
       </Modal>
-    </div>
+    </PageShell>
   );
 };
 

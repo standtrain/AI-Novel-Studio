@@ -14,6 +14,7 @@ const characterDao = require('../dao/characterDao');
 const configDao = require('../dao/configDao');
 const usageService = require('./usageService');
 const queueManager = require('./queueManager');
+const { db } = require('../config/database');
 const { createLogger } = require('../utils/logger');
 const { countWords, stripWordCountLabel } = require('../core/utils/wordCounter');
 
@@ -275,6 +276,24 @@ async function _waitForQueueTurn(req, res, userId, novelId, phase, abortControll
   return { queueTaskId: queueTask?.id, groupPriority };
 }
 
+async function _acquireQueueSlot(req, res, userId, novelId, phase, abortController) {
+  const slot = await _waitForQueueTurn(req, res, userId, novelId, phase, abortController);
+  return {
+    userId,
+    novelId,
+    phase,
+    queueTaskId: slot.queueTaskId,
+    groupPriority: slot.groupPriority,
+    released: false,
+  };
+}
+
+function _releaseQueueSlot(slot, status = queueManager.STATUS.COMPLETED) {
+  if (!slot || slot.released) return;
+  slot.released = true;
+  queueManager.unregisterRunning(slot.userId, slot.novelId, slot.phase, status);
+}
+
 // ========== 工具函数 ==========
 
 // 清洗正文中的 AI 元信息残留（修改说明、注释等）
@@ -345,6 +364,76 @@ function _buildChapterData(chapter) {
     emotionalTone: chapter.emotional_tone,
     endingHook: chapter.ending_hook,
   };
+}
+
+function _toPositiveInt(value, fallback = null) {
+  const num = Number.parseInt(value, 10);
+  return Number.isInteger(num) && num > 0 ? num : fallback;
+}
+
+function _safeText(value, fallback = null, maxLength = null) {
+  if (value === undefined || value === null) return fallback;
+  const text = typeof value === 'string' ? value.trim() : String(value).trim();
+  if (!text) return fallback;
+  return maxLength ? text.substring(0, maxLength) : text;
+}
+
+function _normalizeGeneratedCharacters(characters) {
+  const seen = new Set();
+  return (Array.isArray(characters) ? characters : [])
+    .map((c, index) => {
+      if (!c || typeof c !== 'object') return null;
+      const name = _safeText(c.name, `角色${index + 1}`, 100);
+      return {
+        name,
+        age: c.age ? String(c.age) : null,
+        gender: _safeText(c.gender, null, 10),
+        role: _safeText(c.role, null, 50),
+        appearance: _safeText(c.appearance),
+        personality: _safeText(c.personality),
+        background: _safeText(c.background || c.abilities),
+        motivation: _safeText(c.motivation),
+        arc: _safeText(c.arc),
+        relationships: JSON.stringify(Array.isArray(c.relationships) ? c.relationships : []),
+      };
+    })
+    .filter((c) => {
+      if (!c.name || seen.has(c.name)) return false;
+      seen.add(c.name);
+      return true;
+    });
+}
+
+function _normalizeGeneratedChapters(chapters, { from = 1, to = Number.MAX_SAFE_INTEGER } = {}) {
+  const seen = new Set();
+  return (Array.isArray(chapters) ? chapters : [])
+    .map((ch) => {
+      if (!ch || typeof ch !== 'object') return null;
+      const chapterNumber = _toPositiveInt(ch.chapter ?? ch.chapter_number);
+      if (!chapterNumber || chapterNumber < from || chapterNumber > to || seen.has(chapterNumber)) return null;
+      seen.add(chapterNumber);
+      return {
+        chapter_number: chapterNumber,
+        title: _safeText(ch.title, `第${chapterNumber}章`, 200),
+        brief: _safeText(ch.brief || ch.synopsis || ch.summary, null, 500),
+        summary: _safeText(ch.summary || ch.synopsis, null, 255),
+        scenes: JSON.stringify(ch.scenes || ch.keyEvents || ch.key_events || []),
+        conflict: _safeText(ch.conflict, null, 500),
+        turning_point: _safeText(ch.turningPoint || ch.turning_point, null, 500),
+        characters_involved: JSON.stringify(ch.charactersInvolved || ch.characters_involved || []),
+        emotional_tone: _safeText(ch.emotionalTone || ch.emotional_tone, null, 100),
+        ending_hook: _safeText(ch.endingHook || ch.ending_hook || ch.hook, null, 500),
+        status: 'outline',
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.chapter_number - b.chapter_number);
+}
+
+function _inferPlanStatus(characters, chapters) {
+  if (chapters.length > 0) return { status: 'chapters_outline', currentStep: 3 };
+  if (characters.length > 0) return { status: 'characters', currentStep: 2 };
+  return { status: 'outline', currentStep: 1 };
 }
 
 // ========== SSE 通用执行框架 ==========
@@ -540,31 +629,46 @@ const agentService = {
             sendSSE(res, 'done', { batchStart: from, batchEnd: from - 1, totalChapters, hasMore: true, nextStart: from, parseError: true });
             return;
           }
-          if (isFirstBatch) {
-            await chapterDao.deleteByNovelId(novelId);
+          const normalizedChapters = _normalizeGeneratedChapters(chapters, { from, to: endChapter });
+          if (normalizedChapters.length === 0) {
+            logger.warn(`[章节大纲] AI 返回章节号无效或越界: from=${from}, end=${endChapter}`);
+            sendSSE(res, 'done', { batchStart: from, batchEnd: from - 1, totalChapters, hasMore: true, nextStart: from, parseError: true });
+            return;
           }
-          await Promise.all(chapters.map(ch => {
-            const base = {
+          if (isFirstBatch) {
+            // 重新生成章纲时保留已写正文，只清理还没有正文的旧章纲，避免误删用户已完成内容。
+            await db('chapters')
+              .where('novel_id', novelId)
+              .where((builder) => builder.whereNull('content').orWhere('content', ''))
+              .del();
+          }
+          await Promise.all(normalizedChapters.map(async (ch) => {
+            const existing = await chapterDao.findByNovelAndNumber(novelId, ch.chapter_number);
+            if (existing?.content) {
+              return chapterDao.update(novelId, ch.chapter_number, {
+                title: ch.title,
+                brief: ch.brief,
+                summary: existing.summary || ch.summary,
+                scenes: ch.scenes,
+                conflict: ch.conflict,
+                turning_point: ch.turning_point,
+                characters_involved: ch.characters_involved,
+                emotional_tone: ch.emotional_tone,
+                ending_hook: ch.ending_hook,
+              });
+            }
+            return chapterDao.upsert({
               novel_id: novelId,
-              chapter_number: ch.chapter || 0,
-              title: ch.title || '未命名',
-              scenes: JSON.stringify(ch.scenes || []),
-              conflict: ch.conflict || null,
-              turning_point: ch.turningPoint || null,
-              characters_involved: JSON.stringify(ch.charactersInvolved || []),
-              emotional_tone: ch.emotionalTone || null,
-              ending_hook: ch.endingHook || null,
-              status: 'outline',
-            };
-            return isFirstBatch ? chapterDao.create(base) : chapterDao.upsert(base);
+              ...ch,
+            });
           }));
           await novelDao.update(novelId, { status: 'chapters_outline', current_step: 3 });
           await ctx.persist();
           await _recordUsage(userId, novelId, 'chapter_outline', usage, model, provider);
           // 检测实际生成的最后章节号，防止因输出截断导致跳章
-          const actualMax = Math.max(...chapters.map(ch => ch.chapter || 0));
+          const actualMax = Math.max(...normalizedChapters.map(ch => ch.chapter_number));
           const hasMore = actualMax < totalChapters;
-          logger.info(`[章节大纲] 批次完成: from=${from}, actualMax=${actualMax}, totalChapters=${totalChapters}, hasMore=${hasMore}, nextStart=${hasMore ? actualMax + 1 : null}, chaptersCount=${chapters.length}`);
+          logger.info(`[章节大纲] 批次完成: from=${from}, actualMax=${actualMax}, totalChapters=${totalChapters}, hasMore=${hasMore}, nextStart=${hasMore ? actualMax + 1 : null}, chaptersCount=${normalizedChapters.length}`);
           sendSSE(res, 'done', { batchStart: from, batchEnd: actualMax, totalChapters, hasMore, nextStart: hasMore ? actualMax + 1 : null });
         },
       }),
@@ -837,9 +941,12 @@ ${finalContent}
               current_step: 4,
             });
 
-            // 检查是否全部完成（用 COUNT 聚合替代全量查询）
-            const incompleteCount = await chapterDao.countIncomplete(novelId);
-            if (incompleteCount === 0) {
+            // 检查是否全部完成：既要没有未完成章，也要已完成数量达到计划总章数。
+            const refreshedChapters = await chapterDao.findByNovelId(novelId);
+            const completedCount = refreshedChapters.filter(c => c.status === 'completed').length;
+            const plannedChapterCount = novel.chapter_count || refreshedChapters.length;
+            const incompleteCount = refreshedChapters.filter(c => c.status !== 'completed').length;
+            if (plannedChapterCount > 0 && completedCount >= plannedChapterCount && incompleteCount === 0) {
               await novelDao.update(novelId, { status: 'completed' });
             }
 
@@ -1172,11 +1279,24 @@ agentService.planNovel = function (userId, userInput) {
       };
       _onClose(req, res, abortController, 0, 'plan');
 
+      let queueSlot = null;
+      let finalStatus = queueManager.STATUS.COMPLETED;
       try {
+        queueSlot = await _acquireQueueSlot(req, res, userId, 0, 'plan', abortController);
+        _registerTask(0, 'plan', abortController, {
+          userId,
+          queueNovelId: 0,
+          queuePhase: 'plan',
+        });
+        agent._abortSignal = abortController.signal;
+
         // 执行规划
         const result = await agent.planNovel(userInput.trim(), onProgress);
 
-        if (res.writableEnded || abortController.signal.aborted) return;
+        if (res.writableEnded || abortController.signal.aborted) {
+          finalStatus = queueManager.STATUS.CANCELLED;
+          return;
+        }
 
         const plan = result.plan;
         // 严格校验：解析失败 或 缺少关键字段 都视为无效方案
@@ -1226,68 +1346,37 @@ agentService.planNovel = function (userId, userInput) {
             throw new Error('已达到最大小说数量限制');
           }
 
-          // 创建小说记录
           if (abortController.signal.aborted) { logger.info('用户已取消，中止创建'); sendSSE(res, 'done', {}); _safeEnd(res); return; }
-          const novelId = await novelDao.create({
-            user_id: userId,
-            title: plan.title || '未命名小说',
-            genre: plan.genre || '',
+          const planCharacters = _normalizeGeneratedCharacters(plan.characters);
+          const planChapters = _normalizeGeneratedChapters(plan.chapters, {
+            from: 1,
+            to: _toPositiveInt(plan.chapterCount, plan.chapters.length) || plan.chapters.length,
           });
-          const novel = await novelDao.findById(novelId);
+          if (planCharacters.length === 0 || planChapters.length === 0) {
+            throw new Error('方案缺少可保存的角色或章节编号');
+          }
+          const planStatus = _inferPlanStatus(planCharacters, planChapters);
+          const chapterCount = Math.max(_toPositiveInt(plan.chapterCount, 0) || 0, planChapters.length, Math.max(...planChapters.map(ch => ch.chapter_number)));
 
-          // 保存大纲数据
-          if (abortController.signal.aborted) { logger.info('用户已取消，中止保存大纲'); sendSSE(res, 'done', {}); _safeEnd(res); return; }
-          await novelDao.update(novel.id, {
-            title: plan.title || novel.title,
-            genre: plan.genre || novel.genre,
-            theme: plan.theme || null,
-            setting: plan.setting || null,
-            main_plot: plan.mainPlot || null,
-            sub_plots: JSON.stringify(plan.subPlots || []),
-            chapter_count: plan.chapterCount || (plan.chapters?.length || 12),
-            status: 'outline',
-            current_step: 1,
+          let novel;
+          await db.transaction(async (trx) => {
+            const [novelId] = await trx('novels').insert({
+              user_id: userId,
+              title: _safeText(plan.title, '未命名小说', 200),
+              genre: _safeText(plan.genre, '', 100),
+              theme: _safeText(plan.theme),
+              setting: _safeText(plan.setting),
+              main_plot: _safeText(plan.mainPlot),
+              sub_plots: JSON.stringify(Array.isArray(plan.subPlots) ? plan.subPlots : []),
+              chapter_count: chapterCount,
+              status: planStatus.status,
+              current_step: planStatus.currentStep,
+            });
+
+            await trx('characters').insert(planCharacters.map(c => ({ novel_id: novelId, ...c })));
+            await trx('chapters').insert(planChapters.map(ch => ({ novel_id: novelId, ...ch })));
+            novel = await trx('novels').where('id', novelId).first();
           });
-
-          // 保存角色数据
-          if (abortController.signal.aborted) { logger.info('用户已取消，中止保存角色'); sendSSE(res, 'done', {}); _safeEnd(res); return; }
-          if (plan.characters && Array.isArray(plan.characters) && plan.characters.length > 0) {
-            await Promise.all(plan.characters.map(c =>
-              characterDao.create({
-                novel_id: novel.id,
-                name: c.name || '未知',
-                age: c.age ? String(c.age) : null,
-                gender: c.gender || null,
-                role: c.role || null,
-                appearance: c.appearance || null,
-                personality: c.personality || null,
-                background: c.background || null,
-                motivation: c.motivation || null,
-                arc: c.arc || null,
-                relationships: JSON.stringify(c.relationships || []),
-              })
-            ));
-            await novelDao.update(novel.id, { status: 'characters', current_step: 2 });
-          }
-
-          // 保存章节大纲数据
-          if (abortController.signal.aborted) { logger.info('用户已取消，中止保存章节'); sendSSE(res, 'done', {}); _safeEnd(res); return; }
-          if (plan.chapters && Array.isArray(plan.chapters) && plan.chapters.length > 0) {
-            await Promise.all(plan.chapters.map(ch =>
-              chapterDao.create({
-                novel_id: novel.id,
-                chapter_number: ch.chapter || 0,
-                title: ch.title || `第${ch.chapter}章`,
-                summary: ch.summary || null,
-                scenes: JSON.stringify(ch.scenes || ch.keyEvents || []),
-                characters_involved: JSON.stringify(ch.charactersInvolved || []),
-                emotional_tone: ch.emotionalTone || null,
-                ending_hook: ch.endingHook || null,
-                status: 'outline',
-              })
-            ));
-            await novelDao.update(novel.id, { status: 'chapters_outline', current_step: 3 });
-          }
 
           // 发送创建完成事件（含 novelId 用于跳转）
           sendSSE(res, 'novel_created', {
@@ -1305,18 +1394,29 @@ agentService.planNovel = function (userId, userInput) {
           }
 
         } catch (createErr) {
+          finalStatus = queueManager.STATUS.FAILED;
           logger.error('自动创建小说失败：' + createErr.message);
           sendSSE(res, 'error', { message: '方案已生成，但自动创建小说失败：' + createErr.message });
+          _safeEnd(res);
+          return;
         }
 
         sendSSE(res, 'done', {});
         _safeEnd(res);
 
       } catch (err) {
-        if (res.writableEnded) return;
+        finalStatus = err.status === queueManager.STATUS.CANCELLED || abortController.signal.aborted
+          ? queueManager.STATUS.CANCELLED
+          : queueManager.STATUS.FAILED;
         logger.error('对话规划失败：' + err.message);
-        sendSSE(res, 'error', { message: err.message });
+        if (finalStatus !== queueManager.STATUS.CANCELLED && !res.writableEnded) {
+          sendSSE(res, 'error', { message: err.message });
+        }
         _safeEnd(res);
+      } finally {
+        if (queueSlot) {
+          _cleanupTask(0, 'plan', abortController, finalStatus);
+        }
       }
     },
   };
@@ -1346,7 +1446,17 @@ agentService.runImportAnalysis = function (userId, text, instructions) {
       setupSSE(res);
       req.on('close', () => { abortController.abort(); });
 
+      let queueSlot = null;
+      let finalStatus = queueManager.STATUS.COMPLETED;
       try {
+        queueSlot = await _acquireQueueSlot(req, res, userId, 0, 'import_analysis', abortController);
+        _registerTask(0, 'import_analysis', abortController, {
+          userId,
+          queueNovelId: 0,
+          queuePhase: 'import_analysis',
+        });
+        agent._abortSignal = abortController.signal;
+
         const result = await agent.analyzeImport(text, (event, data) => {
           if (!res.writableEnded) sendSSE(res, event, data);
         }, instructions);
@@ -1397,11 +1507,20 @@ agentService.runImportAnalysis = function (userId, text, instructions) {
         });
         _safeEnd(res);
       } catch (err) {
+        finalStatus = err.status === queueManager.STATUS.CANCELLED || abortController.signal.aborted
+          ? queueManager.STATUS.CANCELLED
+          : queueManager.STATUS.FAILED;
         if (!res.writableEnded) {
           logger.error('智能导入分析失败：' + err.message);
-          sendSSE(res, 'error', { message: err.message });
+          if (finalStatus !== queueManager.STATUS.CANCELLED) {
+            sendSSE(res, 'error', { message: err.message });
+          }
         }
         _safeEnd(res);
+      } finally {
+        if (queueSlot) {
+          _cleanupTask(0, 'import_analysis', abortController, finalStatus);
+        }
       }
     },
   };
@@ -1437,7 +1556,17 @@ agentService.planRevise = function (userId, novelId, feedback) {
       };
       _onClose(req, res, abortController, novelId, 'plan_revise');
 
+      let queueSlot = null;
+      let finalStatus = queueManager.STATUS.COMPLETED;
       try {
+        queueSlot = await _acquireQueueSlot(req, res, userId, novelId, 'plan_revise', abortController);
+        _registerTask(novelId, 'plan_revise', abortController, {
+          userId,
+          queueNovelId: novelId,
+          queuePhase: 'plan_revise',
+        });
+        agent._abortSignal = abortController.signal;
+
         // 从 DB 加载当前方案
         const novel = await novelDao.findById(novelId);
         if (!novel) {
@@ -1482,7 +1611,10 @@ agentService.planRevise = function (userId, novelId, feedback) {
         // 执行修订
         const result = await agent.revisePlan(currentPlan, feedback.trim(), novelId, onProgress);
 
-        if (res.writableEnded || abortController.signal.aborted) return;
+        if (res.writableEnded || abortController.signal.aborted) {
+          finalStatus = queueManager.STATUS.CANCELLED;
+          return;
+        }
 
         const plan = result.plan;
         const missingFields = plan?._missingFields || [];
@@ -1525,58 +1657,65 @@ agentService.planRevise = function (userId, novelId, feedback) {
             logger.info('用户已取消，跳过方案修订保存');
             return;
           }
-          // 更新小说大纲
-          await novelDao.update(novelId, {
-            title: plan.title || novel.title,
-            genre: plan.genre || novel.genre,
-            theme: plan.theme || null,
-            setting: plan.setting || null,
-            main_plot: plan.mainPlot || null,
-            sub_plots: JSON.stringify(plan.subPlots || []),
-            chapter_count: plan.chapterCount || novel.chapter_count,
-            status: 'outline',
-            current_step: 1,
+          const planCharacters = _normalizeGeneratedCharacters(plan.characters);
+          const planChapters = _normalizeGeneratedChapters(plan.chapters, {
+            from: 1,
+            to: _toPositiveInt(plan.chapterCount, novel.chapter_count || plan.chapters.length) || plan.chapters.length,
           });
-
-          // 重建角色
-          if (plan.characters && Array.isArray(plan.characters) && plan.characters.length > 0) {
-            await characterDao.deleteByNovelId(novelId);
-            await Promise.all(plan.characters.map(c =>
-              characterDao.create({
-                novel_id: novelId,
-                name: c.name || '未知',
-                age: c.age ? String(c.age) : null,
-                gender: c.gender || null,
-                role: c.role || null,
-                appearance: c.appearance || null,
-                personality: c.personality || null,
-                background: c.background || null,
-                motivation: c.motivation || null,
-                arc: c.arc || null,
-                relationships: JSON.stringify(c.relationships || []),
-              })
-            ));
-            await novelDao.update(novelId, { status: 'characters', current_step: 2 });
+          if (planCharacters.length === 0 || planChapters.length === 0) {
+            throw new Error('修订方案缺少可保存的角色或章节编号');
           }
+          const planStatus = _inferPlanStatus(planCharacters, planChapters);
+          const chapterCount = Math.max(
+            _toPositiveInt(plan.chapterCount, 0) || 0,
+            novel.chapter_count || 0,
+            planChapters.length,
+            Math.max(...planChapters.map(ch => ch.chapter_number))
+          );
 
-          // 重建章纲
-          if (plan.chapters && Array.isArray(plan.chapters) && plan.chapters.length > 0) {
-            await chapterDao.deleteByNovelId(novelId);
-            await Promise.all(plan.chapters.map(ch =>
-              chapterDao.create({
-                novel_id: novelId,
-                chapter_number: ch.chapter || 0,
-                title: ch.title || `第${ch.chapter}章`,
-                summary: ch.summary || null,
-                scenes: JSON.stringify(ch.scenes || ch.keyEvents || []),
-                characters_involved: JSON.stringify(ch.charactersInvolved || []),
-                emotional_tone: ch.emotionalTone || null,
-                ending_hook: ch.endingHook || null,
-                status: 'outline',
-              })
-            ));
-            await novelDao.update(novelId, { status: 'chapters_outline', current_step: 3 });
-          }
+          await db.transaction(async (trx) => {
+            await trx('novels').where('id', novelId).update({
+              title: _safeText(plan.title, novel.title, 200),
+              genre: _safeText(plan.genre, novel.genre, 100),
+              theme: _safeText(plan.theme),
+              setting: _safeText(plan.setting),
+              main_plot: _safeText(plan.mainPlot),
+              sub_plots: JSON.stringify(Array.isArray(plan.subPlots) ? plan.subPlots : []),
+              chapter_count: chapterCount,
+              status: planStatus.status,
+              current_step: planStatus.currentStep,
+            });
+
+            await trx('characters').where('novel_id', novelId).del();
+            await trx('characters').insert(planCharacters.map(c => ({ novel_id: novelId, ...c })));
+
+            // 修订方案时只替换未写正文的章纲，已完成章节正文和提取结果保留。
+            await trx('chapters')
+              .where('novel_id', novelId)
+              .where((builder) => builder.whereNull('content').orWhere('content', ''))
+              .del();
+            for (const ch of planChapters) {
+              const existing = await trx('chapters')
+                .where({ novel_id: novelId, chapter_number: ch.chapter_number })
+                .first();
+              if (existing?.content) {
+                await trx('chapters').where('id', existing.id).update({
+                  title: ch.title,
+                  brief: ch.brief,
+                  summary: existing.summary || ch.summary,
+                  scenes: ch.scenes,
+                  conflict: ch.conflict,
+                  turning_point: ch.turning_point,
+                  characters_involved: ch.characters_involved,
+                  emotional_tone: ch.emotional_tone,
+                  ending_hook: ch.ending_hook,
+                  updated_at: db.fn.now(),
+                });
+              } else {
+                await trx('chapters').insert({ novel_id: novelId, ...ch });
+              }
+            }
+          });
 
           if (result.usage) {
             await _recordUsage(userId, novelId, 'plan_revise', result.usage, result.model, result.provider);
@@ -1584,18 +1723,32 @@ agentService.planRevise = function (userId, novelId, feedback) {
 
           sendSSE(res, 'revise_done', { message: plan.revisionNote || '方案已更新' });
         } catch (updateErr) {
+          finalStatus = queueManager.STATUS.FAILED;
           logger.error('修订后更新数据库失败：' + updateErr.message);
           sendSSE(res, 'error', { message: '方案已生成，但保存失败：' + updateErr.message });
+          _safeEnd(res);
+          return;
         }
 
         sendSSE(res, 'done', {});
         _safeEnd(res);
 
       } catch (err) {
-        if (res.writableEnded) return;
+        finalStatus = err.status === queueManager.STATUS.CANCELLED || abortController.signal.aborted
+          ? queueManager.STATUS.CANCELLED
+          : queueManager.STATUS.FAILED;
+        if (res.writableEnded) {
+          return;
+        }
         logger.error('对话修订失败：' + err.message);
-        sendSSE(res, 'error', { message: err.message });
+        if (finalStatus !== queueManager.STATUS.CANCELLED) {
+          sendSSE(res, 'error', { message: err.message });
+        }
         _safeEnd(res);
+      } finally {
+        if (queueSlot) {
+          _cleanupTask(novelId, 'plan_revise', abortController, finalStatus);
+        }
       }
     },
   };

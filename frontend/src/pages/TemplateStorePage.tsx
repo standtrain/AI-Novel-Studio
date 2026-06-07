@@ -52,6 +52,28 @@ const iconOptions = [
   'AppleOutlined', 'SmileOutlined', 'ReadOutlined', 'EditOutlined', 'BookOutlined',
 ];
 
+const normalizeSearchValue = (value?: string | number | null) => String(value || '').toLowerCase();
+
+const templateMatchesKeyword = (tpl: NovelTemplate, keyword: string) => {
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  if (!normalizedKeyword) return true;
+
+  const searchFields = [
+    tpl.display_name,
+    tpl.name,
+    tpl.description,
+    tpl.category,
+    tpl.genre,
+    tpl.title_example,
+    tpl.theme,
+    tpl.setting,
+    tpl.main_plot,
+    tpl.creator_username,
+  ];
+
+  return searchFields.some(field => normalizeSearchValue(field).includes(normalizedKeyword));
+};
+
 const TemplateStorePage: React.FC = () => {
   const navigate = useNavigate();
   const isMobile = useMobile();
@@ -62,6 +84,10 @@ const TemplateStorePage: React.FC = () => {
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState<string>('全部');
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'official' | 'community'>('all');
+  const [myTemplateSearch, setMyTemplateSearch] = useState('');
+  const [myStatusFilter, setMyStatusFilter] = useState<'all' | 'draft' | 'pending' | 'approved' | 'rejected'>('all');
   const [activeStoreTab, setActiveStoreTab] = useState<'store' | 'mine'>('store');
   const [creating, setCreating] = useState<number | null>(null);
   const [detailModal, setDetailModal] = useState<NovelTemplate | null>(null);
@@ -112,8 +138,34 @@ const TemplateStorePage: React.FC = () => {
     } catch { /* ignore */ }
   };
 
-  const filteredTemplates = activeCategory === '全部'
-    ? templates : templates.filter(t => t.category === activeCategory);
+  const filteredTemplates = templates.filter(t => {
+    const categoryMatched = activeCategory === '全部' || t.category === activeCategory;
+    const sourceMatched = sourceFilter === 'all'
+      || (sourceFilter === 'official' && t.is_official)
+      || (sourceFilter === 'community' && !t.is_official);
+    return categoryMatched && sourceMatched && templateMatchesKeyword(t, templateSearch);
+  });
+
+  const filteredMyTemplates = myTemplates.filter(t => {
+    const statusMatched = myStatusFilter === 'all'
+      || (myStatusFilter === 'draft' && !t.review_status)
+      || t.review_status === myStatusFilter;
+    return statusMatched && templateMatchesKeyword(t, myTemplateSearch);
+  });
+
+  const hasStoreFilters = templateSearch.trim() || activeCategory !== '全部' || sourceFilter !== 'all';
+  const hasMyFilters = myTemplateSearch.trim() || myStatusFilter !== 'all';
+
+  const resetStoreFilters = () => {
+    setTemplateSearch('');
+    setActiveCategory('全部');
+    setSourceFilter('all');
+  };
+
+  const resetMyFilters = () => {
+    setMyTemplateSearch('');
+    setMyStatusFilter('all');
+  };
 
   const handleUseTemplate = async (template: NovelTemplate) => {
     setCreating(template.id);
@@ -341,15 +393,42 @@ const TemplateStorePage: React.FC = () => {
             label: <span><ShopOutlined /> 模板商店</span>,
             children: (
               <>
-                <div style={{ marginBottom: 24, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ marginBottom: 18, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <Input
+                    allowClear
+                    prefix={<SearchOutlined />}
+                    placeholder="搜索模板名称、描述、题材或世界观"
+                    value={templateSearch}
+                    maxLength={80}
+                    onChange={e => setTemplateSearch(e.target.value)}
+                    style={{ width: isMobile ? '100%' : 320 }}
+                  />
+                  <Select
+                    value={sourceFilter}
+                    onChange={setSourceFilter}
+                    style={{ width: isMobile ? 'calc(50% - 6px)' : 132 }}
+                    options={[
+                      { value: 'all', label: '全部来源' },
+                      { value: 'official', label: '官方模板' },
+                      { value: 'community', label: '用户模板' },
+                    ]}
+                  />
+                  {hasStoreFilters && (
+                    <Button onClick={resetStoreFilters}>重置筛选</Button>
+                  )}
+                </div>
+                <div style={{ marginBottom: 24, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                   {['全部', ...categories].map(cat => (
                     <Tag key={cat} color={activeCategory === cat ? (getCategoryColor(cat) || 'default') : undefined}
                       style={{ cursor: 'pointer', padding: '4px 14px', fontSize: 14, borderColor: activeCategory === cat ? undefined : '#30363d', opacity: activeCategory === cat ? 1 : 0.7 }}
                       onClick={() => setActiveCategory(cat)}>{cat}</Tag>
                   ))}
+                  <Text type="secondary" style={{ fontSize: 13 }}>共 {filteredTemplates.length} 个模板</Text>
                 </div>
                 {filteredTemplates.length === 0 ? (
-                  <Empty description="暂无模板" style={{ marginTop: 60 }} />
+                  <Empty description={hasStoreFilters ? '没有匹配的模板' : '暂无模板'} style={{ marginTop: 60 }}>
+                    {hasStoreFilters && <Button onClick={resetStoreFilters}>清空筛选</Button>}
+                  </Empty>
                 ) : (
                   <Row gutter={[16, 16]}>
                     {filteredTemplates.map((tpl, index) => (
@@ -372,13 +451,44 @@ const TemplateStorePage: React.FC = () => {
             label: <span><UserOutlined /> 我的模板</span>,
             children: (
               <>
+                <div style={{ marginBottom: 18, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <Input
+                    allowClear
+                    prefix={<SearchOutlined />}
+                    placeholder="搜索我的模板"
+                    value={myTemplateSearch}
+                    maxLength={80}
+                    onChange={e => setMyTemplateSearch(e.target.value)}
+                    style={{ width: isMobile ? '100%' : 280 }}
+                  />
+                  <Select
+                    value={myStatusFilter}
+                    onChange={setMyStatusFilter}
+                    style={{ width: isMobile ? 'calc(50% - 6px)' : 132 }}
+                    options={[
+                      { value: 'all', label: '全部状态' },
+                      { value: 'draft', label: '未提交' },
+                      { value: 'pending', label: '审核中' },
+                      { value: 'approved', label: '已通过' },
+                      { value: 'rejected', label: '已拒绝' },
+                    ]}
+                  />
+                  {hasMyFilters && (
+                    <Button onClick={resetMyFilters}>重置筛选</Button>
+                  )}
+                  <Text type="secondary" style={{ fontSize: 13 }}>共 {filteredMyTemplates.length} 个模板</Text>
+                </div>
                 {myTemplates.length === 0 ? (
                   <Empty description="还没有创建模板" style={{ marginTop: 60 }}>
                     <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateTemplate}>创建第一个模板</Button>
                   </Empty>
+                ) : filteredMyTemplates.length === 0 ? (
+                  <Empty description="没有匹配的模板" style={{ marginTop: 60 }}>
+                    <Button onClick={resetMyFilters}>清空筛选</Button>
+                  </Empty>
                 ) : (
                   <Row gutter={[16, 16]}>
-                    {myTemplates.map((tpl, index) => (
+                    {filteredMyTemplates.map((tpl, index) => (
                       <Col key={tpl.id} xs={24} sm={12} md={8} lg={6}>
                         <div
                           className="unified-page-grid-item"

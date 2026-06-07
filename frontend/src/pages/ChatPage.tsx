@@ -312,18 +312,23 @@ const ChatPage: React.FC = () => {
         flexDirection: isMobile ? 'column' : 'row',
         height: isMobile ? 'auto' : 'calc(100vh - 120px)',
         minHeight: isMobile ? 'calc(100vh - 160px)' : 560,
-        gap: isMobile ? 14 : 18,
+        maxWidth: 1180,
+        margin: '0 auto',
+        gap: 0,
+        overflow: 'hidden',
       }}
     >
       {/* ====== 对话历史 ====== */}
       <div
         style={{
-          width: isMobile ? '100%' : 300,
-          height: isMobile ? 220 : '100%',
+          width: isMobile ? '100%' : 286,
+          height: isMobile ? 196 : '100%',
           flexShrink: 0,
-          border: '1px solid rgba(99,102,241,0.16)',
-          borderRadius: 10,
-          background: 'rgba(15,23,42,0.34)',
+          borderRight: isMobile ? 'none' : '1px solid rgba(148,163,184,0.12)',
+          borderBottom: isMobile ? '1px solid rgba(148,163,184,0.12)' : 'none',
+          background: isMobile
+            ? 'linear-gradient(180deg, rgba(15,23,42,0.32), rgba(15,23,42,0.12))'
+            : 'linear-gradient(90deg, rgba(15,23,42,0.38), rgba(15,23,42,0.14) 78%, transparent)',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -335,7 +340,6 @@ const ChatPage: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            borderBottom: '1px solid rgba(99,102,241,0.1)',
           }}
         >
           <div style={{ minWidth: 0 }}>
@@ -357,7 +361,7 @@ const ChatPage: React.FC = () => {
           </Button>
         </div>
 
-        <div style={{ padding: '10px 12px 8px' }}>
+        <div style={{ padding: '2px 12px 10px' }}>
           <Input
             allowClear
             size="small"
@@ -366,8 +370,8 @@ const ChatPage: React.FC = () => {
             value={conversationQuery}
             onChange={(e) => setConversationQuery(e.target.value)}
             style={{
-              background: 'rgba(15,23,42,0.48)',
-              borderColor: 'rgba(99,102,241,0.18)',
+              background: 'rgba(15,23,42,0.28)',
+              borderColor: 'rgba(148,163,184,0.16)',
             }}
           />
         </div>
@@ -376,7 +380,7 @@ const ChatPage: React.FC = () => {
           style={{
             flex: 1,
             overflowY: 'auto',
-            padding: '0 8px 10px',
+            padding: '0 10px 12px',
             scrollbarWidth: 'thin',
             scrollbarColor: 'rgba(99,102,241,0.3) transparent',
           }}
@@ -400,28 +404,28 @@ const ChatPage: React.FC = () => {
                 style={{
                   display: 'flex',
                   alignItems: 'stretch',
-                  gap: 10,
-                  padding: '10px 8px 10px 10px',
-                  marginBottom: 6,
+                  gap: 9,
+                  padding: '10px 8px',
+                  marginBottom: 3,
                   borderRadius: 8,
                   cursor: 'pointer',
                   background: activeConvId === conv.id
-                    ? 'linear-gradient(135deg, rgba(99,102,241,0.18), rgba(34,211,238,0.07))'
-                    : 'rgba(15,23,42,0.2)',
-                  border: activeConvId === conv.id ? '1px solid rgba(129,140,248,0.42)' : '1px solid transparent',
+                    ? 'linear-gradient(90deg, rgba(99,102,241,0.2), rgba(99,102,241,0.08) 68%, transparent)'
+                    : 'transparent',
+                  border: '1px solid transparent',
                   transition: 'background 0.15s, border-color 0.15s',
                 }}
                 onMouseEnter={(e) => {
                   (e.currentTarget as HTMLElement).style.background =
                     activeConvId === conv.id
-                      ? 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(34,211,238,0.08))'
-                      : 'rgba(99,102,241,0.07)';
+                      ? 'linear-gradient(90deg, rgba(99,102,241,0.22), rgba(99,102,241,0.09) 68%, transparent)'
+                      : 'rgba(148,163,184,0.06)';
                 }}
                 onMouseLeave={(e) => {
                   (e.currentTarget as HTMLElement).style.background =
                     activeConvId === conv.id
-                      ? 'linear-gradient(135deg, rgba(99,102,241,0.18), rgba(34,211,238,0.07))'
-                      : 'rgba(15,23,42,0.2)';
+                      ? 'linear-gradient(90deg, rgba(99,102,241,0.2), rgba(99,102,241,0.08) 68%, transparent)'
+                      : 'transparent';
                 }}
               >
                 <div
@@ -482,10 +486,11 @@ const ChatPage: React.FC = () => {
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
-          maxWidth: isMobile ? '100%' : 840,
-          margin: '0 auto',
+          maxWidth: '100%',
+          margin: 0,
           width: '100%',
           minHeight: isMobile ? 'calc(100vh - 400px)' : 0,
+          paddingLeft: isMobile ? 0 : 24,
         }}
       >
         {/* 标题栏 */}

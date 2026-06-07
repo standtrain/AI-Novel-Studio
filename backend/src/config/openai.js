@@ -61,7 +61,13 @@ function writeEnvValue(key, value) {
     } else {
       content += `\n${newLine}`;
     }
-    fs.writeFileSync(envPath, content.trim() + '\n', 'utf-8');
+    // 后台配置会写入敏感 API Key，尽量限制 .env 文件权限。
+    fs.writeFileSync(envPath, content.trim() + '\n', { encoding: 'utf-8', mode: 0o600 });
+    try {
+      fs.chmodSync(envPath, 0o600);
+    } catch {
+      // Windows 等平台可能不支持 POSIX 权限，忽略权限设置失败。
+    }
     process.env[key] = value;
     return true;
   } catch (e) {

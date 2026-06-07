@@ -885,6 +885,14 @@ const faviconStorage = multer.diskStorage({
   },
 });
 
+const faviconUploadsDir = path.join(__dirname, '../../../uploads');
+function resolveFaviconPath(filename) {
+  const rawName = String(filename || '');
+  const safeName = path.basename(rawName);
+  if (!safeName || safeName !== rawName) return null;
+  return path.join(faviconUploadsDir, safeName);
+}
+
 const faviconUpload = multer({
   storage: faviconStorage,
   limits: { fileSize: 1024 * 1024 }, // 1MB
@@ -915,8 +923,8 @@ router.post('/favicon', authenticate, authorize('admin'), (req, res) => {
       // 删除旧的自定义 favicon（如果有不同扩展名的）
       const oldPath = await configService.get('favicon_path');
       if (oldPath) {
-        const oldFull = path.join(__dirname, '../../../uploads', oldPath);
-        if (fs.existsSync(oldFull) && oldPath !== req.file.filename) {
+        const oldFull = resolveFaviconPath(oldPath);
+        if (oldFull && fs.existsSync(oldFull) && oldPath !== req.file.filename) {
           fs.unlinkSync(oldFull);
         }
       }
@@ -940,8 +948,8 @@ router.delete('/favicon', authenticate, authorize('admin'), async (req, res) => 
   try {
     const oldPath = await configService.get('favicon_path');
     if (oldPath) {
-      const fullPath = path.join(__dirname, '../../../uploads', oldPath);
-      if (fs.existsSync(fullPath)) {
+      const fullPath = resolveFaviconPath(oldPath);
+      if (fullPath && fs.existsSync(fullPath)) {
         fs.unlinkSync(fullPath);
       }
     }
@@ -958,11 +966,10 @@ router.get('/favicon', authenticate, authorize('admin'), async (_req, res) => {
   try {
     const faviconPath = await configService.get('favicon_path');
     const originalName = await configService.get('favicon_original_name');
-    const uploadsDir = path.join(__dirname, '../../../uploads');
     let fileSize = 0;
     if (faviconPath) {
-      const fullPath = path.join(uploadsDir, faviconPath);
-      if (fs.existsSync(fullPath)) {
+      const fullPath = resolveFaviconPath(faviconPath);
+      if (fullPath && fs.existsSync(fullPath)) {
         fileSize = fs.statSync(fullPath).size;
       }
     }

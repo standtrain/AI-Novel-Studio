@@ -59,7 +59,13 @@ function secureWriteEnv(envData) {
     .map(([key, value]) => `${key}=${value}`)
     .join('\n');
 
-  fs.writeFileSync(envPath, content, 'utf-8');
+  // 写入敏感配置时强制使用仅所有者可读写的权限。
+  fs.writeFileSync(envPath, content, { encoding: 'utf-8', mode: 0o600 });
+  try {
+    fs.chmodSync(envPath, 0o600);
+  } catch {
+    // Windows 等平台可能不支持 POSIX 权限，写入本身不受影响。
+  }
 
   // 设置环境变量到 process.env
   Object.entries(envData).forEach(([key, value]) => {

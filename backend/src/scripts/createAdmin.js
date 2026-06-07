@@ -1,5 +1,6 @@
 // 创建管理员账号脚本
 // 用法：node src/scripts/createAdmin.js --username admin --password xxx --email admin@example.com
+// 也可以通过 ADMIN_PASSWORD 环境变量传入密码，脚本不会回显明文密码。
 require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 
 const bcrypt = require('bcrypt');
@@ -13,8 +14,17 @@ async function createAdmin() {
   };
 
   const username = getArg('username') || 'admin';
-  const password = getArg('password') || 'admin123';
+  const password = getArg('password') || process.env.ADMIN_PASSWORD;
   const email = getArg('email') || 'admin@example.com';
+
+  if (!password) {
+    process.stderr.write('错误：请通过 --password 或 ADMIN_PASSWORD 环境变量提供管理员密码。\n');
+    process.exit(1);
+  }
+  if (password.length < 12) {
+    process.stderr.write('错误：管理员密码长度不能少于 12 位。\n');
+    process.exit(1);
+  }
 
   try {
     await testConnection();
@@ -51,7 +61,7 @@ async function createAdmin() {
 
     process.stdout.write(`\n登录信息：\n`);
     process.stdout.write(`  用户名：${username}\n`);
-    process.stdout.write(`  密码：${password}\n`);
+    process.stdout.write('  密码：已由命令行或环境变量设置，出于安全原因不回显。\n');
     process.exit(0);
   } catch (err) {
     process.stderr.write(`创建管理员失败：${err.message}\n`);

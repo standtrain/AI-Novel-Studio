@@ -31,7 +31,7 @@ async function aiReviewAppeal(appeal, ban, user) {
   })();
 
   let baseURL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-  let apiKey = process.env.OPENAI_API_KEY || 'sk-placeholder';
+  let apiKey = process.env.OPENAI_API_KEY || '';
   let model = process.env.OPENAI_MODEL || 'gpt-4o';
 
   if (reviewConfig.providerName && reviewConfig.modelName) {
@@ -41,6 +41,10 @@ async function aiReviewAppeal(appeal, ban, user) {
       apiKey = provider.apiKey || apiKey;
       model = reviewConfig.modelName;
     }
+  }
+
+  if (!apiKey || !String(apiKey).trim()) {
+    throw { status: 500, message: 'AI 申诉审核未配置 API Key，请先配置 Provider 或 OPENAI_API_KEY' };
   }
 
   const openai = new OpenAI({ baseURL, apiKey });

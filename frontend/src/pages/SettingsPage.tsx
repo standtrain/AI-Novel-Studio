@@ -13,9 +13,60 @@ import PageShell from '../components/shared/PageShell';
 const { Text } = Typography;
 
 const SettingsPage: React.FC = () => {
-  const { user, token, logout, setUser } = useAuthStore();
+  const { user, token, logout, setUser, fetchMe } = useAuthStore();
   const navigate = useNavigate();
   const isMobile = useMobile();
+  const [displayEmail, setDisplayEmail] = useState(user?.email || '');
+
+  useEffect(() => {
+    setDisplayEmail(user?.email || '');
+  }, [user?.email]);
+
+  const settingsGridStyle: React.CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 1.35fr) minmax(320px, 0.85fr)',
+    gap: isMobile ? 14 : 20,
+    alignItems: 'start',
+    width: '100%',
+    minWidth: 0,
+  };
+
+  const columnStackStyle: React.CSSProperties = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: isMobile ? 14 : 16,
+    minWidth: 0,
+  };
+
+  const accountRowStyle: React.CSSProperties = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: isMobile ? 'flex-start' : 'center',
+    flexDirection: isMobile ? 'column' : 'row',
+    gap: isMobile ? 6 : 10,
+    minWidth: 0,
+  };
+
+  const accountValueStyle: React.CSSProperties = {
+    color: '#f1f5f9',
+    minWidth: 0,
+    maxWidth: '100%',
+    overflowWrap: 'anywhere',
+    textAlign: isMobile ? 'left' : 'right',
+  };
+
+  const actionRowStyle: React.CSSProperties = {
+    display: 'flex',
+    flexDirection: isMobile ? 'column' : 'row',
+    gap: 8,
+    alignItems: isMobile ? 'stretch' : 'flex-start',
+  };
+
+  const captchaRowStyle: React.CSSProperties = {
+    display: 'flex',
+    flexDirection: isMobile ? 'column' : 'row',
+    gap: 12,
+  };
 
   // 邮箱修改
   const [emailForm] = Form.useForm();
@@ -161,12 +212,12 @@ const SettingsPage: React.FC = () => {
 
   // 发送新邮箱验证码
   const handleSendChangeEmailCode = async () => {
-    const newEmail = emailForm.getFieldValue('newEmail');
+    const newEmail = String(emailForm.getFieldValue('newEmail') || '').trim();
     if (!newEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
       message.warning('请先输入有效的新邮箱地址');
       return;
     }
-    if (newEmail === user?.email) {
+    if (newEmail.toLowerCase() === displayEmail.toLowerCase()) {
       message.warning('新邮箱与当前邮箱相同');
       return;
     }
@@ -198,9 +249,12 @@ const SettingsPage: React.FC = () => {
   const handleConfirmChangeEmail = async (values: { newEmail: string; code: string }) => {
     setEmailLoading(true);
     try {
-      const result = await changeEmailApi(values.newEmail, values.code);
+      const nextEmail = values.newEmail.trim();
+      const result = await changeEmailApi(nextEmail, values.code);
       message.success('邮箱修改成功');
       setUser(result.user, token!);
+      setDisplayEmail(result.user?.email || nextEmail);
+      await fetchMe();
       emailForm.resetFields();
       setCodeSent(false);
     } catch (err: any) {
@@ -248,13 +302,8 @@ const SettingsPage: React.FC = () => {
       icon={<UserOutlined />}
       className="settings-page-shell"
     >
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.35fr) minmax(320px, 0.85fr)',
-        gap: 20,
-        alignItems: 'start',
-      }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={settingsGridStyle}>
+        <div style={columnStackStyle}>
 
       {/* 账户信息 */}
       <Card
@@ -267,12 +316,12 @@ const SettingsPage: React.FC = () => {
         }}
       >
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={accountRowStyle}>
             <Text style={{ color: '#94a3b8' }}>用户名</Text>
             {editingUsername ? (
-              <Space.Compact size="small">
+              <Space.Compact size="small" style={{ width: isMobile ? '100%' : undefined }}>
                 <Input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} maxLength={50}
-                  style={{ width: 140, background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9' }}
+                  style={{ width: isMobile ? '100%' : 140, background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9' }}
                   onPressEnter={handleSaveUsername} />
                 <Button icon={<CheckOutlined />} loading={usernameLoading} onClick={handleSaveUsername}
                   style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)' }} />
@@ -281,25 +330,25 @@ const SettingsPage: React.FC = () => {
               </Space.Compact>
             ) : (
               <Space size={4}>
-                <Text style={{ color: '#f1f5f9' }}>{user?.username}</Text>
+                <Text style={accountValueStyle}>{user?.username}</Text>
                 <Button type="link" size="small" icon={<EditOutlined />} onClick={handleStartEditUsername}
                   style={{ color: '#64748b', padding: 0, fontSize: 12 }} />
               </Space>
             )}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <div style={accountRowStyle}>
             <Text style={{ color: '#94a3b8' }}>角色</Text>
-            <Text style={{ color: '#f1f5f9' }}>{user?.group?.name === 'admin' ? '管理员' : '普通用户'}</Text>
+            <Text style={accountValueStyle}>{user?.group?.name === 'admin' ? '管理员' : '普通用户'}</Text>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <div style={accountRowStyle}>
             <Text style={{ color: '#94a3b8' }}><CalendarOutlined /> 注册时间</Text>
-            <Text style={{ color: '#f1f5f9' }}>
+            <Text style={accountValueStyle}>
               {user?.createdAt ? new Date(user.createdAt).toLocaleString('zh-CN') : '-'}
             </Text>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <div style={accountRowStyle}>
             <Text style={{ color: '#94a3b8' }}><ClockCircleOutlined /> 最后登录</Text>
-            <Text style={{ color: '#f1f5f9' }}>
+            <Text style={accountValueStyle}>
               {user?.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString('zh-CN') : '暂无记录'}
             </Text>
           </div>
@@ -318,15 +367,15 @@ const SettingsPage: React.FC = () => {
       >
         <Form form={emailForm} layout="vertical" onFinish={handleConfirmChangeEmail}>
           <Form.Item label={<span style={{ color: '#cbd5e1' }}>当前邮箱</span>}>
-            <Input value={user?.email || ''} disabled style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#94a3b8' }} />
+            <Input value={displayEmail} disabled style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#94a3b8' }} />
           </Form.Item>
 
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-            <Form.Item name="newEmail" label={<span style={{ color: '#cbd5e1' }}>新邮箱</span>} rules={[{ required: true, message: '请输入新邮箱地址' }, { type: 'email', message: '请输入有效的邮箱格式' }]} style={{ flex: 1 }}>
+          <div style={actionRowStyle}>
+            <Form.Item name="newEmail" label={<span style={{ color: '#cbd5e1' }}>新邮箱</span>} rules={[{ required: true, message: '请输入新邮箱地址' }, { type: 'email', message: '请输入有效的邮箱格式' }]} style={{ flex: 1, minWidth: 0, width: isMobile ? '100%' : undefined }}>
               <Input placeholder="输入新邮箱地址" style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9' }} />
             </Form.Item>
             <Button icon={<SendOutlined />} loading={sendingCode} disabled={cooldown > 0} onClick={handleSendChangeEmailCode}
-              style={{ marginTop: 30, color: cooldown > 0 ? '#64748b' : '#22d3ee', borderColor: cooldown > 0 ? 'rgba(100,116,139,0.3)' : 'rgba(34,211,238,0.4)', background: 'rgba(34,211,238,0.08)' }}>
+              style={{ marginTop: isMobile ? 0 : 30, width: isMobile ? '100%' : undefined, color: cooldown > 0 ? '#64748b' : '#22d3ee', borderColor: cooldown > 0 ? 'rgba(100,116,139,0.3)' : 'rgba(34,211,238,0.4)', background: 'rgba(34,211,238,0.08)' }}>
               {cooldown > 0 ? `${cooldown}s` : codeSent ? '重新发送' : '发送验证码'}
             </Button>
           </div>
@@ -334,15 +383,15 @@ const SettingsPage: React.FC = () => {
           {/* 图形验证码 */}
           {captchaEnabled && (
             <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', gap: 12 }}>
+              <div style={captchaRowStyle}>
                 <div
-                  style={{ flexShrink: 0, cursor: 'pointer', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(99,102,241,0.3)', background: '#f0f2f5', lineHeight: 0, height: 40 }}
+                  style={{ flexShrink: 0, cursor: 'pointer', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(99,102,241,0.3)', background: '#f0f2f5', lineHeight: 0, height: 40, width: isMobile ? 'fit-content' : undefined }}
                   dangerouslySetInnerHTML={{ __html: captchaSvg || '' }}
                   onClick={refreshCaptcha}
                   title="点击刷新验证码"
                 />
                 <Input id="settings-captcha-input" placeholder="验证码计算结果" autoComplete="off"
-                  style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', flex: 1 }} />
+                  style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', flex: 1, minWidth: 0 }} />
               </div>
             </div>
           )}
@@ -392,16 +441,16 @@ const SettingsPage: React.FC = () => {
           >
             <Input.Password placeholder="再次输入新密码" style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9' }} />
           </Form.Item>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ ...accountRowStyle, alignItems: isMobile ? 'stretch' : 'center' }}>
             <Button
               type="primary"
               htmlType="submit"
               loading={passwordLoading}
-              style={{ background: 'linear-gradient(135deg, var(--lp-primary) 0%, var(--lp-primary-dark) 100%)', border: 'none' }}
+              style={{ width: isMobile ? '100%' : undefined, background: 'linear-gradient(135deg, var(--lp-primary) 0%, var(--lp-primary-dark) 100%)', border: 'none' }}
             >
               修改密码
             </Button>
-            <Button type="link" style={{ color: '#f59e0b', fontSize: 13, padding: 0 }} onClick={openForgotModal}>
+            <Button type="link" style={{ width: isMobile ? '100%' : undefined, color: '#f59e0b', fontSize: 13, padding: 0 }} onClick={openForgotModal}>
               使用邮箱修改密码
             </Button>
           </div>
@@ -410,7 +459,7 @@ const SettingsPage: React.FC = () => {
 
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={columnStackStyle}>
           <Card
             title={<span style={{ color: '#f1f5f9' }}><UserOutlined /> 使用概览</span>}
             style={{
@@ -480,13 +529,13 @@ const SettingsPage: React.FC = () => {
         <Form form={forgotForm} layout="vertical" onFinish={handleForgotSubmit}>
           <div style={{ marginBottom: 16 }}>
             <Text style={{ color: '#94a3b8', fontSize: 13 }}>验证码将发送至您的注册邮箱</Text>
-            <Input value={user?.email || ''} disabled style={{ marginTop: 6, background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#94a3b8' }} />
+            <Input value={displayEmail} disabled style={{ marginTop: 6, background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#94a3b8' }} />
           </div>
 
           {forgotCaptchaEnabled && (
-            <div style={{ marginBottom: 16, display: 'flex', gap: 12 }}>
+            <div style={{ marginBottom: 16, ...captchaRowStyle }}>
               <div
-                style={{ flexShrink: 0, cursor: 'pointer', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(99,102,241,0.3)', background: '#f0f2f5', lineHeight: 0, height: 40 }}
+                style={{ flexShrink: 0, cursor: 'pointer', borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(99,102,241,0.3)', background: '#f0f2f5', lineHeight: 0, height: 40, width: isMobile ? 'fit-content' : undefined }}
                 dangerouslySetInnerHTML={{ __html: forgotCaptchaSvg || '' }}
                 onClick={async () => {
                   try {
@@ -499,7 +548,7 @@ const SettingsPage: React.FC = () => {
                 title="点击刷新验证码"
               />
               <Input id="forgot-captcha-input" placeholder="验证码计算结果" autoComplete="off"
-                style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', flex: 1 }} />
+                style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', flex: 1, minWidth: 0 }} />
             </div>
           )}
 

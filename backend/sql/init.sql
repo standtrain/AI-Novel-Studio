@@ -18,7 +18,7 @@ USE `novel_writing`;
 -- ---------- 2.1 用户分组表 ----------
 CREATE TABLE IF NOT EXISTS `user_groups` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `name` varchar(50) NOT NULL COMMENT '分组名称：free/vip/admin',
+  `name` varchar(50) NOT NULL COMMENT '分组名称：default/vip/admin',
   `token_limit_per_day` int unsigned NOT NULL DEFAULT 5000 COMMENT '每日token上限',
   `rate_limit_per_minute` int unsigned NOT NULL DEFAULT 5 COMMENT '每分钟请求数限制',
   `max_novels` int unsigned NOT NULL DEFAULT 3 COMMENT '可创建小说数上限',
@@ -341,7 +341,7 @@ CREATE TABLE IF NOT EXISTS `user_appeals` (
 
 -- ---------- 3.1 用户分组 ----------
 INSERT INTO `user_groups` (`id`, `name`, `token_limit_per_day`, `rate_limit_per_minute`, `max_novels`, `max_chapters_per_novel`, `can_export`, `can_customize`, `can_choose_model`, `queue_priority`, `is_admin`, `description`) VALUES
-(1, 'free',  5000,  3,  3,  10,  0, 0, 0, 10, 0, '免费用户'),
+(1, 'default',  5000,  3,  3,  10,  0, 0, 0, 10, 0, '默认用户'),
 (2, 'vip',   50000, 10, 10, 30,  1, 1, 1, 20, 0, 'VIP用户'),
 (3, 'admin', 999999, 60, 999, 999, 1, 1, 1, 30, 1, '管理员');
 
@@ -369,7 +369,8 @@ INSERT INTO `site_config` (`config_key`, `config_value`, `description`) VALUES
 ('favicon_path', '', '自定义站点图标路径（上传后自动设置）'),
 ('favicon_original_name', '', '自定义站点图标原始文件名'),
 ('email_domain_whitelist_enabled', 'false', '是否启用注册邮箱域名白名单（true/false）'),
-('email_domain_whitelist', '', '允许注册的邮箱域名白名单（每行一个域名，如 gmail.com）');
+('email_domain_whitelist', '', '允许注册的邮箱域名白名单（每行一个域名，如 gmail.com）'),
+('default_group', '1', '新用户注册时的默认分组ID');
 
 -- ---------- 3.3 默认 MCP 服务器 ----------
 INSERT INTO `mcp_servers` (`name`, `transport`, `url`, `headers`, `enabled`, `description`) VALUES

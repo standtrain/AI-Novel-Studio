@@ -39,7 +39,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onMenuClick, collapsed, onCollapse })
   const location = useLocation();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
-  const isAdmin = user?.group?.name === 'admin';
+  const isAdmin = !!user?.group?.isAdmin || user?.group?.name === 'admin';
 
   const handleMenuClick = ({ key }: { key: string }) => {
     navigate(key);

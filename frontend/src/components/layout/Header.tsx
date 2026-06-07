@@ -19,7 +19,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const navigate = useNavigate();
   const isMobile = useMobile();
   const { siteName } = useSiteBrand();
-  const isAdmin = user?.group?.name === 'admin';
+  const isAdmin = !!user?.group?.isAdmin || user?.group?.name === 'admin';
 
   const handleLogout = () => {
     Modal.confirm({

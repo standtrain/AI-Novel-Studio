@@ -6,6 +6,7 @@ import {
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import {
   getGroupsApi, createGroupApi, updateGroupApi, deleteGroupApi,
+  getConfigsApi, updateConfigApi,
 } from '../../api/admin';
 
 const { Text } = Typography;
@@ -46,6 +47,9 @@ const GroupManager: React.FC = () => {
   const [editForm] = Form.useForm();
   const [editing, setEditing] = useState(false);
 
+  // 当前默认分组 ID
+  const [defaultGroupId, setDefaultGroupId] = useState<number>(0);
+
   const loadGroups = async () => {
     setLoading(true);
     try {
@@ -58,7 +62,15 @@ const GroupManager: React.FC = () => {
     }
   };
 
-  useEffect(() => { loadGroups(); }, []);
+  const loadDefaultGroup = async () => {
+    try {
+      const data = await getConfigsApi();
+      const cfg = data.configs?.find((c: any) => c.config_key === 'default_group');
+      setDefaultGroupId(cfg ? parseInt(cfg.config_value, 10) || 0 : 0);
+    } catch { /* 忽略 */ }
+  };
+
+  useEffect(() => { loadGroups(); loadDefaultGroup(); }, []);
 
   // 创建分组
   const handleCreate = async (values: any) => {
@@ -146,6 +158,21 @@ const GroupManager: React.FC = () => {
     }
   };
 
+  // 设为默认分组
+  const handleSetDefault = async (group: Group) => {
+    if (group.is_admin) {
+      message.warning('管理员分组不能设为默认注册分组');
+      return;
+    }
+    try {
+      await updateConfigApi('default_group', String(group.id));
+      setDefaultGroupId(group.id);
+      message.success('已设为默认分组，新注册用户将自动加入该分组');
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '设置默认分组失败');
+    }
+  };
+
   // 表格列定义
   const columns = [
     {
@@ -156,8 +183,13 @@ const GroupManager: React.FC = () => {
     {
       title: '分组名称',
       dataIndex: 'name',
-      width: 120,
-      render: (name: string) => <Tag color="blue">{name}</Tag>,
+      width: 140,
+      render: (name: string, record: Group) => (
+        <Space size={4}>
+          <Tag color="blue">{name}</Tag>
+          {record.id === defaultGroupId && <Tag color="green" style={{ fontSize: 10 }}>默认</Tag>}
+        </Space>
+      ),
     },
     {
       title: '描述',
@@ -229,7 +261,7 @@ const GroupManager: React.FC = () => {
     },
     {
       title: '操作',
-      width: 120,
+      width: 160,
       fixed: 'right' as const,
       render: (_: any, record: Group) => (
         <Space size={4}>
@@ -240,21 +272,39 @@ const GroupManager: React.FC = () => {
               onClick={() => openEdit(record)}
             />
           </Tooltip>
+          {record.id !== defaultGroupId && !record.is_admin && (
+            <Tooltip title="设为新用户注册时的默认分组">
+              <Button
+                size="small"
+                onClick={() => handleSetDefault(record)}
+              >
+                默认
+              </Button>
+            </Tooltip>
+          )}
           <Popconfirm
-            title={record.user_count > 0
+            title={record.id === defaultGroupId
+              ? '默认分组不能删除，请先设置其他默认分组'
+              : record.user_count > 0
               ? `该分组下有 ${record.user_count} 个用户，无法删除`
               : `确认删除分组 "${record.name}"？`}
             onConfirm={() => handleDelete(record)}
             okText="确认删除"
             cancelText="取消"
-            disabled={record.user_count > 0}
+            disabled={record.user_count > 0 || record.id === defaultGroupId}
           >
             <Button
               size="small"
               danger
               icon={<DeleteOutlined />}
-              disabled={record.user_count > 0}
-              title={record.user_count > 0 ? '该分组下有用户，无法删除' : '删除分组'}
+              disabled={record.user_count > 0 || record.id === defaultGroupId}
+              title={
+                record.id === defaultGroupId
+                  ? '默认分组不能删除'
+                  : record.user_count > 0
+                  ? '该分组下有用户，无法删除'
+                  : '删除分组'
+              }
             />
           </Popconfirm>
         </Space>

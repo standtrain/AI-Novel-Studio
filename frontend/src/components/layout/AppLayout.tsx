@@ -20,7 +20,7 @@ const AppLayout: React.FC = () => {
   const location = useLocation();
   const user = useAuthStore((s) => s.user);
   const { siteName } = useSiteBrand();
-  const isAdmin = user?.group?.name === 'admin';
+  const isAdmin = !!user?.group?.isAdmin || user?.group?.name === 'admin';
 
   const handleMenuClick = ({ key }: { key: string }) => {
     navigate(key);

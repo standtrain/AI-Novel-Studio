@@ -5,6 +5,10 @@ const { createLogger } = require('../utils/logger');
 const TABLE = 'user_groups';
 const logger = createLogger('user-group-dao');
 
+function toBoolean(value) {
+  return value === true || value === 1 || value === '1' || value === 'true';
+}
+
 const userGroupDao = {
   // 获取所有分组（返回纯对象数组）
   async findAll() {
@@ -26,20 +30,43 @@ const userGroupDao = {
     return { ...row };
   },
 
+  // 获取第一个非管理员分组，用作默认分组配置异常时的兜底。
+  async findFirstAssignable() {
+    const row = await db(TABLE).where('is_admin', 0).orderBy('id', 'asc').first();
+    return row ? { ...row } : null;
+  },
+
+  // 解析可分配给普通用户的分组，防止默认注册分组误指向管理员组。
+  async resolveAssignableGroupId(groupId, fallbackId = 1) {
+    const parsedId = parseInt(groupId, 10);
+    if (parsedId > 0) {
+      const group = await this.findById(parsedId);
+      if (group && !group.is_admin) return group.id;
+    }
+
+    const fallbackGroup = await this.findById(fallbackId);
+    if (fallbackGroup && !fallbackGroup.is_admin) return fallbackGroup.id;
+
+    const firstAssignable = await this.findFirstAssignable();
+    if (firstAssignable) return firstAssignable.id;
+
+    throw { status: 500, message: '未找到可分配给新用户的普通分组' };
+  },
+
   // 创建分组（token_limit_per_day 为 0 表示不限制）
   async create(data) {
     const [id] = await db(TABLE).insert({
-      name: data.name,
+      name: data.name.trim(),
       token_limit_per_day: data.token_limit_per_day ?? 0, // 0 表示不限制
       rate_limit_per_minute: data.rate_limit_per_minute || 5,
       max_novels: data.max_novels || 3,
       max_chapters_per_novel: data.max_chapters_per_novel || 12,
-      can_export: data.can_export ? 1 : 0,
-      can_customize: data.can_customize ? 1 : 0,
-      can_choose_model: data.can_choose_model ? 1 : 0,
+      can_export: toBoolean(data.can_export) ? 1 : 0,
+      can_customize: toBoolean(data.can_customize) ? 1 : 0,
+      can_choose_model: toBoolean(data.can_choose_model) ? 1 : 0,
       description: data.description || '',
       queue_priority: data.queue_priority ?? 10, // 排队优先级，默认10
-      is_admin: data.is_admin ? 1 : 0, // 是否具有管理员权限
+      is_admin: toBoolean(data.is_admin) ? 1 : 0, // 是否具有管理员权限
     });
     return this.findById(id);
   },
@@ -50,17 +77,17 @@ const userGroupDao = {
     // 所有允许更新的字段（统一白名单）
     const allowed = [
       'name', 'token_limit_per_day', 'rate_limit_per_minute',
-      'max_novels', 'max_chapters_per_novel', 'description', 'queue_priority', 'can_choose_model'
+      'max_novels', 'max_chapters_per_novel', 'description', 'queue_priority'
     ];
 
     allowed.forEach(k => {
-      if (data[k] !== undefined) updateData[k] = data[k];
+      if (data[k] !== undefined) updateData[k] = k === 'name' ? data[k].trim() : data[k];
     });
 
-    // 布尔值字段统一转换为 0/1（can_export, can_customize, is_admin）
-    ['can_export', 'can_customize', 'is_admin'].forEach(k => {
+    // 布尔值字段统一转换为 0/1，避免不同数据库驱动保存 true/false 时不一致。
+    ['can_export', 'can_customize', 'can_choose_model', 'is_admin'].forEach(k => {
       if (data[k] !== undefined) {
-        updateData[k] = data[k] ? 1 : 0;
+        updateData[k] = toBoolean(data[k]) ? 1 : 0;
       }
     });
 

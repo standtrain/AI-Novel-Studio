@@ -12,7 +12,7 @@ exports.seed = async function (knex) {
   await knex('user_groups').insert([
     {
       id: 1,
-      name: 'free',
+      name: 'default',
       token_limit_per_day: 5000,
       rate_limit_per_minute: 3,
       max_novels: 3,
@@ -20,7 +20,7 @@ exports.seed = async function (knex) {
       can_export: false,
       can_customize: false,
       can_choose_model: false,
-      description: '免费用户',
+      description: '默认用户',
     },
     {
       id: 2,

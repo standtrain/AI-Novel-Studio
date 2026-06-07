@@ -12,7 +12,7 @@ router.use(authenticate);
 
 // 动态限流（按用户组）
 router.use((req, res, next) => {
-  const groupName = req.user?.group_name || 'free';
+  const groupName = req.user?.group_name || 'default';
   const limiter = getRateLimiter(groupName);
   limiter(req, res, next);
 });

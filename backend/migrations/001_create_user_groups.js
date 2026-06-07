@@ -1,7 +1,7 @@
 exports.up = function (knex) {
   return knex.schema.createTable('user_groups', (t) => {
     t.increments('id').primary();
-    t.string('name', 50).notNullable().unique().comment('分组名称：free/vip/admin');
+    t.string('name', 50).notNullable().unique().comment('分组名称：default/vip/admin');
     t.integer('token_limit_per_day').unsigned().notNullable().defaultTo(5000).comment('每日token上限');
     t.integer('rate_limit_per_minute').unsigned().notNullable().defaultTo(5).comment('每分钟请求数限制');
     t.integer('max_novels').unsigned().notNullable().defaultTo(3).comment('可创建小说数上限');

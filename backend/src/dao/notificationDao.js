@@ -68,6 +68,19 @@ const notificationDao = {
     return updated > 0;
   },
 
+  async clearChannelSending(id, channel) {
+    const fieldMap = {
+      inmail: 'inmail_sent_at',
+      email: 'email_sent_at',
+    };
+    const field = fieldMap[channel];
+    if (!field) throw new Error('未知通知发送渠道');
+
+    await db(TABLE)
+      .where('id', id)
+      .update({ [field]: null, updated_at: db.fn.now() });
+  },
+
   async delete(id) {
     return db(TABLE).where('id', id).del();
   },

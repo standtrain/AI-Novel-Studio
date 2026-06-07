@@ -30,5 +30,7 @@ exports.seed = async function (knex) {
     // 邮箱域名白名单
     { config_key: 'email_domain_whitelist_enabled', config_value: 'false', description: '是否启用注册邮箱域名白名单（true/false）' },
     { config_key: 'email_domain_whitelist', config_value: '', description: '允许注册的邮箱域名白名单（每行一个域名，如 gmail.com）' },
+    // 默认分组
+    { config_key: 'default_group', config_value: '1', description: '新用户注册时的默认分组ID' },
   ]);
 };

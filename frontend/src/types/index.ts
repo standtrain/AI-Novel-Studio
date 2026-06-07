@@ -26,6 +26,7 @@ export interface UserGroup {
   canExport: boolean;
   canCustomize: boolean;
   canChooseModel: boolean;
+  isAdmin?: boolean;
 }
 
 // 小说

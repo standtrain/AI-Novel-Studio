@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { db } = require('../config/database');
 const { JWT_SECRET, JWT_EXPIRES_IN } = require('../config/auth');
 const userDao = require('../dao/userDao');
+const userGroupDao = require('../dao/userGroupDao');
 const emailVerificationDao = require('../dao/emailVerificationDao');
 const emailService = require('./emailService');
 const configService = require('./configService');
@@ -67,11 +68,13 @@ const authService = {
     }
 
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    // 从站点配置读取默认分组，未配置时回退到分组 1
+    const defaultGroupId = await userGroupDao.resolveAssignableGroupId(await configService.get('default_group'));
     const userId = await userDao.create({
       username,
       email,
       password_hash: passwordHash,
-      group_id: 1, // 默认 free 组
+      group_id: defaultGroupId,
     });
 
     const user = await userDao.findById(userId);
@@ -276,6 +279,7 @@ const authService = {
         canExport: user.can_export,
         canCustomize: user.can_customize,
         canChooseModel: user.can_choose_model,
+        isAdmin: !!user.is_admin,
       },
       status: user.status,
       dailyTokensUsed: user.daily_tokens_used,

@@ -23,6 +23,18 @@ function sanitizeAdminUser(user) {
   return safeUser;
 }
 
+function toBoolean(value) {
+  return value === true || value === 1 || value === '1' || value === 'true';
+}
+
+async function validateDefaultGroupConfig(value) {
+  const groupId = parsePositiveInt(value, '默认分组ID');
+  const group = await userGroupDao.findById(groupId);
+  if (!group) throw { status: 404, message: '默认分组不存在' };
+  if (toBoolean(group.is_admin)) throw { status: 400, message: '不能将管理员分组设为默认注册分组' };
+  return groupId;
+}
+
 // 所有管理后台路由都需要 admin 权限
 router.use(authenticate);
 router.use(authorize('admin'));
@@ -164,11 +176,19 @@ router.post('/users', async (req, res) => {
     const bcrypt = require('bcrypt');
     const passwordHash = await bcrypt.hash(password, 10);
 
+    // 从站点配置读取默认分组，未配置时回退到分组 1
+    const defaultGroupId = await userGroupDao.resolveAssignableGroupId(await configService.get('default_group'));
+    let targetGroupId = defaultGroupId;
+    if (group_id) {
+      targetGroupId = parsePositiveInt(group_id, '用户组ID');
+      const targetGroup = await userGroupDao.findById(targetGroupId);
+      if (!targetGroup) return res.status(404).json({ error: '用户组不存在' });
+    }
     await userDao.create({
       username,
       email,
       password_hash: passwordHash,
-      group_id: group_id || 1,
+      group_id: targetGroupId,
       status: 'active',
     });
 
@@ -200,6 +220,8 @@ router.put('/users/:id', async (req, res) => {
     });
     if (data.group_id !== undefined) {
       data.group_id = parsePositiveInt(data.group_id, '用户组ID');
+      const targetGroup = await userGroupDao.findById(data.group_id);
+      if (!targetGroup) return res.status(404).json({ error: '用户组不存在' });
     }
 
     // 用户名唯一性校验
@@ -285,6 +307,9 @@ router.put('/config/:key', async (req, res) => {
     if (value === undefined) {
       return res.status(400).json({ error: '缺少配置值' });
     }
+    if (key === 'default_group') {
+      await validateDefaultGroupConfig(value);
+    }
     const result = await configService.set(key, value);
 
     // 如果修改的是 openai_providers，同步到 Agent 缓存
@@ -314,7 +339,7 @@ router.put('/config/:key', async (req, res) => {
 
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: '更新配置失败' });
+    res.status(err.status || 500).json({ error: err.message || '更新配置失败' });
   }
 });
 
@@ -569,23 +594,27 @@ router.get('/groups/:id', async (req, res) => {
 router.post('/groups', async (req, res) => {
   try {
     const { name, token_limit_per_day, rate_limit_per_minute, max_novels,
-            max_chapters_per_novel, can_export, can_customize, description } = req.body;
+            max_chapters_per_novel, can_export, can_customize, can_choose_model,
+            description, queue_priority, is_admin } = req.body;
 
-    if (!name) return res.status(400).json({ error: '分组名称为必填项' });
+    if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: '分组名称为必填项' });
 
     // 检查名称唯一性
-    const existing = await userGroupDao.findByName(name);
+    const existing = await userGroupDao.findByName(name.trim());
     if (existing) return res.status(409).json({ error: '分组名称已存在' });
 
     const group = await userGroupDao.create({
-      name,
+      name: name.trim(),
       token_limit_per_day,
       rate_limit_per_minute,
       max_novels,
       max_chapters_per_novel,
       can_export,
       can_customize,
+      can_choose_model,
       description,
+      queue_priority,
+      is_admin,
     });
 
     res.status(201).json({ group });
@@ -602,8 +631,20 @@ router.put('/groups/:id', async (req, res) => {
     if (!group) return res.status(404).json({ error: '分组不存在' });
 
     // 禁止管理员取消自己所在分组的管理员权限（防止误操作锁死）
-    if (req.body.is_admin !== undefined && req.user.group_id === groupId && !req.body.is_admin) {
+    if (req.body.is_admin !== undefined && req.user.group_id === groupId && !toBoolean(req.body.is_admin)) {
       return res.status(403).json({ error: '不能取消自己所在分组的管理员权限，请让其他管理员操作' });
+    }
+    const defaultGroupId = parseInt(await configService.get('default_group'), 10) || 1;
+    if (toBoolean(req.body.is_admin) && groupId === defaultGroupId) {
+      return res.status(400).json({ error: '默认分组不能设置为管理员分组，请先更换默认分组' });
+    }
+
+    // 如果修改名称，检查唯一性
+    if (req.body.name !== undefined) {
+      if (typeof req.body.name !== 'string' || !req.body.name.trim()) {
+        return res.status(400).json({ error: '分组名称为必填项' });
+      }
+      req.body.name = req.body.name.trim();
     }
 
     // 如果修改名称，检查唯一性
@@ -625,6 +666,7 @@ router.put('/groups/:id', async (req, res) => {
         max_chapters_per_novel: updated.max_chapters_per_novel,
         can_export: updated.can_export,
         can_customize: updated.can_customize,
+        can_choose_model: updated.can_choose_model,
         description: updated.description,
         queue_priority: updated.queue_priority,
         is_admin: updated.is_admin,
@@ -643,6 +685,10 @@ router.delete('/groups/:id', async (req, res) => {
     const groupId = parsePositiveInt(req.params.id, '分组ID');
     const group = await userGroupDao.findById(groupId);
     if (!group) return res.status(404).json({ error: '分组不存在' });
+    const defaultGroupId = parseInt(await configService.get('default_group'), 10) || 1;
+    if (groupId === defaultGroupId) {
+      return res.status(400).json({ error: '默认分组不能删除，请先设置其他默认分组' });
+    }
 
     await userGroupDao.delete(groupId);
     res.json({ success: true, message: `分组 "${group.name}" 已删除` });

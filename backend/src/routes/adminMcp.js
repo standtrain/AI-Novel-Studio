@@ -22,6 +22,8 @@ router.get('/servers', async (req, res) => {
 router.post('/servers', async (req, res) => {
   try {
     const server = await mcpService.createServer(req.body);
+    const agentService = require('../services/agentService');
+    agentService.clearAllCaches();
     res.status(201).json({ server });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '创建 MCP 服务器失败' });
@@ -33,6 +35,8 @@ router.put('/servers/:id', async (req, res) => {
   try {
     const serverId = parsePositiveInt(req.params.id, 'MCP服务ID');
     const server = await mcpService.updateServer(serverId, req.body);
+    const agentService = require('../services/agentService');
+    agentService.clearAllCaches();
     res.json({ server });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '更新 MCP 服务器失败' });
@@ -44,6 +48,8 @@ router.delete('/servers/:id', async (req, res) => {
   try {
     const serverId = parsePositiveInt(req.params.id, 'MCP服务ID');
     await mcpService.deleteServer(serverId);
+    const agentService = require('../services/agentService');
+    agentService.clearAllCaches();
     res.json({ success: true, message: 'MCP 服务器已删除' });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '删除 MCP 服务器失败' });

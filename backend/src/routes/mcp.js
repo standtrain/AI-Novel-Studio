@@ -20,11 +20,14 @@ router.get('/servers', async (req, res) => {
 router.put('/servers/:id/config', async (req, res) => {
   try {
     const serverId = parsePositiveInt(req.params.id, 'MCP服务ID');
-    const { enabled, extra_config } = req.body;
+    const { enabled, api_key, extra_config } = req.body;
     const result = await mcpService.saveUserConfig(req.user.id, serverId, {
       enabled,
+      api_key,
       extra_config,
     });
+    const agentService = require('../services/agentService');
+    agentService.clearUserCache(req.user.id);
     res.json({ config: result });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '保存 MCP 配置失败' });
@@ -36,6 +39,8 @@ router.delete('/servers/:id/config', async (req, res) => {
   try {
     const serverId = parsePositiveInt(req.params.id, 'MCP服务ID');
     await mcpService.deleteUserConfig(req.user.id, serverId);
+    const agentService = require('../services/agentService');
+    agentService.clearUserCache(req.user.id);
     res.json({ success: true, message: 'MCP 配置已删除' });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '删除 MCP 配置失败' });

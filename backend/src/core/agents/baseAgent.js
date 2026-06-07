@@ -6,6 +6,27 @@ const { resolveTemperature, shouldApplyUserTemperature } = require('../../utils/
 
 const logger = createLogger('base-agent');
 
+const PROMPT_INJECTED_MARK = '<!-- bookagent-advanced-prompt-injected -->';
+const PROMPT_PHASE_ALIASES = {
+  plan_revise: 'plan',
+  import_analysis: 'all',
+  character: 'characters',
+  chapter_outline: 'chapters_outline',
+  writing: 'write_chapter',
+  context_assembly: 'write_chapter',
+  review: 'write_chapter',
+  polish: 'write_chapter',
+  data_extraction: 'write_chapter',
+};
+
+function getPromptPhaseSet(phase) {
+  const phases = new Set(['all']);
+  if (phase) phases.add(phase);
+  const normalized = PROMPT_PHASE_ALIASES[phase];
+  if (normalized) phases.add(normalized);
+  return phases;
+}
+
 class BaseAgent {
   constructor(contextManager, options = {}) {
     this._clients = new Map();
@@ -13,6 +34,7 @@ class BaseAgent {
     this._abortSignal = null;
     this.skills = options.skills || [];
     this.mcpTools = options.mcpTools || [];
+    this.mcpToolServers = options.mcpToolServers || {};
     this.preferredModel = options.preferredModel || null;
     this.preferredProvider = options.preferredProvider || null;
     this.checkLimitFn = options.checkLimitFn || null;
@@ -53,19 +75,22 @@ class BaseAgent {
 
   // 将技能提示词和全局写作提示词注入系统提示词
   _enrichSystemPrompt(basePrompt, phase) {
+    if (!basePrompt || basePrompt.includes(PROMPT_INJECTED_MARK)) {
+      return basePrompt;
+    }
     let enriched = basePrompt;
 
-    // 注入全局写作提示词（对写作、润色、修订阶段生效）
-    const writingPhases = ['write_chapter', 'context_assembly', 'polish', 'review', 'outline', 'characters', 'chapters_outline'];
-    if (this.globalPrompt && writingPhases.includes(phase)) {
+    // 全局提示词来自高级设置。这里统一注入到所有 Agent 调用，避免某些阶段漏掉。
+    if (this.globalPrompt) {
       enriched += `\n\n【全局写作风格指令】\n${this.globalPrompt}`;
     }
 
-    // 注入阶段匹配的技能提示词
-    const phaseSkills = this.skills.filter(s => s.phase === phase || s.phase === 'all');
-    if (phaseSkills.length === 0) return enriched;
+    // 注入阶段匹配的技能提示词。别名阶段也要命中高级设置中的主阶段，避免写作/章纲等子阶段漏注入。
+    const allowedPhases = getPromptPhaseSet(phase);
+    const phaseSkills = this.skills.filter(s => allowedPhases.has(s.phase));
+    if (phaseSkills.length === 0) return `${enriched}\n${PROMPT_INJECTED_MARK}`;
     const skillTexts = phaseSkills.map(s => `\n\n【技能增强：${s.display_name}】\n${s.resolvedPrompt}`);
-    return enriched + skillTexts.join('');
+    return `${enriched}${skillTexts.join('')}\n${PROMPT_INJECTED_MARK}`;
   }
 
   // 解析 JSON，失败返回 fallback
@@ -136,11 +161,12 @@ class BaseAgent {
     const client = this._getClient(provider);
     const abortSignal = signal || this._abortSignal;
     const effectiveTemperature = this._resolveTemperature(phase, temperature);
+    const enrichedSystemPrompt = this._enrichSystemPrompt(systemPrompt, phase);
 
     const response = await client.chat.completions.create({
       model,
       messages: [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: enrichedSystemPrompt },
         { role: 'user', content: userPrompt },
       ],
       temperature: effectiveTemperature,
@@ -162,6 +188,7 @@ class BaseAgent {
     const retryDelay = options.retryDelay || 5000;
     const maxTokens = maxTokensOverride || this.maxTokens;
     const effectiveTemperature = this._resolveTemperature(phase, temperature);
+    const enrichedSystemPrompt = this._enrichSystemPrompt(systemPrompt, phase);
 
     let lastError = null;
     let skipReasons = [];
@@ -176,7 +203,7 @@ class BaseAgent {
         const stream = await client.chat.completions.create({
           model,
           messages: [
-            { role: 'system', content: systemPrompt },
+            { role: 'system', content: enrichedSystemPrompt },
             { role: 'user', content: userPrompt },
           ],
           temperature: effectiveTemperature,

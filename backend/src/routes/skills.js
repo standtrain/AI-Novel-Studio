@@ -25,6 +25,8 @@ router.put('/:id/toggle', async (req, res) => {
       return res.status(400).json({ error: '缺少 enabled 参数' });
     }
     const result = await skillService.toggleUserSkill(req.user.id, skillId, enabled);
+    const agentService = require('../services/agentService');
+    agentService.clearUserCache(req.user.id);
     res.json({ user_skill: result });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '切换技能状态失败' });
@@ -40,6 +42,8 @@ router.put('/:id/params', async (req, res) => {
       return res.status(400).json({ error: '缺少 parameters 参数' });
     }
     const result = await skillService.updateUserSkillParams(req.user.id, skillId, parameters);
+    const agentService = require('../services/agentService');
+    agentService.clearUserCache(req.user.id);
     res.json({ user_skill: result });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '更新技能参数失败' });

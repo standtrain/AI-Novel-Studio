@@ -22,6 +22,8 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const skill = await skillService.createSkill(req.body);
+    const agentService = require('../services/agentService');
+    agentService.clearAllCaches();
     res.status(201).json({ skill });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '创建技能失败' });
@@ -33,6 +35,8 @@ router.put('/:id', async (req, res) => {
   try {
     const skillId = parsePositiveInt(req.params.id, '技能ID');
     const skill = await skillService.updateSkill(skillId, req.body);
+    const agentService = require('../services/agentService');
+    agentService.clearAllCaches();
     res.json({ skill });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '更新技能失败' });
@@ -44,6 +48,8 @@ router.delete('/:id', async (req, res) => {
   try {
     const skillId = parsePositiveInt(req.params.id, '技能ID');
     await skillService.deleteSkill(skillId);
+    const agentService = require('../services/agentService');
+    agentService.clearAllCaches();
     res.json({ success: true, message: '技能已删除' });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '删除技能失败' });
@@ -58,6 +64,8 @@ router.post('/batch-import', async (req, res) => {
       return res.status(400).json({ error: '请提供 skills 数组' });
     }
     const results = await skillService.batchImportSkills(skills);
+    const agentService = require('../services/agentService');
+    agentService.clearAllCaches();
     res.status(201).json(results);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '批量导入失败' });

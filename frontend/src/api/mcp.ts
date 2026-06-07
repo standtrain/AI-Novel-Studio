@@ -12,7 +12,7 @@ export async function getUserMcpServersApi(): Promise<{ servers: UserMcpConfig[]
 
 export async function saveUserMcpConfigApi(
   serverId: number,
-  config: { enabled?: boolean; extra_config?: Record<string, any> }
+  config: { enabled?: boolean; api_key?: string | null; extra_config?: Record<string, any> }
 ) {
   const { data } = await client.put(`/mcp/servers/${serverId}/config`, config);
   return data;

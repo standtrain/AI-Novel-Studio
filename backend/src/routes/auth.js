@@ -342,6 +342,10 @@ router.put('/me/preferred-model', authenticate, async (req, res) => {
 
     await userDao.updatePreferredModel(req.user.id, modelName || null);
 
+    // 清理 Agent 缓存，确保下一次生成立即使用新的模型偏好。
+    const agentService = require('../services/agentService');
+    agentService.clearUserCache(req.user.id);
+
     // 重新获取完整用户信息
     const updatedUser = await userDao.findById(req.user.id);
     res.json({ user: authService.sanitizeUser(updatedUser) });

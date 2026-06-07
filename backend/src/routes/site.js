@@ -39,6 +39,8 @@ router.put('/writing-prompt', authenticate, async (req, res) => {
       return res.status(400).json({ error: '请提供有效的提示词内容' });
     }
     await configService.set('global_writing_prompt', prompt.trim());
+    const agentService = require('../services/agentService');
+    agentService.clearAllCaches();
     res.json({ success: true, prompt: prompt.trim() });
   } catch (err) {
     res.status(500).json({ error: '保存写作提示词失败' });

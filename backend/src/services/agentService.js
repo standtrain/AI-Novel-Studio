@@ -23,6 +23,11 @@ const logger = createLogger('agent');
 // ========== 阶段映射 ==========
 // 内部子阶段映射到对外暴露的 4 个主阶段，确保技能/MCP 配置正确匹配
 const PHASE_MAP = {
+  plan_revise: 'plan',
+  import_analysis: 'all',
+  character: 'characters',
+  chapter_outline: 'chapters_outline',
+  writing: 'write_chapter',
   context_assembly: 'write_chapter',
   review: 'write_chapter',
   polish: 'write_chapter',
@@ -36,7 +41,7 @@ function _normalizePhase(phase) {
 // ========== Agent 创建（请求级缓存） ==========
 
 // 请求级缓存：同一 userId 在一次请求链中只查一次配置/用户/MCP
-const _agentCache = new Map(); // key: userId -> { maxTokens, globalPrompt, user, checkLimitFn, mcpTools, loaded }
+const _agentCache = new Map(); // key: userId -> { maxTokens, globalPrompt, user, checkLimitFn, mcpTools, mcpToolServers, loaded }
 const _CACHE_TTL = 60000; // 60 秒过期
 
 function _getAgentCacheKey(userId) {
@@ -66,9 +71,9 @@ async function _loadUserConfig(userId) {
   };
 }
 
-async function _loadMcpTools(userId) {
+async function _loadMcpRuntime(userId) {
   const mcpService = require('./mcpService');
-  return mcpService.getAvailableUserTools(userId);
+  return mcpService.getAvailableUserToolRuntime(userId);
 }
 
 async function _getOrCreateCache(userId) {
@@ -78,13 +83,19 @@ async function _getOrCreateCache(userId) {
   if (entry && (now - entry._ts) < _CACHE_TTL) return entry;
 
   // 并行加载所有共享配置
-  const [baseConfig, userConfig, mcpTools] = await Promise.all([
+  const [baseConfig, userConfig, mcpRuntime] = await Promise.all([
     _loadAgentBaseConfig(),
     userId ? _loadUserConfig(userId).catch(() => ({ user: null, preferredModel: null, checkLimitFn: null })) : Promise.resolve({ user: null, preferredModel: null, checkLimitFn: null }),
-    userId ? _loadMcpTools(userId).catch(() => []) : Promise.resolve([]),
+    userId ? _loadMcpRuntime(userId).catch(() => ({ openaiTools: [], toolServers: {} })) : Promise.resolve({ openaiTools: [], toolServers: {} }),
   ]);
 
-  entry = { ...baseConfig, ...userConfig, mcpTools, _ts: now };
+  entry = {
+    ...baseConfig,
+    ...userConfig,
+    mcpTools: mcpRuntime.openaiTools || [],
+    mcpToolServers: mcpRuntime.toolServers || {},
+    _ts: now,
+  };
   _agentCache.set(key, entry);
   return entry;
 }
@@ -109,6 +120,7 @@ async function _createAgent(ctx, userId, phase, AgentClass = NovelWritingAgent) 
   // 注入 MCP 工具
   if (cached.mcpTools && cached.mcpTools.length > 0) {
     agent.mcpTools = cached.mcpTools;
+    agent.mcpToolServers = cached.mcpToolServers || {};
   }
 
   // 注入技能提示词（按阶段查询，无法缓存因 phase 不同）
@@ -1756,6 +1768,10 @@ agentService.planRevise = function (userId, novelId, feedback) {
 
 agentService.clearUserCache = function (userId) {
   _clearAgentCache(userId);
+};
+
+agentService.clearAllCaches = function () {
+  _agentCache.clear();
 };
 
 module.exports = agentService;

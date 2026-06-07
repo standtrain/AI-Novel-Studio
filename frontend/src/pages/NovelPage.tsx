@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Steps, Button, Input, Typography, App, Space, Card, List, Tag, Modal, Popconfirm, Collapse, Badge, InputNumber } from 'antd';
-import { PlayCircleOutlined, ArrowLeftOutlined, ArrowRightOutlined, EditOutlined, SendOutlined, RobotOutlined, ReloadOutlined, WarningOutlined, NodeIndexOutlined, AuditOutlined, PauseCircleOutlined, PlusOutlined, DeleteOutlined, SaveOutlined, CloseOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, ArrowLeftOutlined, ArrowRightOutlined, EditOutlined, SendOutlined, RobotOutlined, ReloadOutlined, WarningOutlined, NodeIndexOutlined, AuditOutlined, PauseCircleOutlined, PlusOutlined, DeleteOutlined, SaveOutlined, CloseOutlined, SearchOutlined } from '@ant-design/icons';
 import { getNovelApi, getChapterContentApi } from '../api/novels';
 import client from '../api/client';
 import {
@@ -1430,6 +1430,12 @@ const InlineDirectEditor: React.FC<{
   onCancel: () => void;
   isMobile: boolean;
 }> = ({ phase, data, onChange, fallback, fallbackText, onFallbackTextChange, saving, onSave, onCancel, isMobile }) => {
+  const editorFieldsRef = useRef<HTMLDivElement>(null);
+  const searchMatchesRef = useRef<Array<{ el: HTMLInputElement | HTMLTextAreaElement; start: number; length: number }>>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchIndex, setSearchIndex] = useState(0);
+  const [searchCount, setSearchCount] = useState(0);
+  const [searchMessage, setSearchMessage] = useState('');
   const setField = (key: string, value: any) => onChange({ ...(data || {}), [key]: value });
   const list = (key: string) => ensureArray(data?.[key]);
   const setListItem = (key: string, index: number, value: any) => {
@@ -1453,6 +1459,75 @@ const InlineDirectEditor: React.FC<{
     chapter_content: '编辑章节正文',
   }[phase] || '编辑内容';
 
+  useEffect(() => {
+    searchMatchesRef.current = [];
+    setSearchIndex(0);
+    setSearchCount(0);
+    setSearchMessage('');
+  }, [phase, fallback]);
+
+  const collectEditorMatches = (term: string) => {
+    const root = editorFieldsRef.current;
+    const keyword = term.trim().toLowerCase();
+    if (!root || !keyword) return [];
+    const fields = Array.from(root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea'));
+    const matches: Array<{ el: HTMLInputElement | HTMLTextAreaElement; start: number; length: number }> = [];
+
+    fields.forEach(el => {
+      const value = el.value || '';
+      const lower = value.toLowerCase();
+      let start = 0;
+      while ((start = lower.indexOf(keyword, start)) !== -1) {
+        matches.push({ el, start, length: term.trim().length });
+        start += keyword.length;
+      }
+    });
+
+    return matches;
+  };
+
+  const focusEditorMatch = (match: { el: HTMLInputElement | HTMLTextAreaElement; start: number; length: number }) => {
+    match.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    match.el.focus();
+    try {
+      match.el.setSelectionRange(match.start, match.start + match.length);
+    } catch { /* Some input implementations may not support text selection. */ }
+  };
+
+  const runSearch = (nextIndex = 0) => {
+    const matches = collectEditorMatches(searchTerm);
+    searchMatchesRef.current = matches;
+    setSearchCount(matches.length);
+
+    if (matches.length === 0) {
+      setSearchIndex(0);
+      setSearchMessage(searchTerm.trim() ? '未找到匹配内容' : '');
+      return;
+    }
+
+    const normalized = ((nextIndex % matches.length) + matches.length) % matches.length;
+    setSearchIndex(normalized);
+    setSearchMessage('');
+    focusEditorMatch(matches[normalized]);
+  };
+
+  const goToSearchMatch = (direction: 1 | -1) => {
+    const matches = collectEditorMatches(searchTerm);
+    if (matches.length === 0) {
+      searchMatchesRef.current = [];
+      setSearchCount(0);
+      setSearchIndex(0);
+      setSearchMessage(searchTerm.trim() ? '未找到匹配内容' : '');
+      return;
+    }
+    searchMatchesRef.current = matches;
+    setSearchCount(matches.length);
+    const nextIndex = ((searchIndex + direction) % matches.length + matches.length) % matches.length;
+    setSearchIndex(nextIndex);
+    setSearchMessage('');
+    focusEditorMatch(matches[nextIndex]);
+  };
+
   return (
     <div style={{
       padding: isMobile ? 4 : 0,
@@ -1465,6 +1540,31 @@ const InlineDirectEditor: React.FC<{
         </Space>
       </div>
 
+      <Space style={{ marginBottom: 12 }} wrap>
+        <Input
+          size="small"
+          prefix={<SearchOutlined />}
+          placeholder="搜索可编辑内容..."
+          value={searchTerm}
+          onChange={e => {
+            setSearchTerm(e.target.value);
+            setSearchMessage('');
+          }}
+          onPressEnter={() => runSearch(0)}
+          style={{ width: isMobile ? 180 : 220 }}
+        />
+        <Button size="small" onClick={() => runSearch(0)} disabled={!searchTerm.trim()}>查找</Button>
+        <Button size="small" onClick={() => goToSearchMatch(-1)} disabled={searchCount === 0}>上一处</Button>
+        <Button size="small" onClick={() => goToSearchMatch(1)} disabled={searchCount === 0}>下一处</Button>
+        {searchCount > 0 && (
+          <Text style={{ color: '#94a3b8', fontSize: 12 }}>{searchIndex + 1}/{searchCount}</Text>
+        )}
+        {searchMessage && (
+          <Text style={{ color: '#fbbf24', fontSize: 12 }}>{searchMessage}</Text>
+        )}
+      </Space>
+
+      <div ref={editorFieldsRef}>
       {fallback ? (
         <TextArea
           value={fallbackText}
@@ -1582,6 +1682,7 @@ const InlineDirectEditor: React.FC<{
           <TextArea value={data?.content} onChange={e => setField('content', e.target.value)} placeholder="章节正文" rows={20} maxLength={200000} />
         </div>
       )}
+      </div>
     </div>
   );
 };

@@ -1,6 +1,6 @@
 import React from 'react';
-import { Layout, Button, Space, Dropdown } from 'antd';
-import { UserOutlined, LogoutOutlined, EditOutlined, SettingOutlined, MenuOutlined } from '@ant-design/icons';
+import { Layout, Button, Space, Dropdown, Modal } from 'antd';
+import { UserOutlined, LogoutOutlined, HomeOutlined, EditOutlined, SettingOutlined, MenuOutlined, ShopOutlined, ExperimentOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import useMobile from '../../hooks/useMobile';
@@ -15,13 +15,33 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
   const isMobile = useMobile();
+  const isAdmin = user?.group?.name === 'admin';
 
-  const items = {
+  const handleLogout = () => {
+    Modal.confirm({
+      title: '确认退出',
+      icon: <ExclamationCircleOutlined />,
+      content: '确定要退出登录吗？',
+      okText: '退出',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: () => {
+        logout();
+        navigate('/login');
+      },
+    });
+  };
+
+  const menuItems = {
     items: [
+      { key: 'home', icon: <HomeOutlined />, label: '首页', onClick: () => navigate('/home') },
       { key: 'dashboard', icon: <EditOutlined />, label: '我的小说', onClick: () => navigate('/dashboard') },
-      { key: 'settings', icon: <SettingOutlined />, label: '个人设置', onClick: () => navigate('/settings') },
+      { key: 'templates', icon: <ShopOutlined />, label: '模板商店', onClick: () => navigate('/templates') },
+      ...(isAdmin ? [{ key: 'admin', icon: <SettingOutlined />, label: '管理后台', onClick: () => navigate('/admin') }] : []),
+      { key: 'advanced', icon: <ExperimentOutlined />, label: '高级设置', onClick: () => navigate('/advanced') },
+      { key: 'settings', icon: <UserOutlined />, label: '个人设置', onClick: () => navigate('/settings') },
       { type: 'divider' as const },
-      { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', onClick: () => { logout(); navigate('/login'); } },
+      { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', onClick: handleLogout },
     ],
   };
 
@@ -53,13 +73,13 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
           display: 'flex',
           alignItems: 'center',
           gap: 10
-        }} onClick={() => navigate('/dashboard')}>
+        }} onClick={() => navigate('/home')}>
           <span className="brand-mark">✦</span>
           {!isMobile && 'AI Novel Studio'}
         </div>
       </div>
       <Space>
-        <Dropdown menu={items} placement="bottomRight">
+        <Dropdown menu={menuItems} placement="bottomRight">
           <Button
             type="text"
             icon={<UserOutlined />}

@@ -1,6 +1,6 @@
 import React from 'react';
-import { Layout, Menu, Button, Tooltip } from 'antd';
-import { HomeOutlined, EditOutlined, SettingOutlined, UserOutlined, ExperimentOutlined, ShopOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
+import { Layout, Menu, Button, Tooltip, Modal } from 'antd';
+import { HomeOutlined, EditOutlined, SettingOutlined, UserOutlined, ExperimentOutlined, ShopOutlined, LogoutOutlined, MenuFoldOutlined, MenuUnfoldOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 
@@ -47,8 +47,18 @@ const Sidebar: React.FC<SidebarProps> = ({ onMenuClick, collapsed, onCollapse })
   };
 
   const handleLogout = () => {
-    logout();
-    navigate('/login');
+    Modal.confirm({
+      title: '确认退出',
+      icon: <ExclamationCircleOutlined />,
+      content: '确定要退出登录吗？',
+      okText: '退出',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: () => {
+        logout();
+        navigate('/login');
+      },
+    });
   };
 
   const logoutBtn = collapsed ? (

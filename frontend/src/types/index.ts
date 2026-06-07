@@ -65,9 +65,10 @@ export interface Character {
   appearance?: string;
   personality?: string;
   background?: string;
+  abilities?: string;
   motivation?: string;
   arc?: string;
-  relationships?: string[];
+  relationships?: Array<string | { with?: string; type?: string; [key: string]: any }>;
 }
 
 // 章节
@@ -75,18 +76,28 @@ export interface Chapter {
   id?: number;
   novel_id?: number;
   chapter_number: number;
+  chapter?: number;
   title: string;
   brief?: string;
-  scenes?: string[];
+  synopsis?: string;
+  scenes?: Array<string | Record<string, any>>;
+  key_events?: Array<string | Record<string, any>>;
+  keyEvents?: Array<string | Record<string, any>>;
   conflict?: string;
   turning_point?: string;
-  characters_involved?: string[];
+  turningPoint?: string;
+  characters_involved?: Array<string | Record<string, any>>;
+  charactersInvolved?: Array<string | Record<string, any>>;
   emotional_tone?: string;
+  emotionalTone?: string;
   ending_hook?: string;
+  endingHook?: string;
+  hook?: string;
   content?: string;
   summary?: string;
   status: 'outline' | 'writing' | 'completed';
   word_count: number;
+  wordCount?: number;
   review_result?: string;
   extraction_result?: string;
 }
@@ -138,10 +149,13 @@ export interface ImportNovelData {
     title?: string;
     genre?: string;
     theme?: string;
-    setting?: string;
+    setting?: string | Record<string, any> | any[];
     main_plot?: string;
-    sub_plots?: string[];
-    chapter_count?: number;
+    mainPlot?: string;
+    sub_plots?: Array<string | Record<string, any>> | string;
+    subPlots?: Array<string | Record<string, any>> | string;
+    chapter_count?: number | string;
+    chapterCount?: number | string;
   };
   characters?: Character[];
   chapters?: Chapter[];

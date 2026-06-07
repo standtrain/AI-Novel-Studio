@@ -9,6 +9,185 @@ const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('novel-service');
 
+function pickFirst(source, keys, fallback = undefined) {
+  for (const key of keys) {
+    const value = source?.[key];
+    if (value !== undefined && value !== null) {
+      if (typeof value === 'string' && value.trim() === '') continue;
+      return value;
+    }
+  }
+  return fallback;
+}
+
+function toText(value, fallback = null, maxLength = null) {
+  if (value === undefined || value === null) return fallback;
+  const text = typeof value === 'string' ? value.trim() : String(value).trim();
+  if (!text) return fallback;
+  return maxLength ? text.substring(0, maxLength) : text;
+}
+
+function toPositiveInt(value, fallback = null) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const num = Number.parseInt(value, 10);
+  return Number.isInteger(num) && num > 0 ? num : fallback;
+}
+
+function toNonNegativeInt(value, fallback = 0) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const num = Number.parseInt(value, 10);
+  return Number.isInteger(num) && num >= 0 ? num : fallback;
+}
+
+function normalizeArray(value) {
+  if (value === undefined || value === null) return [];
+  if (Array.isArray(value)) {
+    return value
+      .map(item => {
+        if (item === undefined || item === null) return null;
+        if (typeof item === 'string') return item.trim() || null;
+        return item;
+      })
+      .filter(item => item !== null);
+  }
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return [];
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) return normalizeArray(parsed);
+    } catch {
+      // 导入来源可能把数组字段写成普通文本，保留原文，避免静默丢数据。
+    }
+    const parts = text.split(/\r?\n|[;；]/).map(part => part.trim()).filter(Boolean);
+    return parts.length > 1 ? parts : [text];
+  }
+  return [value];
+}
+
+function stringifyArray(value) {
+  return JSON.stringify(normalizeArray(value));
+}
+
+function stringifyFlexible(value, fallback = null) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === 'string') return value.trim() || fallback;
+  return JSON.stringify(value);
+}
+
+function normalizeImportedCharacter(char, index) {
+  const name = toText(char.name, null, 100);
+  if (!name) {
+    throw { status: 400, message: `第 ${index + 1} 个角色缺少名称` };
+  }
+
+  return {
+    name,
+    age: toPositiveInt(char.age),
+    gender: toText(char.gender, null, 10),
+    role: toText(char.role, null, 50),
+    appearance: toText(char.appearance),
+    personality: toText(char.personality),
+    background: toText(pickFirst(char, ['background', 'abilities'])),
+    motivation: toText(char.motivation),
+    arc: toText(char.arc),
+    relationships: stringifyArray(char.relationships),
+  };
+}
+
+function normalizeImportedChapter(ch, index) {
+  const chapterNumber = toPositiveInt(pickFirst(ch, ['chapter_number', 'chapter']));
+  if (!chapterNumber) {
+    throw { status: 400, message: `第 ${index + 1} 个章节缺少有效章节编号` };
+  }
+
+  const rawContent = pickFirst(ch, ['content'], '');
+  const content = typeof rawContent === 'string'
+    ? rawContent.trim()
+    : rawContent
+      ? JSON.stringify(rawContent)
+      : '';
+  const scenes = normalizeArray(pickFirst(ch, ['scenes', 'key_events', 'keyEvents']));
+  const charactersInvolved = normalizeArray(pickFirst(ch, ['characters_involved', 'charactersInvolved']));
+  const status = content
+    ? 'completed'
+    : (['outline', 'writing', 'completed'].includes(ch.status) ? ch.status : 'outline');
+
+  return {
+    chapter_number: chapterNumber,
+    title: toText(ch.title, `第${chapterNumber}章`, 200),
+    brief: toText(pickFirst(ch, ['brief', 'synopsis', 'summary']), null, 500),
+    scenes: JSON.stringify(scenes),
+    conflict: toText(ch.conflict, null, 500),
+    turning_point: toText(pickFirst(ch, ['turning_point', 'turningPoint']), null, 500),
+    characters_involved: JSON.stringify(charactersInvolved),
+    emotional_tone: toText(pickFirst(ch, ['emotional_tone', 'emotionalTone']), null, 100),
+    ending_hook: toText(pickFirst(ch, ['ending_hook', 'endingHook', 'hook']), null, 500),
+    content: content || null,
+    summary: toText(ch.summary, null, 255),
+    status,
+    word_count: toNonNegativeInt(pickFirst(ch, ['word_count', 'wordCount']), content ? countWords(content) : 0),
+    created_at: new Date(),
+    updated_at: new Date(),
+  };
+}
+
+function normalizeImportData(importData) {
+  const novelMeta = importData.novel || {};
+  const rawCharacters = Array.isArray(importData.characters) ? importData.characters : [];
+  const rawChapters = Array.isArray(importData.chapters) ? importData.chapters : [];
+  const characters = rawCharacters.map(normalizeImportedCharacter);
+  const chapters = rawChapters.map(normalizeImportedChapter);
+
+  const seenChapterNumbers = new Set();
+  for (const chapter of chapters) {
+    if (seenChapterNumbers.has(chapter.chapter_number)) {
+      throw { status: 400, message: `导入数据包含重复的章节编号：第 ${chapter.chapter_number} 章` };
+    }
+    seenChapterNumbers.add(chapter.chapter_number);
+  }
+
+  const title = toText(pickFirst(novelMeta, ['title'], importData.title), null, 200);
+  if (!title) {
+    throw { status: 400, message: '导入数据缺少小说标题' };
+  }
+
+  const explicitChapterCount = toNonNegativeInt(
+    pickFirst(novelMeta, ['chapter_count', 'chapterCount']),
+    0
+  );
+  const maxChapterNumber = chapters.reduce((max, ch) => Math.max(max, ch.chapter_number), 0);
+  const chapterCount = Math.max(explicitChapterCount, maxChapterNumber, chapters.length);
+  const hasCharacters = characters.length > 0;
+  const hasChapters = chapters.length > 0;
+  const completedChapters = chapters.filter(ch => ch.status === 'completed').length;
+  const hasContent = completedChapters > 0;
+  const allImportedCompleted = hasChapters && completedChapters === chapters.length;
+  const allPlannedCompleted = allImportedCompleted && chapterCount > 0 && completedChapters >= chapterCount;
+
+  let currentStep = 1;
+  let status = 'outline';
+  if (hasCharacters) { currentStep = 2; status = 'characters'; }
+  if (hasChapters) { currentStep = 3; status = 'chapters_outline'; }
+  if (hasContent) { currentStep = 4; status = allPlannedCompleted ? 'completed' : 'writing'; }
+
+  return {
+    novel: {
+      title,
+      genre: toText(pickFirst(novelMeta, ['genre'], importData.genre), null, 100),
+      theme: toText(novelMeta.theme),
+      setting: stringifyFlexible(novelMeta.setting),
+      main_plot: toText(pickFirst(novelMeta, ['main_plot', 'mainPlot'])),
+      sub_plots: stringifyArray(pickFirst(novelMeta, ['sub_plots', 'subPlots'], [])),
+      status,
+      current_step: currentStep,
+      chapter_count: chapterCount,
+    },
+    characters,
+    chapters,
+  };
+}
+
 // 公共辅助：获取小说并校验所有权
 async function _getNovelOrThrow(novelId, userId) {
   const novel = await novelDao.findById(novelId);
@@ -90,107 +269,45 @@ const novelService = {
     return novelDao.findById(id);
   },
 
-  // 导入小说（完整数据包：novel + characters + chapters）
+  // 导入小说（先归一化校验，再使用事务写入，避免半导入数据）
   async importNovel(userId, maxNovels, importData) {
     const count = await novelDao.countByUser(userId);
     if (count >= maxNovels) {
       throw { status: 403, message: `已达到最大小说数量限制（${maxNovels}本）` };
     }
 
-    // 提取 novel 元数据（兼容扁平结构和嵌套 novel 对象）
-    const novelMeta = importData.novel || {};
-    const title = novelMeta.title || importData.title || '导入的小说';
-    const genre = novelMeta.genre || importData.genre || null;
-    const theme = novelMeta.theme || null;
-    const setting = novelMeta.setting
-      ? (typeof novelMeta.setting === 'object' ? JSON.stringify(novelMeta.setting) : String(novelMeta.setting))
-      : null;
-    const mainPlot = novelMeta.main_plot || null;
-    const subPlots = novelMeta.sub_plots ? JSON.stringify(novelMeta.sub_plots) : '[]';
+    const normalized = normalizeImportData(importData);
+    let id;
 
-    // 提取角色和章节
-    const characters = importData.characters || [];
-    const chapters = importData.chapters || [];
+    await db.transaction(async (trx) => {
+      const [createdId] = await trx('novels').insert({
+        user_id: userId,
+        ...normalized.novel,
+      });
+      id = createdId;
 
-    // 根据数据存在性自动推断 current_step 和 status
-    const hasCharacters = characters.length > 0;
-    const hasChapters = chapters.length > 0;
-    const hasContent = hasChapters && chapters.some(c => c.content && c.content.trim().length > 0);
-    const allCompleted = hasChapters && chapters.every(c => c.status === 'completed' || (c.content && c.content.trim().length > 0));
-
-    let currentStep = 1;
-    let status = 'outline';
-    if (hasCharacters) { currentStep = 2; status = 'characters'; }
-    if (hasChapters) { currentStep = 3; status = 'chapters_outline'; }
-    if (hasContent) { currentStep = 4; status = allCompleted ? 'completed' : 'writing'; }
-
-    // 创建 novel 记录
-    const id = await novelDao.create({
-      user_id: userId,
-      title,
-      genre,
-      theme,
-      setting,
-      main_plot: mainPlot,
-      sub_plots: subPlots,
-      status,
-      current_step: currentStep,
-      chapter_count: hasChapters ? chapters.length : (novelMeta.chapter_count || 0),
-    });
-
-    // 导入角色
-    if (hasCharacters) {
-      const formattedCharacters = characters.map(char => ({
-        novel_id: id,
-        name: char.name || '',
-        age: char.age ? String(char.age) : null,
-        gender: char.gender || null,
-        role: char.role || null,
-        appearance: char.appearance || null,
-        personality: char.personality || null,
-        background: char.background || null,
-        motivation: char.motivation || null,
-        arc: char.arc || null,
-        relationships: JSON.stringify(char.relationships || []),
-      }));
-      await characterDao.bulkCreate(formattedCharacters);
-    }
-
-    // 导入章节
-    if (hasChapters) {
-      // 校验无重复章节号
-      const chapterNumbers = chapters.map(c => c.chapter_number);
-      const uniqueNumbers = new Set(chapterNumbers);
-      if (chapterNumbers.length !== uniqueNumbers.size) {
-        throw { status: 400, message: '导入数据包含重复的章节编号' };
+      if (normalized.characters.length > 0) {
+        await trx('characters').insert(
+          normalized.characters.map(char => ({
+            novel_id: id,
+            ...char,
+          }))
+        );
       }
 
-      const formattedChapters = chapters.map(ch => ({
-        novel_id: id,
-        chapter_number: ch.chapter_number,
-        title: ch.title || `第${ch.chapter_number}章`,
-        brief: ch.brief || null,
-        scenes: JSON.stringify(ch.scenes || []),
-        conflict: ch.conflict || null,
-        turning_point: ch.turning_point || null,
-        characters_involved: JSON.stringify(ch.characters_involved || []),
-        emotional_tone: ch.emotional_tone || null,
-        ending_hook: ch.ending_hook || null,
-        content: ch.content || null,
-        summary: ch.summary || null,
-        status: ch.content ? 'completed' : (ch.status || 'outline'),
-        word_count: ch.word_count || (ch.content ? countWords(ch.content) : 0),
-        created_at: new Date(),
-        updated_at: new Date(),
-      }));
-      await chapterDao.bulkCreate(formattedChapters);
-    }
+      if (normalized.chapters.length > 0) {
+        await trx('chapters').insert(
+          normalized.chapters.map(chapter => ({
+            novel_id: id,
+            ...chapter,
+          }))
+        );
+      }
+    });
 
-    // 返回完整详情
     return this.getNovelDetail(id, userId);
   },
 
-  // 更新小说信息
   async updateNovel(novelId, userId, data) {
     const novel = await _getNovelOrThrow(novelId, userId);
 

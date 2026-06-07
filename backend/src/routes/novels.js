@@ -16,46 +16,63 @@ const createSchema = z.object({
 });
 
 // 导入小说的校验 schema（大部分字段可选，支持只导入大纲或含完整内容）
+const importJsonItemSchema = z.union([z.string(), z.number(), z.boolean(), z.record(z.any())]);
+const importArraySchema = z.union([z.array(importJsonItemSchema), z.string()]);
+
 const importSchema = z.object({
-  title: z.string().min(1).max(200).optional(),
+  title: z.string().max(200).optional(),
   genre: z.string().max(100).optional(),
   novel: z.object({
-    title: z.string().min(1).max(200).optional(),
+    title: z.string().max(200).optional(),
     genre: z.string().max(100).optional(),
     theme: z.string().optional(),
-    setting: z.union([z.string(), z.record(z.any())]).optional(),
+    setting: z.union([z.string(), z.record(z.any()), z.array(z.any())]).optional(),
     main_plot: z.string().optional(),
-    sub_plots: z.array(z.string()).optional(),
-    chapter_count: z.number().int().nonnegative().optional(),
-  }).optional(),
+    mainPlot: z.string().optional(),
+    sub_plots: importArraySchema.optional(),
+    subPlots: importArraySchema.optional(),
+    chapter_count: z.union([z.number(), z.string()]).optional(),
+    chapterCount: z.union([z.number(), z.string()]).optional(),
+  }).passthrough().optional(),
   characters: z.array(z.object({
-    name: z.string().min(1).max(100),
+    name: z.string().max(100).optional(),
     age: z.union([z.number(), z.string()]).optional().nullable(),
     gender: z.string().max(10).optional(),
     role: z.string().max(50).optional(),
     appearance: z.string().optional(),
     personality: z.string().optional(),
     background: z.string().optional(),
+    abilities: z.string().optional(),
     motivation: z.string().optional(),
     arc: z.string().optional(),
-    relationships: z.array(z.string()).optional(),
-  })).optional(),
+    relationships: importArraySchema.optional(),
+  }).passthrough()).optional(),
   chapters: z.array(z.object({
-    chapter_number: z.number().int().positive(),
+    chapter_number: z.union([z.number(), z.string()]).optional(),
+    chapter: z.union([z.number(), z.string()]).optional(),
     title: z.string().max(200).optional(),
     brief: z.string().optional(),
-    scenes: z.array(z.string()).optional(),
+    synopsis: z.string().optional(),
+    scenes: importArraySchema.optional(),
+    key_events: importArraySchema.optional(),
+    keyEvents: importArraySchema.optional(),
     conflict: z.string().optional(),
     turning_point: z.string().optional(),
-    characters_involved: z.array(z.string()).optional(),
+    turningPoint: z.string().optional(),
+    characters_involved: importArraySchema.optional(),
+    charactersInvolved: importArraySchema.optional(),
     emotional_tone: z.string().max(100).optional(),
+    emotionalTone: z.string().max(100).optional(),
     ending_hook: z.string().optional(),
-    content: z.string().optional(),
+    endingHook: z.string().optional(),
+    hook: z.string().optional(),
+    content: z.union([z.string(), z.record(z.any()), z.array(z.any())]).optional(),
     summary: z.string().optional(),
     status: z.enum(['outline', 'writing', 'completed']).optional(),
-    word_count: z.number().int().nonnegative().optional(),
-  })).optional(),
-});
+    word_count: z.union([z.number(), z.string()]).optional(),
+    wordCount: z.union([z.number(), z.string()]).optional(),
+  }).passthrough()).optional(),
+}).passthrough();
 
 router.post('/', async (req, res) => {
   try {

@@ -267,6 +267,33 @@ const DashboardPage: React.FC = () => {
     resetPlanState();
   };
 
+  const pickImportValue = (source: any, keys: string[], fallback?: any) => {
+    for (const key of keys) {
+      const value = source?.[key];
+      if (value !== undefined && value !== null) {
+        if (typeof value === 'string' && value.trim() === '') continue;
+        return value;
+      }
+    }
+    return fallback;
+  };
+
+  const toImportNumber = (value: any, fallback = 0) => {
+    const num = Number.parseInt(String(value ?? ''), 10);
+    return Number.isFinite(num) && num >= 0 ? num : fallback;
+  };
+
+  const getChapterNumber = (chapter: any) => toImportNumber(
+    pickImportValue(chapter, ['chapter_number', 'chapter']),
+    0
+  );
+
+  const getContentText = (content: any) => {
+    if (typeof content === 'string') return content.trim();
+    if (content === undefined || content === null) return '';
+    return JSON.stringify(content);
+  };
+
   // 解析 JSON 内容为 ImportNovelData 并生成预览
   const parseImportContent = (content: string): { data: ImportNovelData; preview: ImportPreview } | null => {
     try {
@@ -283,12 +310,23 @@ const DashboardPage: React.FC = () => {
       const genre = importData.novel?.genre || importData.genre || '';
       const characters = importData.characters || [];
       const chapters = importData.chapters || [];
-      const totalWords = chapters.reduce((sum: number, ch: any) => sum + (ch.word_count || 0), 0);
+      const totalWords = chapters.reduce((sum: number, ch: any) => {
+        const explicitWords = toImportNumber(pickImportValue(ch, ['word_count', 'wordCount']), 0);
+        const contentWords = getContentText(ch.content).length;
+        return sum + (explicitWords || contentWords);
+      }, 0);
+      const explicitChapterCount = toImportNumber(
+        pickImportValue(importData.novel, ['chapter_count', 'chapterCount']),
+        0
+      );
+      const maxChapterNumber = chapters.reduce((max: number, ch: any) => Math.max(max, getChapterNumber(ch)), 0);
+      const previewChapterCount = Math.max(explicitChapterCount, maxChapterNumber, chapters.length);
 
       const hasCharacters = characters.length > 0;
       const hasChapters = chapters.length > 0;
-      const hasContent = hasChapters && chapters.some((c: any) => c.content?.trim().length > 0);
-      const allCompleted = hasChapters && chapters.every((c: any) => c.status === 'completed' || (c.content?.trim().length > 0));
+      const completedChapters = chapters.filter((c: any) => c.status === 'completed' || getContentText(c.content).length > 0).length;
+      const hasContent = completedChapters > 0;
+      const allCompleted = hasChapters && completedChapters === chapters.length && completedChapters >= previewChapterCount;
 
       let currentStep = 1, status = 'outline';
       if (hasCharacters) { currentStep = 2; status = 'characters'; }
@@ -297,7 +335,7 @@ const DashboardPage: React.FC = () => {
 
       return {
         data: importData,
-        preview: { title, genre, characterCount: characters.length, chapterCount: chapters.length, totalWords, status, currentStep },
+        preview: { title, genre, characterCount: characters.length, chapterCount: previewChapterCount, totalWords, status, currentStep },
       };
     } catch {
       return null;

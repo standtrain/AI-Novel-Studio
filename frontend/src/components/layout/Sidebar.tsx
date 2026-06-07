@@ -53,7 +53,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onMenuClick, collapsed, onCollapse })
       content: <span style={{ color: '#ef4444' }}>确定要退出登录吗？</span>,
       okText: '退出',
       cancelText: '取消',
-      okButtonProps: { danger: true, style: { background: '#ef4444', borderColor: '#ef4444', color: '#fff', boxShadow: 'none' } },
+      okButtonProps: { danger: true },
       onOk: () => {
         logout();
         navigate('/login');

@@ -597,6 +597,20 @@ samp,
   transform: translateY(-1px);
 }
 
+/* 危险操作按钮（如退出确认），恢复红色背景 */
+.ant-btn-primary.ant-btn-dangerous {
+  background: #ef4444 !important;
+  border-color: #ef4444 !important;
+  box-shadow: none !important;
+}
+
+.ant-btn-primary.ant-btn-dangerous:hover {
+  background: #dc2626 !important;
+  border-color: #dc2626 !important;
+  filter: none;
+  transform: translateY(-1px);
+}
+
 .ant-card {
   border-radius: 14px !important;
 }

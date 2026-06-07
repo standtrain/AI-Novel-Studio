@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Row, Col, Typography, Tag, Button, Modal, Spin, Empty, Input, message, Form, Select, Tabs, Popconfirm, Divider, Alert } from 'antd';
+import { Card, Row, Col, Typography, Tag, Button, Modal, Spin, Empty, Input, message, Form, Select, Tabs, Popconfirm, Divider, Alert, Pagination } from 'antd';
 import {
   ThunderboltOutlined, HeartOutlined, RocketOutlined, SearchOutlined,
   AppleOutlined, SmileOutlined, ReadOutlined, EditOutlined, BookOutlined,
@@ -92,6 +92,10 @@ const TemplateStorePage: React.FC = () => {
   const [creating, setCreating] = useState<number | null>(null);
   const [detailModal, setDetailModal] = useState<NovelTemplate | null>(null);
   const [customTitle, setCustomTitle] = useState('');
+  // 服务端分页
+  const [totalCount, setTotalCount] = useState(0);
+  const [storePage, setStorePage] = useState(1);
+  const pageSize = 24;
 
   // 创建/编辑模板
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -107,7 +111,11 @@ const TemplateStorePage: React.FC = () => {
   // 删除
   const [deleting, setDeleting] = useState<number | null>(null);
 
+  // 初次加载
+  const initialLoadStartedRef = useRef(false);
   useEffect(() => {
+    if (initialLoadStartedRef.current) return;
+    initialLoadStartedRef.current = true;
     loadData();
   }, []);
 
@@ -115,18 +123,52 @@ const TemplateStorePage: React.FC = () => {
     if (isAuth && activeStoreTab === 'mine') loadMyTemplates();
   }, [isAuth, activeStoreTab]);
 
+  // 搜索条件变更时防抖后请求服务端；分类/来源变化时复位到第1页
+  const storeSearchRef = useRef<ReturnType<typeof setTimeout>>();
+  const initialStoreLoadFinishedRef = useRef(false);
+  const prevFiltersRef = useRef({ category: activeCategory, source: sourceFilter, search: templateSearch });
+  useEffect(() => {
+    if (activeStoreTab !== 'store') return;
+    if (!initialStoreLoadFinishedRef.current) return;
+
+    const prev = prevFiltersRef.current;
+    const filterChanged =
+      prev.category !== activeCategory ||
+      prev.source !== sourceFilter ||
+      prev.search !== templateSearch;
+    clearTimeout(storeSearchRef.current);
+    if (filterChanged && storePage !== 1) {
+      setStorePage(1);
+      prevFiltersRef.current = { category: activeCategory, source: sourceFilter, search: templateSearch };
+      return;
+    }
+    prevFiltersRef.current = { category: activeCategory, source: sourceFilter, search: templateSearch };
+    storeSearchRef.current = setTimeout(() => {
+      loadData();
+    }, 300);
+    return () => clearTimeout(storeSearchRef.current);
+  }, [templateSearch, activeCategory, sourceFilter, storePage, activeStoreTab]);
+
   const loadData = async () => {
     setLoading(true);
     try {
       const [tRes, cRes] = await Promise.all([
-        getTemplatesApi(),
+        getTemplatesApi({
+          q: templateSearch.trim() || undefined,
+          category: activeCategory !== '全部' ? activeCategory : undefined,
+          source: sourceFilter !== 'all' ? sourceFilter : undefined,
+          page: storePage,
+          limit: pageSize,
+        }),
         getTemplateCategoriesApi(),
       ]);
       setTemplates(tRes.templates);
+      setTotalCount(tRes.total || 0);
       setCategories(cRes.categories);
     } catch {
       message.error('加载模板列表失败');
     } finally {
+      initialStoreLoadFinishedRef.current = true;
       setLoading(false);
     }
   };
@@ -138,20 +180,13 @@ const TemplateStorePage: React.FC = () => {
     } catch { /* ignore */ }
   };
 
-  const filteredTemplates = templates.filter(t => {
-    const categoryMatched = activeCategory === '全部' || t.category === activeCategory;
-    const sourceMatched = sourceFilter === 'all'
-      || (sourceFilter === 'official' && t.is_official)
-      || (sourceFilter === 'community' && !t.is_official);
-    return categoryMatched && sourceMatched && templateMatchesKeyword(t, templateSearch);
-  });
-
-  const filteredMyTemplates = myTemplates.filter(t => {
+  // 我的模板：客户端过滤（数量少），用 useMemo 避免重复计算
+  const filteredMyTemplates = useMemo(() => myTemplates.filter(t => {
     const statusMatched = myStatusFilter === 'all'
       || (myStatusFilter === 'draft' && !t.review_status)
       || t.review_status === myStatusFilter;
     return statusMatched && templateMatchesKeyword(t, myTemplateSearch);
-  });
+  }), [myTemplates, myStatusFilter, myTemplateSearch]);
 
   const hasStoreFilters = templateSearch.trim() || activeCategory !== '全部' || sourceFilter !== 'all';
   const hasMyFilters = myTemplateSearch.trim() || myStatusFilter !== 'all';
@@ -160,6 +195,7 @@ const TemplateStorePage: React.FC = () => {
     setTemplateSearch('');
     setActiveCategory('全部');
     setSourceFilter('all');
+    setStorePage(1);
   };
 
   const resetMyFilters = () => {
@@ -360,7 +396,7 @@ const TemplateStorePage: React.FC = () => {
     </Card>
   );
 
-  if (loading) {
+  if (loading && templates.length === 0 && totalCount === 0) {
     return (
       <PageShell
         title="模板商店"
@@ -417,21 +453,22 @@ const TemplateStorePage: React.FC = () => {
                     <Button onClick={resetStoreFilters}>重置筛选</Button>
                   )}
                 </div>
-                <div style={{ marginBottom: 24, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div style={{ marginBottom: 24, display: 'flex', gap: 8, flexWrap: isMobile ? 'nowrap' : 'wrap', alignItems: 'center', overflowX: isMobile ? 'auto' : 'visible', paddingBottom: isMobile ? 4 : 0, WebkitOverflowScrolling: 'touch' }}>
                   {['全部', ...categories].map(cat => (
                     <Tag key={cat} color={activeCategory === cat ? (getCategoryColor(cat) || 'default') : undefined}
-                      style={{ cursor: 'pointer', padding: '4px 14px', fontSize: 14, borderColor: activeCategory === cat ? undefined : '#30363d', opacity: activeCategory === cat ? 1 : 0.7 }}
+                      style={{ cursor: 'pointer', padding: '4px 14px', fontSize: 14, borderColor: activeCategory === cat ? undefined : '#30363d', opacity: activeCategory === cat ? 1 : 0.7, flexShrink: 0 }}
                       onClick={() => setActiveCategory(cat)}>{cat}</Tag>
                   ))}
-                  <Text type="secondary" style={{ fontSize: 13 }}>共 {filteredTemplates.length} 个模板</Text>
+                  <Text type="secondary" style={{ fontSize: 13 }}>共 {totalCount} 个模板</Text>
                 </div>
-                {filteredTemplates.length === 0 ? (
+                {templates.length === 0 ? (
                   <Empty description={hasStoreFilters ? '没有匹配的模板' : '暂无模板'} style={{ marginTop: 60 }}>
                     {hasStoreFilters && <Button onClick={resetStoreFilters}>清空筛选</Button>}
                   </Empty>
                 ) : (
+                  <>
                   <Row gutter={[16, 16]}>
-                    {filteredTemplates.map((tpl, index) => (
+                    {templates.map((tpl, index) => (
                       <Col key={tpl.id} xs={24} sm={12} md={8} lg={6}>
                         <div
                           className="unified-page-grid-item"
@@ -442,8 +479,20 @@ const TemplateStorePage: React.FC = () => {
                       </Col>
                     ))}
                   </Row>
-                )}
-              </>
+                  {totalCount > pageSize && (
+                    <div style={{ textAlign: 'center', marginTop: 24 }}>
+                      <Pagination
+                        current={storePage}
+                        pageSize={pageSize}
+                        total={totalCount}
+                        showSizeChanger={false}
+                        onChange={(p) => setStorePage(p)}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </>
             ),
           },
           ...(isAuth ? [{
@@ -564,14 +613,14 @@ const TemplateStorePage: React.FC = () => {
         destroyOnClose
       >
         <Form form={templateForm} layout="vertical">
-          <Row gutter={16}>
-            <Col span={12}>
+          <Row gutter={[16, 0]}>
+            <Col xs={24} sm={12}>
               <Form.Item name="name" label="标识名" rules={[{ required: true, message: '请输入' }]}
                 extra="英文标识，创建后不可修改">
                 <Input placeholder="如 my_xianxia_template" disabled={!!editingTemplate} />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="display_name" label="显示名称" rules={[{ required: true, message: '请输入' }]}>
                 <Input placeholder="如 我的修仙模板" />
               </Form.Item>
@@ -580,18 +629,18 @@ const TemplateStorePage: React.FC = () => {
           <Form.Item name="description" label="描述" rules={[{ required: true, message: '请输入描述' }]}>
             <TextArea rows={2} placeholder="简要描述模板特点和适用场景" />
           </Form.Item>
-          <Row gutter={16}>
-            <Col span={8}>
+          <Row gutter={[16, 0]}>
+            <Col xs={24} sm={8}>
               <Form.Item name="category" label="分类" rules={[{ required: true }]}>
                 <Select options={categories.map(c => ({ value: c, label: c }))} />
               </Form.Item>
             </Col>
-            <Col span={8}>
+            <Col xs={24} sm={8}>
               <Form.Item name="icon" label="图标">
                 <Select options={iconOptions.map(i => ({ value: i, label: i.replace('Outlined', '') }))} />
               </Form.Item>
             </Col>
-            <Col span={8}>
+            <Col xs={24} sm={8}>
               <Form.Item name="genre" label="小说类型">
                 <Input placeholder="如：玄幻" />
               </Form.Item>

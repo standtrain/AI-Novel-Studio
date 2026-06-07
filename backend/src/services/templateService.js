@@ -107,6 +107,22 @@ const templateService = {
     return templateDao.getAllPublic();
   },
 
+  // 带搜索/筛选/分页的公开模板查询
+  async searchPublicTemplates({ keyword, category, source, page, limit } = {}) {
+    const safePage = Math.max(1, parseInt(page, 10) || 1);
+    const safeLimit = Math.min(48, Math.max(1, parseInt(limit, 10) || 24));
+    const safeKeyword = String(keyword || '').trim().slice(0, 80);
+    const safeCategory = String(category || '').trim().slice(0, 60);
+    const safeSource = ['official', 'community'].includes(source) ? source : '';
+    return templateDao.searchPublic({
+      keyword: safeKeyword,
+      category: safeCategory,
+      source: safeSource,
+      page: safePage,
+      limit: safeLimit,
+    });
+  },
+
   async listPublicCategories() {
     return categoryDao.getNames();
   },

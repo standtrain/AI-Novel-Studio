@@ -8,11 +8,23 @@ const router = Router();
 
 // ==================== 公开接口 ====================
 
-// 获取公开模板列表
-router.get('/', async (_req, res) => {
+// 获取公开模板列表（支持搜索、分类筛选、来源筛选、分页）
+router.get('/', async (req, res) => {
   try {
-    const templates = await templateService.listPublicTemplates();
-    res.json({ templates });
+    const { q, category, source, page, limit } = req.query;
+    const result = await templateService.searchPublicTemplates({
+      keyword: q,
+      category,
+      source,
+      page,
+      limit,
+    });
+    res.json({
+      templates: result.rows,
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+    });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '获取模板列表失败' });
   }

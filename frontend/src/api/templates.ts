@@ -32,9 +32,11 @@ export interface TemplateReviewModeConfig {
 
 // ---- 公开接口 ----
 
-// 获取公开模板列表
-export async function getTemplatesApi(): Promise<{ templates: NovelTemplate[] }> {
-  const { data } = await client.get('/templates');
+// 获取公开模板列表（支持搜索、分类、来源、分页）
+export async function getTemplatesApi(params?: {
+  q?: string; category?: string; source?: string; page?: number; limit?: number;
+}): Promise<{ templates: NovelTemplate[]; total: number; page: number; limit: number }> {
+  const { data } = await client.get('/templates', { params });
   return data;
 }
 

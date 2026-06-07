@@ -838,18 +838,28 @@ const NovelPage: React.FC = () => {
       {/* ====== 整书大纲 ====== */}
       {userInputSet && viewStep === STEP.OUTLINE && (
         <ActionCard title="整书大纲" onRegenerate={startPhase1} onEdit={() => openEditor('outline', outline || { title: currentNovel?.title, genre: currentNovel?.genre, theme: currentNovel?.theme, setting: currentNovel?.setting, mainPlot: currentNovel?.main_plot, subPlots: currentNovel?.sub_plots, chapterCount: currentNovel?.chapter_count })} onChat={() => openChat('outline')} onStop={() => abortRef.current?.abort()} isStreaming={isStreaming} isChatting={chatPhase === 'outline' && chatStreaming} novelId={novelId} chapterCount={chapters.filter(c => !!c.content).length}>
-          <OutlineView outline={outline || { title: currentNovel?.title, genre: currentNovel?.genre, theme: currentNovel?.theme, setting: currentNovel?.setting, mainPlot: currentNovel?.main_plot, subPlots: currentNovel?.sub_plots, chapterCount: currentNovel?.chapter_count }} />
-          {!isStreaming && <Button type="primary" onClick={startPhase2} style={{ marginTop: 16 }}>生成人物设定</Button>}
-          {renderInlineEditor('outline')}
+          {editingPhase === 'outline' ? (
+            renderInlineEditor('outline')
+          ) : (
+            <>
+              <OutlineView outline={outline || { title: currentNovel?.title, genre: currentNovel?.genre, theme: currentNovel?.theme, setting: currentNovel?.setting, mainPlot: currentNovel?.main_plot, subPlots: currentNovel?.sub_plots, chapterCount: currentNovel?.chapter_count }} />
+              {!isStreaming && <Button type="primary" onClick={startPhase2} style={{ marginTop: 16 }}>生成人物设定</Button>}
+            </>
+          )}
         </ActionCard>
       )}
 
       {/* ====== 人物设定 ====== */}
       {viewStep === STEP.CHARACTERS && characters.length > 0 && (
         <ActionCard title="人物设定" onRegenerate={startPhase2} onEdit={() => openEditor('characters', { characters })} onChat={() => openChat('characters')} onStop={() => abortRef.current?.abort()} isStreaming={isStreaming} isChatting={chatPhase === 'characters' && chatStreaming} novelId={novelId} chapterCount={chapters.filter(c => !!c.content).length}>
-          <CharacterList characters={characters} />
-          {!isStreaming && <Button type="primary" onClick={() => startPhase3(1, true)} style={{ marginTop: 16 }}>一键生成全部章节大纲</Button>}
-          {renderInlineEditor('characters')}
+          {editingPhase === 'characters' ? (
+            renderInlineEditor('characters')
+          ) : (
+            <>
+              <CharacterList characters={characters} />
+              {!isStreaming && <Button type="primary" onClick={() => startPhase3(1, true)} style={{ marginTop: 16 }}>一键生成全部章节大纲</Button>}
+            </>
+          )}
         </ActionCard>
       )}
 
@@ -872,66 +882,71 @@ const NovelPage: React.FC = () => {
               </Space>
             }
           >
-            <ChapterOutlineList
-              chapters={chapterOutlines}
-              onWriteChapter={(chNum: number) => {
-                safeSetChapterPage(chNum);
-                setViewStep(STEP.WRITING);
-                setCurrentStep(4);
-                startPhase4(chNum);
-              }}
-              writtenChapterNumbers={new Set(chapters.filter((c: Chapter) => !!c.content).map((c: Chapter) => c.chapter_number))}
-              disabled={isStreaming}
-            />
-            {renderInlineEditor('chapters_outline')}
-            {/* 自动生成控制区 */}
-            {!isStreaming && (() => {
-              const realOutlines = useNovelStore.getState().chapterOutlines;
-              const generatedCount = realOutlines.length;
-              const total = totalChapters || currentNovel?.chapter_count || 0;
-              const needMore = total > 0 && generatedCount < total;
-              if (generatedCount > 0 && !needMore) {
-                return (
-                  <div style={{ textAlign: 'center', marginTop: 16 }}>
-                    <Text style={{ color: '#34d399' }}>全部章节大纲已生成完毕（{generatedCount}/{total}章）</Text>
-                  </div>
-                );
-              }
-              return (
-                <div style={{ marginTop: 16, padding: 12, background: 'rgba(251,191,36,0.08)', borderRadius: 8, border: '1px solid rgba(251,191,36,0.15)' }}>
-                  {autoOutlines ? (
-                    <div style={{ textAlign: 'center' }}>
-                      <Text style={{ color: '#94a3b8', display: 'block', marginBottom: 8 }}>
-                        🔄 自动生成中：已完成第1-{generatedCount}章 / 共{total}章
-                        {autoTargetChapter ? `（目标：第${autoTargetChapter}章）` : ''}
-                      </Text>
-                      <Space>
-                        <Button onClick={() => setAutoPaused(!autoPaused)}>
-                          {autoPaused ? '继续' : '暂停'}
-                        </Button>
-                        <Button danger onClick={() => { setAutoOutlines(false); setAutoPaused(false); abortRef.current?.abort(); }}>
-                          停止
-                        </Button>
-                      </Space>
+            {editingPhase === 'chapters_outline' ? (
+              renderInlineEditor('chapters_outline')
+            ) : (
+              <>
+                <ChapterOutlineList
+                  chapters={chapterOutlines}
+                  onWriteChapter={(chNum: number) => {
+                    safeSetChapterPage(chNum);
+                    setViewStep(STEP.WRITING);
+                    setCurrentStep(4);
+                    startPhase4(chNum);
+                  }}
+                  writtenChapterNumbers={new Set(chapters.filter((c: Chapter) => !!c.content).map((c: Chapter) => c.chapter_number))}
+                  disabled={isStreaming}
+                />
+                {/* 自动生成控制区 */}
+                {!isStreaming && (() => {
+                  const realOutlines = useNovelStore.getState().chapterOutlines;
+                  const generatedCount = realOutlines.length;
+                  const total = totalChapters || currentNovel?.chapter_count || 0;
+                  const needMore = total > 0 && generatedCount < total;
+                  if (generatedCount > 0 && !needMore) {
+                    return (
+                      <div style={{ textAlign: 'center', marginTop: 16 }}>
+                        <Text style={{ color: '#34d399' }}>全部章节大纲已生成完毕（{generatedCount}/{total}章）</Text>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div style={{ marginTop: 16, padding: 12, background: 'rgba(251,191,36,0.08)', borderRadius: 8, border: '1px solid rgba(251,191,36,0.15)' }}>
+                      {autoOutlines ? (
+                        <div style={{ textAlign: 'center' }}>
+                          <Text style={{ color: '#94a3b8', display: 'block', marginBottom: 8 }}>
+                            🔄 自动生成中：已完成第1-{generatedCount}章 / 共{total}章
+                            {autoTargetChapter ? `（目标：第${autoTargetChapter}章）` : ''}
+                          </Text>
+                          <Space>
+                            <Button onClick={() => setAutoPaused(!autoPaused)}>
+                              {autoPaused ? '继续' : '暂停'}
+                            </Button>
+                            <Button danger onClick={() => { setAutoOutlines(false); setAutoPaused(false); abortRef.current?.abort(); }}>
+                              停止
+                            </Button>
+                          </Space>
+                        </div>
+                      ) : needMore ? (
+                        <div style={{ textAlign: 'center' }}>
+                          <Text style={{ color: '#94a3b8', display: 'block', marginBottom: 8 }}>
+                            已生成第1-{generatedCount}章大纲，还剩{total - generatedCount}章
+                          </Text>
+                          <Space>
+                            <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => {
+                              const startFrom = nextBatchStart || (generatedCount + 1);
+                              startPhase3(startFrom, true);
+                            }}>
+                              继续生成全部
+                            </Button>
+                          </Space>
+                        </div>
+                      ) : null}
                     </div>
-                  ) : needMore ? (
-                    <div style={{ textAlign: 'center' }}>
-                      <Text style={{ color: '#94a3b8', display: 'block', marginBottom: 8 }}>
-                        已生成第1-{generatedCount}章大纲，还剩{total - generatedCount}章
-                      </Text>
-                      <Space>
-                        <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => {
-                          const startFrom = nextBatchStart || (generatedCount + 1);
-                          startPhase3(startFrom, true);
-                        }}>
-                          继续生成全部
-                        </Button>
-                      </Space>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })()}
+                  );
+                })()}
+              </>
+            )}
           </Card>
         ) : !isStreaming ? (
           <Card style={{ marginTop: 16 }}>
@@ -1007,18 +1022,21 @@ const NovelPage: React.FC = () => {
                   novelId={novelId}
                   chapterCount={chapters.filter(c => !!c.content).length}
                 >
-                  <ChapterContent chapter={ch} novelId={novelId}
-                    reviewResult={reviewResults[ch.chapter_number] || null}
-                    extractionResult={extractionResults[ch.chapter_number] || null}
-                    onRegenerate={() => startPhase4(ch.chapter_number)}
-                    onEdit={() => openEditor('chapter_content', { title: ch.title, summary: ch.summary || '', content: ch.content || '' }, ch.chapter_number)}
-                    onChat={() => openChat('chapter_content', ch.chapter_number)}
-                    onReview={() => startReview(ch.chapter_number)}
-                    onExtract={() => startExtract(ch.chapter_number)}
-                    isStreaming={isStreaming}
-                    isChatting={chatPhase === 'chapter_content' && chatChapter === ch.chapter_number && chatStreaming}
-                  />
-                  {renderInlineEditor('chapter_content', ch.chapter_number)}
+                  {editingPhase === 'chapter_content' && editChapterNumber === ch.chapter_number ? (
+                    renderInlineEditor('chapter_content', ch.chapter_number)
+                  ) : (
+                    <ChapterContent chapter={ch} novelId={novelId}
+                      reviewResult={reviewResults[ch.chapter_number] || null}
+                      extractionResult={extractionResults[ch.chapter_number] || null}
+                      onRegenerate={() => startPhase4(ch.chapter_number)}
+                      onEdit={() => openEditor('chapter_content', { title: ch.title, summary: ch.summary || '', content: ch.content || '' }, ch.chapter_number)}
+                      onChat={() => openChat('chapter_content', ch.chapter_number)}
+                      onReview={() => startReview(ch.chapter_number)}
+                      onExtract={() => startExtract(ch.chapter_number)}
+                      isStreaming={isStreaming}
+                      isChatting={chatPhase === 'chapter_content' && chatChapter === ch.chapter_number && chatStreaming}
+                    />
+                  )}
                 </ChapterCard>
               );
             }
@@ -1437,11 +1455,7 @@ const InlineDirectEditor: React.FC<{
 
   return (
     <div style={{
-      marginTop: 16,
-      padding: isMobile ? 12 : 16,
-      border: '1px solid rgba(99,102,241,0.26)',
-      borderRadius: 8,
-      background: 'rgba(15,23,42,0.62)',
+      padding: isMobile ? 4 : 0,
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
         <Text strong style={{ color: '#e2e8f0' }}>{panelTitle}</Text>

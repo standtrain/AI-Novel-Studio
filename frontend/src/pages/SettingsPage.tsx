@@ -176,7 +176,8 @@ const SettingsPage: React.FC = () => {
     }
     setSendingCode(true);
     try {
-      await sendChangeEmailCodeApi(newEmail);
+      const capInput = document.getElementById('settings-captcha-input') as HTMLInputElement;
+      await sendChangeEmailCodeApi(newEmail, captchaId ?? undefined, capInput?.value);
       setCodeSent(true);
       setCooldown(60);
       message.success('验证码已发送至新邮箱');
@@ -334,7 +335,7 @@ const SettingsPage: React.FC = () => {
 
           <Form.Item name="code" label={<span style={{ color: '#cbd5e1' }}>验证码</span>} rules={[{ required: true, message: '请输入6位验证码' }, { len: 6, message: '验证码为6位数字' }]}>
             <Input prefix={<NumberOutlined style={{ color: '#22d3ee' }} />} placeholder="输入邮件中的6位验证码" maxLength={6}
-              style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', letterSpacing: 4, fontFamily: 'monospace', fontSize: 18, textAlign: 'center' }} />
+              style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', letterSpacing: 4, fontFamily: 'var(--font-mono)', fontSize: 18, textAlign: 'center' }} />
           </Form.Item>
 
           <Button type="primary" htmlType="submit" loading={emailLoading}
@@ -474,7 +475,7 @@ const SettingsPage: React.FC = () => {
 
           <Form.Item name="code" label={<span style={{ color: '#cbd5e1' }}>验证码</span>} rules={[{ required: true, message: '请输入6位验证码' }, { len: 6, message: '验证码为6位数字' }]}>
             <Input prefix={<NumberOutlined style={{ color: '#f59e0b' }} />} placeholder="输入邮件中的6位验证码" maxLength={6}
-              style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', letterSpacing: 4, fontFamily: 'monospace', fontSize: 18, textAlign: 'center' }} />
+              style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', letterSpacing: 4, fontFamily: 'var(--font-mono)', fontSize: 18, textAlign: 'center' }} />
           </Form.Item>
           <Form.Item name="newPassword" label={<span style={{ color: '#cbd5e1' }}>新密码</span>} rules={[{ required: true, min: 6, message: '密码至少6个字符' }]}>
             <Input.Password placeholder="输入新密码" style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9' }} />

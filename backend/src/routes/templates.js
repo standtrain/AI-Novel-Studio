@@ -2,6 +2,7 @@ const { Router } = require('express');
 const templateService = require('../services/templateService');
 const authenticate = require('../middleware/authenticate');
 const authorize = require('../middleware/authorize');
+const { parsePositiveInt } = require('../utils/requestParser');
 
 const router = Router();
 
@@ -52,7 +53,8 @@ router.post('/my', authenticate, async (req, res) => {
 // 更新我的模板
 router.put('/my/:id', authenticate, async (req, res) => {
   try {
-    const template = await templateService.updateMyTemplate(req.user.id, parseInt(req.params.id), req.body);
+    const templateId = parsePositiveInt(req.params.id, '模板ID');
+    const template = await templateService.updateMyTemplate(req.user.id, templateId, req.body);
     res.json({ template });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '更新模板失败' });
@@ -62,7 +64,8 @@ router.put('/my/:id', authenticate, async (req, res) => {
 // 删除我的模板
 router.delete('/my/:id', authenticate, async (req, res) => {
   try {
-    await templateService.deleteMyTemplate(req.user.id, parseInt(req.params.id));
+    const templateId = parsePositiveInt(req.params.id, '模板ID');
+    await templateService.deleteMyTemplate(req.user.id, templateId);
     res.json({ message: '模板已删除' });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '删除模板失败' });
@@ -72,7 +75,8 @@ router.delete('/my/:id', authenticate, async (req, res) => {
 // 提交模板审核（设为公开）
 router.post('/my/:id/submit', authenticate, async (req, res) => {
   try {
-    const result = await templateService.submitForReview(req.user.id, parseInt(req.params.id));
+    const templateId = parsePositiveInt(req.params.id, '模板ID');
+    const result = await templateService.submitForReview(req.user.id, templateId);
     res.json(result);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '提交审核失败' });
@@ -104,7 +108,8 @@ router.get('/admin/pending', authenticate, authorize('admin'), async (_req, res)
 // 审核模板
 router.post('/admin/review/:id', authenticate, authorize('admin'), async (req, res) => {
   try {
-    const result = await templateService.reviewTemplate(parseInt(req.params.id), req.body);
+    const templateId = parsePositiveInt(req.params.id, '模板ID');
+    const result = await templateService.reviewTemplate(templateId, req.body);
     res.json(result);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '审核失败' });
@@ -164,7 +169,8 @@ router.post('/admin', authenticate, authorize('admin'), async (req, res) => {
 // 管理更新模板
 router.put('/admin/:id', authenticate, authorize('admin'), async (req, res) => {
   try {
-    const template = await templateService.updateTemplate(parseInt(req.params.id), req.body);
+    const templateId = parsePositiveInt(req.params.id, '模板ID');
+    const template = await templateService.updateTemplate(templateId, req.body);
     res.json({ template, message: '模板已更新' });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '更新模板失败' });
@@ -174,7 +180,8 @@ router.put('/admin/:id', authenticate, authorize('admin'), async (req, res) => {
 // 管理删除模板
 router.delete('/admin/:id', authenticate, authorize('admin'), async (req, res) => {
   try {
-    await templateService.deleteTemplate(parseInt(req.params.id));
+    const templateId = parsePositiveInt(req.params.id, '模板ID');
+    await templateService.deleteTemplate(templateId);
     res.json({ message: '模板已删除' });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '删除模板失败' });
@@ -206,7 +213,8 @@ router.post('/admin/categories', authenticate, authorize('admin'), async (req, r
 // 更新分类
 router.put('/admin/categories/:id', authenticate, authorize('admin'), async (req, res) => {
   try {
-    await templateService.updateCategory(parseInt(req.params.id), req.body);
+    const categoryId = parsePositiveInt(req.params.id, '分类ID');
+    await templateService.updateCategory(categoryId, req.body);
     res.json({ message: '分类已更新' });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '更新分类失败' });
@@ -216,7 +224,8 @@ router.put('/admin/categories/:id', authenticate, authorize('admin'), async (req
 // 删除分类
 router.delete('/admin/categories/:id', authenticate, authorize('admin'), async (req, res) => {
   try {
-    await templateService.deleteCategory(parseInt(req.params.id));
+    const categoryId = parsePositiveInt(req.params.id, '分类ID');
+    await templateService.deleteCategory(categoryId);
     res.json({ message: '分类已删除' });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '删除分类失败' });
@@ -228,7 +237,8 @@ router.delete('/admin/categories/:id', authenticate, authorize('admin'), async (
 // 获取单个模板详情
 router.get('/:id', async (req, res) => {
   try {
-    const template = await templateService.getPublicTemplate(parseInt(req.params.id));
+    const templateId = parsePositiveInt(req.params.id, '模板ID');
+    const template = await templateService.getPublicTemplate(templateId);
     res.json({ template });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '获取模板详情失败' });
@@ -239,8 +249,9 @@ router.get('/:id', async (req, res) => {
 router.post('/:id/use', authenticate, async (req, res) => {
   try {
     const maxNovels = req.user.max_novels || 3;
+    const templateId = parsePositiveInt(req.params.id, '模板ID');
     const result = await templateService.createFromTemplate(
-      req.user.id, maxNovels, parseInt(req.params.id), req.body,
+      req.user.id, maxNovels, templateId, req.body,
     );
     res.status(201).json(result);
   } catch (err) {

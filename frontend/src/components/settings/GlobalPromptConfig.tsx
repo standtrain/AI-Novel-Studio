@@ -90,7 +90,7 @@ const GlobalPromptConfig: React.FC = () => {
         placeholder="自定义全局写作风格指令..."
         style={{
           fontSize: 13,
-          fontFamily: 'monospace',
+          fontFamily: 'var(--font-mono)',
           background: 'rgba(15,23,42,0.5)',
           borderColor: 'rgba(99,102,241,0.3)',
           color: '#f1f5f9',

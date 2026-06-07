@@ -129,6 +129,8 @@ class PlanningAgent extends BaseAgent {
 
     const { provider, model, skipReasons } = await this._resolve('plan');
     const client = this._getClient(provider);
+    const researchTemperature = this._resolveTemperature('plan', 0.7);
+    const planTemperature = this._resolveTemperature('plan', 0.8);
 
     const systemPrompt = this._buildSystemPrompt();
     const messages = [
@@ -149,7 +151,7 @@ class PlanningAgent extends BaseAgent {
           messages,
           tools: openaiTools,
           tool_choice: openaiTools ? 'auto' : undefined,
-          temperature: 0.7,
+          temperature: researchTemperature,
         }, { signal: this._abortSignal });
 
         if (response.usage) totalUsage = response.usage;
@@ -270,7 +272,7 @@ ${researchSummary || '（无搜索结果，请基于你的知识库进行创作�
       const stream = await client.chat.completions.create({
         model,
         messages: streamMessages,
-        temperature: 0.8,
+        temperature: planTemperature,
         max_tokens: this.maxTokens || 16000,
         stream: true,
         stream_options: { include_usage: true },
@@ -316,6 +318,7 @@ ${researchSummary || '（无搜索结果，请基于你的知识库进行创作�
   async revisePlan(currentPlan, feedback, novelId, onProgress) {
     const { provider, model, skipReasons } = await this._resolve('plan');
     const client = this._getClient(provider);
+    const reviseTemperature = this._resolveTemperature('plan', 0.7);
 
     const currentPlanStr = JSON.stringify(currentPlan, null, 2);
 
@@ -392,7 +395,7 @@ ${feedback}
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        temperature: 0.7,
+        temperature: reviseTemperature,
         max_tokens: this.maxTokens || 16000,
         stream: true,
         stream_options: { include_usage: true },

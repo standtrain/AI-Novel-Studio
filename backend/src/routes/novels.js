@@ -2,6 +2,7 @@ const { Router } = require('express');
 const { z } = require('zod');
 const novelService = require('../services/novelService');
 const authenticate = require('../middleware/authenticate');
+const { parsePositiveInt, parsePagination } = require('../utils/requestParser');
 
 const router = Router();
 
@@ -88,12 +89,11 @@ router.post('/import', async (req, res) => {
 // 获取小说列表
 router.get('/', async (req, res) => {
   try {
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 10;
+    const { page, limit } = parsePagination(req.query, { defaultLimit: 10, maxLimit: 50 });
     const result = await novelService.listUserNovels(req.user.id, { page, limit });
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: '获取小说列表失败' });
+    res.status(err.status || 500).json({ error: err.message || '获取小说列表失败' });
   }
 });
 
@@ -101,7 +101,8 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const lightweight = req.query.lightweight === 'true';
-    const novel = await novelService.getNovelDetail(parseInt(req.params.id, 10), req.user.id, { lightweight });
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
+    const novel = await novelService.getNovelDetail(novelId, req.user.id, { lightweight });
     res.json({ novel });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '获取小说失败' });
@@ -111,10 +112,12 @@ router.get('/:id', async (req, res) => {
 // 获取单个章节完整内容
 router.get('/:id/chapters/:chapterNum', async (req, res) => {
   try {
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
+    const chapterNum = parsePositiveInt(req.params.chapterNum, '章节号');
     const chapter = await novelService.getChapterContent(
-      parseInt(req.params.id, 10),
+      novelId,
       req.user.id,
-      parseInt(req.params.chapterNum, 10)
+      chapterNum
     );
     res.json({ chapter });
   } catch (err) {
@@ -125,7 +128,7 @@ router.get('/:id/chapters/:chapterNum', async (req, res) => {
 // 保存编辑后的内容（大纲/人设/章节大纲/章节正文）—— 必须在 PUT /:id 之前
 router.put('/:id/save', async (req, res) => {
   try {
-    const novelId = parseInt(req.params.id, 10);
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
     const { phase, content } = req.body;
     const chapterNum = req.body.chapterNumber;
 
@@ -136,7 +139,7 @@ router.put('/:id/save', async (req, res) => {
     } else if (phase === 'chapters_outline') {
       await novelService.saveChaptersOutline(novelId, req.user.id, content);
     } else if (phase === 'chapter_content' && chapterNum) {
-      await novelService.saveChapterContent(novelId, req.user.id, chapterNum, content);
+      await novelService.saveChapterContent(novelId, req.user.id, parsePositiveInt(chapterNum, '章节号'), content);
     } else {
       throw new Error(`未知的保存阶段: ${phase}`);
     }
@@ -150,7 +153,8 @@ router.put('/:id/save', async (req, res) => {
 // 更新小说信息
 router.put('/:id', async (req, res) => {
   try {
-    const novel = await novelService.updateNovel(parseInt(req.params.id, 10), req.user.id, req.body);
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
+    const novel = await novelService.updateNovel(novelId, req.user.id, req.body);
     res.json({ novel });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '更新失败' });
@@ -160,7 +164,8 @@ router.put('/:id', async (req, res) => {
 // 删除小说
 router.delete('/:id', async (req, res) => {
   try {
-    const result = await novelService.deleteNovel(parseInt(req.params.id, 10), req.user.id);
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
+    const result = await novelService.deleteNovel(novelId, req.user.id);
     res.json(result);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '删除失败' });
@@ -170,7 +175,8 @@ router.delete('/:id', async (req, res) => {
 // 获取小说统计
 router.get('/:id/stats', async (req, res) => {
   try {
-    const stats = await novelService.getNovelStats(parseInt(req.params.id, 10), req.user.id);
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
+    const stats = await novelService.getNovelStats(novelId, req.user.id);
     res.json(stats);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '获取统计失败' });

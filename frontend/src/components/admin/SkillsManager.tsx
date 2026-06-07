@@ -747,7 +747,7 @@ const SkillsManager: React.FC = () => {
                 ? '{"name":"my_skill","display_name":"我的技能","description":"...","system_prompt":"...","phase":"all"}'
                 : '# 技能标题\n\n技能提示词内容...'
           }
-          style={{ fontFamily: 'monospace' }}
+          style={{ fontFamily: 'var(--font-mono)' }}
         />
 
         {/* 文件读取进度提示 */}

@@ -1,5 +1,10 @@
 /* ===== CSS 变量系统 ===== */
 :root {
+  /* 字体系统：中文界面优先使用本机中文字体，避免外部字体加载造成跳字 */
+  --font-sans: "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Heiti SC", "Source Han Sans SC", "Segoe UI", Arial, sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: "JetBrains Mono", "Cascadia Code", "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
   /* 主色调 - 渐变紫 */
   --lp-primary: #6366f1;
   --lp-primary-light: #818cf8;
@@ -12,6 +17,10 @@
   --lp-bg: #0f172a;
   --lp-bg-secondary: #1e293b;
   --lp-bg-tertiary: #334155;
+  --lp-surface: rgba(15, 23, 42, 0.72);
+  --lp-surface-raised: rgba(30, 41, 59, 0.78);
+  --lp-surface-soft: rgba(99, 102, 241, 0.08);
+  --lp-surface-hover: rgba(99, 102, 241, 0.12);
 
   /* 文字颜色 */
   --lp-text-primary: #f1f5f9;
@@ -21,12 +30,14 @@
   /* 边框颜色 */
   --lp-border: rgba(99, 102, 241, 0.15);
   --lp-border-hover: rgba(99, 102, 241, 0.3);
+  --lp-border-strong: rgba(148, 163, 184, 0.22);
 
   /* 阴影 */
   --lp-shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.2);
   --lp-shadow-md: 0 8px 32px rgba(0, 0, 0, 0.3);
   --lp-shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.4);
   --lp-glow: 0 0 20px rgba(99, 102, 241, 0.2);
+  --lp-focus-ring: 0 0 0 3px rgba(99, 102, 241, 0.18);
 
   /* 圆角 */
   --lp-radius-sm: 8px;
@@ -50,15 +61,49 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background: var(--lp-bg);
+  font-family: var(--font-sans);
+  background:
+    radial-gradient(circle at 20% 0%, rgba(99, 102, 241, 0.18), transparent 32rem),
+    radial-gradient(circle at 88% 18%, rgba(34, 211, 238, 0.1), transparent 26rem),
+    linear-gradient(135deg, #0b1022 0%, var(--lp-bg) 48%, #111827 100%);
+  background-attachment: fixed;
   color: var(--lp-text-secondary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 #root {
   min-height: 100vh;
+  font-family: var(--font-sans);
+}
+
+button,
+input,
+textarea,
+select,
+.ant-app,
+.ant-typography,
+.ant-btn,
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-select,
+.ant-menu,
+.ant-table,
+.ant-modal,
+.ant-message,
+.ant-notification {
+  font-family: var(--font-sans) !important;
+}
+
+code,
+pre,
+kbd,
+samp,
+.ant-typography code,
+.ant-input-number,
+.font-mono {
+  font-family: var(--font-mono) !important;
 }
 
 /* ===== 自定义滚动条 ===== */
@@ -443,11 +488,11 @@ body {
 
 /* ===== 玻璃拟态基础类 ===== */
 .glass-card {
-  background: rgba(30, 41, 59, 0.7);
-  backdrop-filter: blur(12px);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.82), rgba(15, 23, 42, 0.72));
+  backdrop-filter: blur(18px);
   border: 1px solid var(--lp-border);
   border-radius: var(--lp-radius-lg);
-  box-shadow: var(--lp-shadow-md), var(--lp-glow);
+  box-shadow: var(--lp-shadow-md), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
 }
 
 /* ===== 渐变按钮类 ===== */
@@ -460,6 +505,122 @@ body {
 .gradient-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 25px rgba(99, 102, 241, 0.4);
+}
+
+/* ===== 应用级通用美化 ===== */
+.app-shell {
+  min-height: 100vh;
+  background: transparent;
+}
+
+.app-main-wrap {
+  padding: 24px;
+}
+
+.app-content-panel {
+  position: relative;
+  min-height: 360px;
+  padding: 24px;
+  overflow: hidden;
+}
+
+.app-content-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.05), transparent 28%),
+    radial-gradient(circle at 100% 0%, rgba(99,102,241,0.08), transparent 18rem);
+}
+
+.app-content-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.app-header {
+  background: rgba(9, 14, 31, 0.82) !important;
+  backdrop-filter: blur(18px);
+  border-bottom: 1px solid var(--lp-border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+}
+
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(34,211,238,0.16));
+  color: #a5b4fc;
+  box-shadow: 0 0 18px rgba(99,102,241,0.26);
+}
+
+.app-sidebar {
+  background: rgba(9, 14, 31, 0.56) !important;
+  backdrop-filter: blur(18px);
+  border-right: 1px solid var(--lp-border);
+}
+
+.ant-menu .ant-menu-item {
+  margin-inline: 10px !important;
+  width: calc(100% - 20px) !important;
+  border-radius: 10px !important;
+}
+
+.ant-menu .ant-menu-item-selected {
+  background: linear-gradient(135deg, rgba(99,102,241,0.22), rgba(34,211,238,0.1)) !important;
+  color: #f8fafc !important;
+  box-shadow: inset 3px 0 0 #818cf8;
+}
+
+.ant-menu .ant-menu-item:hover {
+  background: var(--lp-surface-hover) !important;
+  color: #f8fafc !important;
+}
+
+.ant-btn {
+  border-radius: 10px !important;
+  font-weight: 500;
+}
+
+.ant-btn-primary {
+  background: linear-gradient(135deg, #6366f1, #7c3aed) !important;
+  border-color: transparent !important;
+  box-shadow: 0 10px 24px rgba(99,102,241,0.22) !important;
+}
+
+.ant-btn-primary:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.ant-card {
+  border-radius: 14px !important;
+}
+
+.ant-card,
+.ant-modal-content,
+.ant-drawer-content {
+  background: linear-gradient(180deg, rgba(30,41,59,0.86), rgba(15,23,42,0.8)) !important;
+  border-color: var(--lp-border) !important;
+}
+
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-select-selector,
+.ant-input-number,
+.ant-picker {
+  border-radius: 10px !important;
+}
+
+.ant-input:focus,
+.ant-input-affix-wrapper-focused,
+.ant-select-focused .ant-select-selector,
+.ant-picker-focused {
+  box-shadow: var(--lp-focus-ring) !important;
 }
 
 /* ===== 输入框聚焦效果 ===== */
@@ -737,4 +898,66 @@ body {
 
 .ant-collapse-header {
   color: #cbd5e1 !important;
+}
+
+/* ===== 创作温度预设 ===== */
+.temperature-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.temperature-preset-card {
+  position: relative;
+  display: flex;
+  min-height: 104px;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(99, 102, 241, 0.16);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.45);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.temperature-preset-card:hover,
+.temperature-preset-card.is-selected {
+  border-color: rgba(99, 102, 241, 0.55);
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.temperature-preset-card:hover {
+  transform: translateY(-1px);
+}
+
+.temperature-preset-radio {
+  margin-top: 2px;
+}
+
+.temperature-preset-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.temperature-preset-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.temperature-preset-check {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  color: #818cf8;
+}
+
+.temperature-custom-panel {
+  margin-bottom: 16px;
+  background: rgba(15, 23, 42, 0.45) !important;
 }

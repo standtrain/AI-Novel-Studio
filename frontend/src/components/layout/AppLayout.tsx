@@ -22,9 +22,9 @@ const AppLayout: React.FC = () => {
   };
 
   return (
-    <Layout style={{ minHeight: '100vh', background: 'var(--lp-bg)' }}>
+    <Layout className="app-shell">
       <Header onMenuToggle={() => setDrawerOpen(true)} />
-      <Layout>
+      <Layout style={{ background: 'transparent' }}>
         {/* 桌面端：固定侧边栏 */}
         {!isMobile && <Sidebar />}
 
@@ -69,15 +69,14 @@ const AppLayout: React.FC = () => {
           </Drawer>
         )}
 
-        <Layout style={{ padding: isMobile ? 12 : 24 }}>
-          <Content style={{
-            background: 'rgba(30,41,59,0.6)',
-            backdropFilter: 'blur(12px)',
-            borderRadius: isMobile ? 12 : 16,
-            padding: isMobile ? 16 : 24,
-            minHeight: 360,
-            border: '1px solid rgba(99,102,241,0.15)'
-          }}>
+        <Layout className="app-main-wrap" style={{ padding: isMobile ? 12 : 24, background: 'transparent' }}>
+          <Content
+            className="glass-card app-content-panel"
+            style={{
+              borderRadius: isMobile ? 12 : 16,
+              padding: isMobile ? 16 : 24,
+            }}
+          >
             <Outlet />
           </Content>
         </Layout>

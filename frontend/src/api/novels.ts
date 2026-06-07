@@ -1,7 +1,7 @@
 import client from './client';
 import type { Novel, NovelDetail, PaginatedResponse, ImportNovelData } from '../types';
 
-export async function listNovelsApi(page = 1, limit = 10): Promise<PaginatedResponse<Novel>> {
+export async function listNovelsApi(page = 1, limit = 50): Promise<PaginatedResponse<Novel>> {
   const { data } = await client.get('/novels', { params: { page, limit } });
   return data;
 }

@@ -10,8 +10,18 @@ const configService = require('../services/configService');
 const usageService = require('../services/usageService');
 const { getProvidersFull, updateProviders, clearCache, listProviders, listSelectableModels } = require('../config/openai');
 const modelTokenService = require('../services/modelTokenService');
+const { createLogger } = require('../utils/logger');
+const { parsePositiveInt, parseOptionalPositiveInt, parsePagination } = require('../utils/requestParser');
 
 const router = Router();
+const logger = createLogger('admin-routes');
+
+// 管理端用户响应脱敏：管理员也不需要拿到密码哈希
+function sanitizeAdminUser(user) {
+  if (!user) return user;
+  const { password_hash, ...safeUser } = user;
+  return safeUser;
+}
 
 // 所有管理后台路由都需要 admin 权限
 router.use(authenticate);
@@ -99,27 +109,28 @@ router.get('/search', async (req, res) => {
 // 用户列表
 router.get('/users', async (req, res) => {
   try {
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 20;
+    const { page, limit } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
     const { status, group_id } = req.query;
-    const result = await userDao.list({ page, limit, status, groupId: group_id ? parseInt(group_id, 10) : undefined });
-    res.json(result);
+    const groupId = parseOptionalPositiveInt(group_id, '用户组ID');
+    const result = await userDao.list({ page, limit, status, groupId });
+    res.json({ ...result, rows: result.rows.map(sanitizeAdminUser) });
   } catch (err) {
-    res.status(500).json({ error: '获取用户列表失败' });
+    res.status(err.status || 500).json({ error: err.message || '获取用户列表失败' });
   }
 });
 
 // 用户详情
 router.get('/users/:id', async (req, res) => {
   try {
-    const user = await userDao.findById(parseInt(req.params.id, 10));
+    const userId = parsePositiveInt(req.params.id, '用户ID');
+    const user = await userDao.findById(userId);
     if (!user) {
       return res.status(404).json({ error: '用户不存在' });
     }
     const quota = await usageService.getQuotaInfo(user.id);
-    res.json({ user, quota });
+    res.json({ user: sanitizeAdminUser(user), quota });
   } catch (err) {
-    res.status(500).json({ error: '获取用户详情失败' });
+    res.status(err.status || 500).json({ error: err.message || '获取用户详情失败' });
   }
 });
 
@@ -151,7 +162,7 @@ router.post('/users', async (req, res) => {
     });
 
     const newUser = await userDao.findByUsername(username);
-    res.status(201).json({ user: newUser });
+    res.status(201).json({ user: sanitizeAdminUser(newUser) });
   } catch (err) {
     res.status(500).json({ error: '创建用户失败' });
   }
@@ -160,7 +171,7 @@ router.post('/users', async (req, res) => {
 // 编辑用户
 router.put('/users/:id', async (req, res) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parsePositiveInt(req.params.id, '用户ID');
     // 禁止修改自己
     if (userId === req.user.id) {
       return res.status(403).json({ error: '不能修改自己的账号，请让其他管理员操作' });
@@ -176,6 +187,9 @@ router.put('/users/:id', async (req, res) => {
     allowedFields.forEach(f => {
       if (req.body[f] !== undefined) data[f] = req.body[f];
     });
+    if (data.group_id !== undefined) {
+      data.group_id = parsePositiveInt(data.group_id, '用户组ID');
+    }
 
     // 用户名唯一性校验
     if (data.username) {
@@ -197,7 +211,7 @@ router.put('/users/:id', async (req, res) => {
 
     await userDao.update(userId, data);
     const updatedUser = await userDao.findById(userId);
-    res.json({ user: updatedUser });
+    res.json({ user: sanitizeAdminUser(updatedUser) });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '更新用户失败' });
   }
@@ -206,7 +220,7 @@ router.put('/users/:id', async (req, res) => {
 // 删除用户（从数据库移除）
 router.delete('/users/:id', async (req, res) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parsePositiveInt(req.params.id, '用户ID');
     // 禁止删除自己
     if (userId === req.user.id) {
       return res.status(403).json({ error: '不能删除自己的账号' });
@@ -296,13 +310,12 @@ router.put('/config/:key', async (req, res) => {
 // 用量统计
 router.get('/usage', async (req, res) => {
   try {
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 50;
-    const userId = req.query.user_id ? parseInt(req.query.user_id, 10) : undefined;
+    const { page, limit } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 200 });
+    const userId = parseOptionalPositiveInt(req.query.user_id, '用户ID');
     const result = await usageLogDao.list({ page, limit, userId });
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: '获取用量统计失败' });
+    res.status(err.status || 500).json({ error: err.message || '获取用量统计失败' });
   }
 });
 
@@ -328,7 +341,7 @@ router.put('/providers', async (req, res) => {
     // 空数组 = 清空多Provider，回退单Provider
     if (providers.length === 0) {
       await updateProviders([]);
-      configService.set('openai_providers', '');
+      await configService.set('openai_providers', '');
       return res.json({ success: true, message: '已切换到单Provider模式' });
     }
     // 校验结构
@@ -344,9 +357,10 @@ router.put('/providers', async (req, res) => {
     }
 
     await updateProviders(providers);
-    configService.set('openai_providers', JSON.stringify(providers));
+    await configService.set('openai_providers', JSON.stringify(providers));
     res.json({ success: true, message: '配置已保存并立即生效' });
   } catch (err) {
+    logger.error({ err }, '保存 Provider 配置失败');
     res.status(500).json({ error: '保存 Provider 配置失败' });
   }
 });
@@ -408,13 +422,13 @@ router.post('/providers/test', async (req, res) => {
 // 所有小说列表
 router.get('/novels', async (req, res) => {
   try {
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 20;
+    const { page, limit } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
     const { db } = require('../config/database');
     const offset = (page - 1) * limit;
 
     let base = db('novels').join('users', 'novels.user_id', 'users.id');
-    if (req.query.user_id) base = base.where('novels.user_id', parseInt(req.query.user_id, 10));
+    const userId = parseOptionalPositiveInt(req.query.user_id, '用户ID');
+    if (userId) base = base.where('novels.user_id', userId);
     if (req.query.status) base = base.where('novels.status', req.query.status);
 
     const [rows, [{ total }]] = await Promise.all([
@@ -424,14 +438,15 @@ router.get('/novels', async (req, res) => {
     ]);
     res.json({ rows, total: parseInt(total, 10), page, limit });
   } catch (err) {
-    res.status(500).json({ error: '获取小说列表失败' });
+    res.status(err.status || 500).json({ error: err.message || '获取小说列表失败' });
   }
 });
 
 // 小说详情
 router.get('/novels/:id', async (req, res) => {
   try {
-    const novel = await novelDao.findById(parseInt(req.params.id, 10));
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
+    const novel = await novelDao.findById(novelId);
     if (!novel) return res.status(404).json({ error: '小说不存在' });
     const chapterDao = require('../dao/chapterDao');
     const characterDao = require('../dao/characterDao');
@@ -441,14 +456,15 @@ router.get('/novels/:id', async (req, res) => {
     ]);
     res.json({ novel: { ...novel, chapters, characters } });
   } catch (err) {
-    res.status(500).json({ error: '获取小说详情失败' });
+    res.status(err.status || 500).json({ error: err.message || '获取小说详情失败' });
   }
 });
 
 // 删除小说
 router.delete('/novels/:id', async (req, res) => {
   try {
-    const novel = await novelDao.findById(parseInt(req.params.id, 10));
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
+    const novel = await novelDao.findById(novelId);
     if (!novel) return res.status(404).json({ error: '小说不存在' });
     await novelDao.remove(novel.id);
     res.json({ success: true, message: `小说 "${novel.title}" 已删除` });
@@ -490,10 +506,11 @@ router.put('/model-limits', async (req, res) => {
 // 删除模型 Token 限额
 router.delete('/model-limits/:id', async (req, res) => {
   try {
-    await modelTokenService.deleteLimit(parseInt(req.params.id, 10));
+    const limitId = parsePositiveInt(req.params.id, '模型限额ID');
+    await modelTokenService.deleteLimit(limitId);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: '删除模型限额失败' });
+    res.status(err.status || 500).json({ error: err.message || '删除模型限额失败' });
   }
 });
 
@@ -527,12 +544,13 @@ router.get('/groups', async (req, res) => {
 // 获取分组详情
 router.get('/groups/:id', async (req, res) => {
   try {
-    const group = await userGroupDao.findById(parseInt(req.params.id, 10));
+    const groupId = parsePositiveInt(req.params.id, '分组ID');
+    const group = await userGroupDao.findById(groupId);
     if (!group) return res.status(404).json({ error: '分组不存在' });
     const userCount = await userGroupDao.getUserCount(group.id);
     res.json({ group: { ...group, user_count: userCount } });
   } catch (err) {
-    res.status(500).json({ error: '获取分组详情失败' });
+    res.status(err.status || 500).json({ error: err.message || '获取分组详情失败' });
   }
 });
 
@@ -568,7 +586,7 @@ router.post('/groups', async (req, res) => {
 // 更新分组
 router.put('/groups/:id', async (req, res) => {
   try {
-    const groupId = parseInt(req.params.id, 10);
+    const groupId = parsePositiveInt(req.params.id, '分组ID');
     const group = await userGroupDao.findById(groupId);
     if (!group) return res.status(404).json({ error: '分组不存在' });
 
@@ -603,7 +621,7 @@ router.put('/groups/:id', async (req, res) => {
       }
     });
   } catch (err) {
-    console.error(`更新分组失败:`, err.message);
+    logger.error({ err }, '更新分组失败');
     res.status(err.status || 500).json({ error: err.message || '更新分组失败' });
   }
 });
@@ -611,7 +629,7 @@ router.put('/groups/:id', async (req, res) => {
 // 删除分组
 router.delete('/groups/:id', async (req, res) => {
   try {
-    const groupId = parseInt(req.params.id, 10);
+    const groupId = parsePositiveInt(req.params.id, '分组ID');
     const group = await userGroupDao.findById(groupId);
     if (!group) return res.status(404).json({ error: '分组不存在' });
 
@@ -628,8 +646,9 @@ router.delete('/groups/:id', async (req, res) => {
 router.get('/bans', async (req, res) => {
   try {
     const banService = require('../services/banService');
-    const { page = 1, limit = 20, status } = req.query;
-    const result = await banService.listBans({ page: parseInt(page), limit: parseInt(limit), status });
+    const { page, limit } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
+    const { status } = req.query;
+    const result = await banService.listBans({ page, limit, status });
     res.json(result);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '获取封禁列表失败' });
@@ -639,7 +658,7 @@ router.get('/bans', async (req, res) => {
 // 封禁用户
 router.post('/users/:id/ban', async (req, res) => {
   try {
-    const userId = parseInt(req.params.id, 10);
+    const userId = parsePositiveInt(req.params.id, '用户ID');
     if (userId === req.user.id) {
       return res.status(403).json({ error: '不能封禁自己的账号' });
     }
@@ -655,7 +674,7 @@ router.post('/users/:id/ban', async (req, res) => {
 // 解封用户
 router.post('/bans/:banId/unban', async (req, res) => {
   try {
-    const banId = parseInt(req.params.banId, 10);
+    const banId = parsePositiveInt(req.params.banId, '封禁ID');
     const banService = require('../services/banService');
     const result = await banService.unbanUser(banId, req.user.id);
     res.json(result);
@@ -670,8 +689,9 @@ router.post('/bans/:banId/unban', async (req, res) => {
 router.get('/appeals', async (req, res) => {
   try {
     const banService = require('../services/banService');
-    const { page = 1, limit = 20, status } = req.query;
-    const result = await banService.listAppeals({ page: parseInt(page), limit: parseInt(limit), status });
+    const { page, limit } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
+    const { status } = req.query;
+    const result = await banService.listAppeals({ page, limit, status });
     res.json(result);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '获取申诉列表失败' });
@@ -681,7 +701,7 @@ router.get('/appeals', async (req, res) => {
 // 审核申诉
 router.post('/appeals/:id/review', async (req, res) => {
   try {
-    const appealId = parseInt(req.params.id, 10);
+    const appealId = parsePositiveInt(req.params.id, '申诉ID');
     const { action, note } = req.body;
     const banService = require('../services/banService');
     const result = await banService.reviewAppeal(appealId, { action, note }, req.user.id);

@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const authenticate = require('../middleware/authenticate');
 const mcpService = require('../services/mcpService');
+const { parsePositiveInt } = require('../utils/requestParser');
 
 const router = Router();
 router.use(authenticate);
@@ -18,7 +19,7 @@ router.get('/servers', async (req, res) => {
 // 保存用户 MCP 配置
 router.put('/servers/:id/config', async (req, res) => {
   try {
-    const serverId = parseInt(req.params.id, 10);
+    const serverId = parsePositiveInt(req.params.id, 'MCP服务ID');
     const { enabled, extra_config } = req.body;
     const result = await mcpService.saveUserConfig(req.user.id, serverId, {
       enabled,
@@ -33,7 +34,7 @@ router.put('/servers/:id/config', async (req, res) => {
 // 删除用户 MCP 配置
 router.delete('/servers/:id/config', async (req, res) => {
   try {
-    const serverId = parseInt(req.params.id, 10);
+    const serverId = parsePositiveInt(req.params.id, 'MCP服务ID');
     await mcpService.deleteUserConfig(req.user.id, serverId);
     res.json({ success: true, message: 'MCP 配置已删除' });
   } catch (err) {

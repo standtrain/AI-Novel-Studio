@@ -1,5 +1,5 @@
 import client from './client';
-import type { UserInfo } from '../types';
+import type { TemperaturePreset, UserInfo } from '../types';
 
 interface AuthResponse {
   token: string;
@@ -42,6 +42,15 @@ export async function updatePreferredModelApi(modelName: string | null): Promise
   return data;
 }
 
+// 更新创作温度偏好
+export async function updateTemperaturePreferenceApi(
+  preset: TemperaturePreset,
+  customTemperature?: number | null
+): Promise<{ user: UserInfo }> {
+  const { data } = await client.put('/auth/me/temperature-preference', { preset, customTemperature });
+  return data;
+}
+
 // 获取可选模型列表
 export async function getAvailableModelsApi(): Promise<{ models: any[]; canChoose: boolean }> {
   const { data } = await client.get('/auth/available-models');
@@ -70,8 +79,12 @@ export async function sendVerifyCodeApi(
 }
 
 // 忘记密码
-export async function forgotPasswordApi(email: string): Promise<{ success: boolean; message: string }> {
-  const { data } = await client.post('/auth/forgot-password', { email });
+export async function forgotPasswordApi(
+  email: string,
+  captchaId?: string,
+  captchaCode?: string
+): Promise<{ success: boolean; message: string }> {
+  const { data } = await client.post('/auth/forgot-password', { email, captchaId, captchaCode });
   return data;
 }
 
@@ -82,8 +95,12 @@ export async function resetPasswordApi(email: string, code: string, password: st
 }
 
 // 发送邮箱变更验证码（需登录）
-export async function sendChangeEmailCodeApi(email: string): Promise<{ success: boolean; message: string }> {
-  const { data } = await client.post('/auth/me/send-change-email-code', { email });
+export async function sendChangeEmailCodeApi(
+  email: string,
+  captchaId?: string,
+  captchaCode?: string
+): Promise<{ success: boolean; message: string }> {
+  const { data } = await client.post('/auth/me/send-change-email-code', { email, captchaId, captchaCode });
   return data;
 }
 

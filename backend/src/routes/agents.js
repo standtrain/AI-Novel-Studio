@@ -1,10 +1,9 @@
 const { Router } = require('express');
 const authenticate = require('../middleware/authenticate');
-const authorize = require('../middleware/authorize');
 const { checkTokenQuota } = require('../middleware/tokenCounter');
 const { getRateLimiter } = require('../middleware/rateLimiter');
 const agentService = require('../services/agentService');
-const queueManager = require('../services/queueManager');
+const { parsePositiveInt, parseOptionalPositiveInt } = require('../utils/requestParser');
 
 const router = Router();
 
@@ -95,7 +94,7 @@ router.post('/import-analyze', async (req, res) => {
 // POST /api/novels/:id/outline — 阶段1：生成整书大纲
 router.post('/:id/outline', async (req, res) => {
   try {
-    const novelId = parseInt(req.params.id, 10);
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
     const { userInput } = req.body;
     if (!userInput) {
       return res.status(400).json({ error: '请输入小说需求描述' });
@@ -110,7 +109,7 @@ router.post('/:id/outline', async (req, res) => {
 // POST /api/novels/:id/characters — 阶段2：生成人物设定
 router.post('/:id/characters', async (req, res) => {
   try {
-    const novelId = parseInt(req.params.id, 10);
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
     const task = await agentService.generateCharacters(req.user.id, novelId);
     task.execute(req, res);
   } catch (err) {
@@ -121,8 +120,8 @@ router.post('/:id/characters', async (req, res) => {
 // POST /api/novels/:id/chapters-outline — 阶段3：生成逐章大纲（支持分段生成 ?startChapter=N）
 router.post('/:id/chapters-outline', async (req, res) => {
   try {
-    const novelId = parseInt(req.params.id, 10);
-    const startChapter = parseInt(req.query.startChapter, 10) || null;
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
+    const startChapter = parseOptionalPositiveInt(req.query.startChapter, '起始章节') || null;
     const task = await agentService.generateChapterOutlines(req.user.id, novelId, startChapter);
     task.execute(req, res);
   } catch (err) {
@@ -133,11 +132,8 @@ router.post('/:id/chapters-outline', async (req, res) => {
 // POST /api/novels/:id/chapters/:num/write — 阶段4：写第N章
 router.post('/:id/chapters/:num/write', async (req, res) => {
   try {
-    const novelId = parseInt(req.params.id, 10);
-    const chapterNum = parseInt(req.params.num, 10);
-    if (!chapterNum || chapterNum < 1) {
-      return res.status(400).json({ error: '无效的章节编号' });
-    }
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
+    const chapterNum = parsePositiveInt(req.params.num, '章节号');
     const task = await agentService.writeChapter(req.user.id, novelId, chapterNum);
     task.execute(req, res);
   } catch (err) {
@@ -148,11 +144,8 @@ router.post('/:id/chapters/:num/write', async (req, res) => {
 // POST /api/novels/:id/chapters/:num/review — 独立审查章节（不重新生成正文）
 router.post('/:id/chapters/:num/review', async (req, res) => {
   try {
-    const novelId = parseInt(req.params.id, 10);
-    const chapterNum = parseInt(req.params.num, 10);
-    if (!chapterNum || chapterNum < 1) {
-      return res.status(400).json({ error: '无效的章节编号' });
-    }
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
+    const chapterNum = parsePositiveInt(req.params.num, '章节号');
     const task = await agentService.reviewChapter(req.user.id, novelId, chapterNum);
     task.execute(req, res);
   } catch (err) {
@@ -163,11 +156,8 @@ router.post('/:id/chapters/:num/review', async (req, res) => {
 // POST /api/novels/:id/chapters/:num/extract — 独立数据提取（从已有章节提取结构化数据）
 router.post('/:id/chapters/:num/extract', async (req, res) => {
   try {
-    const novelId = parseInt(req.params.id, 10);
-    const chapterNum = parseInt(req.params.num, 10);
-    if (!chapterNum || chapterNum < 1) {
-      return res.status(400).json({ error: '无效的章节编号' });
-    }
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
+    const chapterNum = parsePositiveInt(req.params.num, '章节号');
     const task = await agentService.extractChapterData(req.user.id, novelId, chapterNum);
     task.execute(req, res);
   } catch (err) {
@@ -178,11 +168,8 @@ router.post('/:id/chapters/:num/extract', async (req, res) => {
 // POST /api/novels/:id/chapters/:num/regenerate — 重新生成某章
 router.post('/:id/chapters/:num/regenerate', async (req, res) => {
   try {
-    const novelId = parseInt(req.params.id, 10);
-    const chapterNum = parseInt(req.params.num, 10);
-    if (!chapterNum || chapterNum < 1) {
-      return res.status(400).json({ error: '无效的章节编号' });
-    }
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
+    const chapterNum = parsePositiveInt(req.params.num, '章节号');
     const task = await agentService.writeChapter(req.user.id, novelId, chapterNum);
     task.execute(req, res);
   } catch (err) {
@@ -193,7 +180,7 @@ router.post('/:id/chapters/:num/regenerate', async (req, res) => {
 // POST /api/novels/:id/revise — AI 修订内容
 router.post('/:id/revise', async (req, res) => {
   try {
-    const novelId = parseInt(req.params.id, 10);
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
     const { phase, chapterNumber, currentContent, feedback } = req.body;
     if (!phase || !feedback) {
       return res.status(400).json({ error: '缺少 phase 或 feedback 参数' });
@@ -208,7 +195,7 @@ router.post('/:id/revise', async (req, res) => {
 // POST /api/novels/:id/plan-revise — 多轮对话修订小说方案
 router.post('/:id/plan-revise', async (req, res) => {
   try {
-    const novelId = parseInt(req.params.id, 10);
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
     const { feedback } = req.body;
     if (!feedback || feedback.trim().length < 3) {
       return res.status(400).json({ error: '请提供更详细的修订意见（至少3个字）' });

@@ -280,6 +280,10 @@ const authService = {
       status: user.status,
       dailyTokensUsed: user.daily_tokens_used,
       preferredModel: user.preferred_model || null,
+      temperaturePreset: user.temperature_preset || 'balanced',
+      customTemperature: user.custom_temperature !== undefined && user.custom_temperature !== null
+        ? Number(user.custom_temperature)
+        : null,
       lastLoginAt: user.last_login_at || null,
       createdAt: user.created_at,
     };

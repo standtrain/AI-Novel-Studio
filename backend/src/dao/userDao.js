@@ -80,6 +80,14 @@ const userDao = {
   async updatePreferredModel(userId, modelName) {
     return db(TABLE).where('id', userId).update({ preferred_model: modelName || null });
   },
+
+  // 更新用户创作温度偏好
+  async updateTemperaturePreference(userId, { preset, customTemperature }) {
+    return db(TABLE).where('id', userId).update({
+      temperature_preset: preset,
+      custom_temperature: customTemperature,
+    });
+  },
 };
 
 module.exports = userDao;

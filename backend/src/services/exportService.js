@@ -2,6 +2,9 @@ const path = require('path');
 const novelDao = require('../dao/novelDao');
 const chapterDao = require('../dao/chapterDao');
 const characterDao = require('../dao/characterDao');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('export-service');
 
 // ====== 数据获取 ======
 async function fetchExportData(novelId, userId) {
@@ -66,9 +69,12 @@ function filterByScope(data, scope, options) {
     case 'range': {
       let from, to;
       if (options.chapters) {
-        const parts = options.chapters.split('-');
-        from = parseInt(parts[0], 10);
-        to = parseInt(parts[1], 10);
+        // 章节范围只接受“起始章-结束章”的正整数字符串，避免 1-5abc 被宽松解析为 1-5
+        const match = String(options.chapters).trim().match(/^([1-9]\d*)-([1-9]\d*)$/);
+        if (match) {
+          from = Number(match[1]);
+          to = Number(match[2]);
+        }
       } else {
         from = options.chapterFrom || 1;
         to = options.chapterTo || data.chapters.length;
@@ -344,7 +350,7 @@ async function generatePDF(data) {
     }
     if (!fontRegistered) {
       // 仅警告，继续使用默认字体（中文可能显示为方块）
-      console.warn('[exportService] 未找到中文字体文件，PDF 中文可能无法正常显示。请将字体放入 backend/assets/fonts/');
+      logger.warn('未找到中文字体文件，PDF 中文可能无法正常显示。请将字体放入 backend/assets/fonts/');
     }
 
     // 封面标题

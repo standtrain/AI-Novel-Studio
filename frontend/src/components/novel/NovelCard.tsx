@@ -28,35 +28,14 @@ const NovelCard: React.FC<NovelCardProps> = ({ novel, onClick, onDelete }) => {
     <>
       <div
         className="novel-card-wrapper"
-        style={{
-        cursor: 'pointer',
-        transition: 'all 0.3s ease',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = 'translateY(-8px) scale(1.02)';
-        e.currentTarget.querySelector('.card-inner')?.setAttribute('style',
-          'box-shadow: 0 20px 40px rgba(0,0,0,0.4), 0 0 30px rgba(99,102,241,0.2); border-color: rgba(99,102,241,0.4);'
-        );
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = 'translateY(0) scale(1)';
-        e.currentTarget.querySelector('.card-inner')?.setAttribute('style',
-          'box-shadow: 0 8px 32px rgba(0,0,0,0.3), 0 0 20px rgba(99,102,241,0.1); border-color: rgba(99,102,241,0.15);'
-        );
-      }}
-    >
+      >
       <Card
         hoverable
         onClick={onClick}
         className="card-inner"
         style={{
           height: '100%',
-          background: 'rgba(30,41,59,0.7)',
-          backdropFilter: 'blur(12px)',
-          border: '1px solid rgba(99,102,241,0.15)',
-          borderRadius: 20,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.3), 0 0 20px rgba(99,102,241,0.1)',
-          transition: 'all 0.3s ease',
+          borderRadius: 16,
           overflow: 'hidden',
         }}
         styles={{
@@ -66,8 +45,7 @@ const NovelCard: React.FC<NovelCardProps> = ({ novel, onClick, onDelete }) => {
         {/* 顶部渐变装饰条 */}
         <div style={{
           height: 6,
-          background: 'linear-gradient(90deg, #6366f1 0%, #8b5cf6 50%, #a78bfa 100%)',
-          borderRadius: '20px 20px 0 0',
+          background: 'linear-gradient(90deg, #6366f1 0%, #22d3ee 100%)',
         }} />
 
         <div style={{ padding: 20, position: 'relative' }}>
@@ -104,12 +82,13 @@ const NovelCard: React.FC<NovelCardProps> = ({ novel, onClick, onDelete }) => {
               width: 48,
               height: 48,
               background: 'linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(139,92,246,0.15) 100%)',
-              borderRadius: 14,
+              borderRadius: 12,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               flexShrink: 0,
-              boxShadow: '0 4px 12px rgba(99,102,241,0.15)',
+              border: '1px solid rgba(129,140,248,0.18)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
             }}>
               <BookOutlined style={{ fontSize: 22, color: '#818cf8' }} />
             </div>
@@ -185,6 +164,24 @@ const NovelCard: React.FC<NovelCardProps> = ({ novel, onClick, onDelete }) => {
       </Card>
     </div>
     <style>{`
+      .novel-card-wrapper {
+        cursor: pointer;
+        height: 100%;
+        transition: transform 0.22s ease;
+      }
+      .novel-card-wrapper .card-inner {
+        background: linear-gradient(180deg, rgba(30,41,59,0.88), rgba(15,23,42,0.82)) !important;
+        border: 1px solid rgba(99,102,241,0.16) !important;
+        box-shadow: 0 12px 32px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.04) !important;
+        transition: border-color 0.22s ease, box-shadow 0.22s ease, transform 0.22s ease !important;
+      }
+      .novel-card-wrapper:hover {
+        transform: translateY(-5px);
+      }
+      .novel-card-wrapper:hover .card-inner {
+        border-color: rgba(129,140,248,0.38) !important;
+        box-shadow: 0 18px 44px rgba(0,0,0,0.34), 0 0 28px rgba(99,102,241,0.14) !important;
+      }
       .novel-card-wrapper:hover .novel-card-delete-btn {
         opacity: 1 !important;
       }

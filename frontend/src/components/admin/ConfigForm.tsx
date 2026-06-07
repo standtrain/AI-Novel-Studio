@@ -179,7 +179,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
         <Input.TextArea value={currentVal} onChange={(e) => setEditingValues({ ...editingValues, [record.config_key]: e.target.value })}
           rows={record.config_key === 'email_domain_whitelist' ? 4 : 3}
           placeholder={record.config_key === 'cors_origins' ? '每行一个域名' : '每行一个域名，如 gmail.com'}
-          style={{ ...inputStyle, background: inputStyle.background || 'rgba(15,23,42,0.5)', color: '#f1f5f9', fontSize: 13, fontFamily: 'monospace' }} />
+          style={{ ...inputStyle, background: inputStyle.background || 'rgba(15,23,42,0.5)', color: '#f1f5f9', fontSize: 13, fontFamily: 'var(--font-mono)' }} />
       );
     }
 

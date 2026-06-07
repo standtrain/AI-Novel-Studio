@@ -7,9 +7,13 @@ export interface UserInfo {
   status: string;
   dailyTokensUsed: number;
   preferredModel?: string | null;
+  temperaturePreset?: TemperaturePreset;
+  customTemperature?: number | null;
   lastLoginAt?: string | null;
   createdAt: string;
 }
+
+export type TemperaturePreset = 'precise' | 'balanced' | 'creative' | 'wild' | 'custom';
 
 // 用户分组
 export interface UserGroup {

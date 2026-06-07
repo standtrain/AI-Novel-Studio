@@ -74,7 +74,7 @@
   font-weight: 800;
   color: var(--lp-text-heading);
   margin-bottom: 1rem;
-  letter-spacing: -0.5px;
+  letter-spacing: 0;
 }
 
 .showcase-desc {
@@ -157,7 +157,7 @@
 }
 
 .stream-line {
-  font-family: 'Space Mono', 'Noto Sans SC', monospace;
+  font-family: var(--lp-font-mono);
   font-size: 0.9rem;
   color: #e2e8f0;
   line-height: 1.7;

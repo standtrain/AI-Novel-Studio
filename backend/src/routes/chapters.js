@@ -2,6 +2,8 @@ const { Router } = require('express');
 const chapterDao = require('../dao/chapterDao');
 const novelDao = require('../dao/novelDao');
 const authenticate = require('../middleware/authenticate');
+const { countWords } = require('../core/utils/wordCounter');
+const { parsePositiveInt } = require('../utils/requestParser');
 
 const router = Router({ mergeParams: true });
 
@@ -10,7 +12,7 @@ router.use(authenticate);
 // 获取小说所有章节
 router.get('/', async (req, res) => {
   try {
-    const novelId = parseInt(req.params.id, 10);
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
     const novel = await novelDao.findById(novelId);
     if (!novel || novel.user_id !== req.user.id) {
       return res.status(404).json({ error: '小说不存在' });
@@ -18,15 +20,15 @@ router.get('/', async (req, res) => {
     const chapters = await chapterDao.findByNovelId(novelId);
     res.json({ chapters });
   } catch (err) {
-    res.status(500).json({ error: '获取章节列表失败' });
+    res.status(err.status || 500).json({ error: err.message || '获取章节列表失败' });
   }
 });
 
 // 获取单章
 router.get('/:num', async (req, res) => {
   try {
-    const novelId = parseInt(req.params.id, 10);
-    const chapterNum = parseInt(req.params.num, 10);
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
+    const chapterNum = parsePositiveInt(req.params.num, '章节号');
     const novel = await novelDao.findById(novelId);
     if (!novel || novel.user_id !== req.user.id) {
       return res.status(404).json({ error: '小说不存在' });
@@ -37,15 +39,15 @@ router.get('/:num', async (req, res) => {
     }
     res.json({ chapter });
   } catch (err) {
-    res.status(500).json({ error: '获取章节失败' });
+    res.status(err.status || 500).json({ error: err.message || '获取章节失败' });
   }
 });
 
 // 编辑章节内容
 router.put('/:num', async (req, res) => {
   try {
-    const novelId = parseInt(req.params.id, 10);
-    const chapterNum = parseInt(req.params.num, 10);
+    const novelId = parsePositiveInt(req.params.id, '小说ID');
+    const chapterNum = parsePositiveInt(req.params.num, '章节号');
     const novel = await novelDao.findById(novelId);
     if (!novel || novel.user_id !== req.user.id) {
       return res.status(404).json({ error: '小说不存在' });
@@ -61,7 +63,7 @@ router.put('/:num', async (req, res) => {
       if (typeof content !== 'string') {
         return res.status(400).json({ error: '章节内容必须为文本' });
       }
-      data.word_count = content.length;
+      data.word_count = countWords(content);
     }
 
     await chapterDao.update(novelId, chapterNum, data);

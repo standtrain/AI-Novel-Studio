@@ -386,7 +386,6 @@ const NovelPage: React.FC = () => {
         setAutoPaused(false);
         break;
       case 'done':
-        console.log('[章节大纲] done事件:', JSON.stringify(data), 'autoOutlines=', autoOutlinesRef.current, 'autoPaused=', autoPauseRef.current);
         setIsStreaming(false);
         // 解析失败：跟踪重试次数，超过3次暂停自动链让用户处理
         if (data.parseError) {
@@ -397,7 +396,6 @@ const NovelPage: React.FC = () => {
             retry.chapter = data.nextStart;
             retry.count = 1;
           }
-          console.log(`[章节大纲] 解析失败，重试第${retry.count}次: chapter=${retry.chapter}`);
           if (retry.count >= 3) {
             message.error(`第${retry.chapter}章大纲连续生成失败（已重试3次），自动链已暂停。请手动处理后点击"继续"`);
             setAutoOutlines(false);
@@ -427,11 +425,9 @@ const NovelPage: React.FC = () => {
           if (autoOutlinesRef.current && !autoPauseRef.current) {
             const target = autoTargetChapter || data.totalChapters;
             if (data.nextStart <= target) {
-              console.log(`[章节大纲] 自动链调度下一批: nextStart=${data.nextStart}, target=${target}, 300ms后执行`);
               setTimeout(() => {
                 // 守卫：如果用户已切换到其他书籍，停止自动链
                 if (activeNovelIdRef.current !== novelId) { setAutoOutlines(false); return; }
-                console.log(`[章节大纲] 自动链执行: startPhase3(${data.nextStart}, true)`);
                 startPhase3(data.nextStart, true);
               }, 300);
             } else {
@@ -441,13 +437,12 @@ const NovelPage: React.FC = () => {
           }
         } else if (data.totalChapters) {
           // 全部完成
-          console.log(`[章节大纲] 全部完成: totalChapters=${data.totalChapters}`);
           setNextBatchStart(null);
           setTotalChapters(0);
           getNovelApi(novelId, true).then(({ novel }) => { if (activeNovelIdRef.current === novelId) setNovel(novel); }).catch(() => {});
           setAutoOutlines(false);
         } else {
-          console.log('[章节大纲] done事件缺少totalChapters或hasMore=false，自动链停止', data);
+          setAutoOutlines(false);
         }
         // 自动写作模式：链式写下一章（用 getState 避免闭包过期）
         if (autoWritingRef.current && !autoPauseRef.current) {
@@ -1378,7 +1373,7 @@ const SearchEdit: React.FC<{
       <textarea ref={textareaRef} value={value} onChange={e => onChange(e.target.value)} rows={18}
         style={{
           width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #d9d9d9',
-          fontFamily: monospace ? 'monospace' : 'inherit', fontSize: monospace ? 13 : 15,
+          fontFamily: monospace ? 'var(--font-mono)' : 'inherit', fontSize: monospace ? 13 : 15,
           lineHeight: 1.6, resize: 'vertical', boxSizing: 'border-box',
           outline: 'none', transition: 'border-color 0.3s',
         }}

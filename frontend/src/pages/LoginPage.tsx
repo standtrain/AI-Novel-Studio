@@ -200,7 +200,7 @@ const LoginPage: React.FC = () => {
             color: '#f1f5f9',
             margin: 0,
             fontWeight: 700,
-            letterSpacing: '-0.5px',
+            letterSpacing: 0,
           }}>AI Novel Studio</Title>
           <Text style={{ color: '#94a3b8', fontSize: 15, marginTop: 8, display: 'block' }}>
             登录以开始你的 AI 创作之旅

@@ -2,6 +2,9 @@
 const { Resend } = require('resend');
 const nodemailer = require('nodemailer');
 const configService = require('./configService');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('email-service');
 
 let _resendClient = null;
 let _cachedApiKey = null;
@@ -68,7 +71,7 @@ async function _sendViaResend(to, subject, html) {
     return { success: true, messageId: result.id };
   } catch (err) {
     const errMsg = err?.response?.body?.message || err?.message || '邮件发送失败';
-    console.error('[EmailService/Resend] 发送失败:', errMsg);
+    logger.error({ err }, 'Resend 邮件发送失败');
     return { success: false, error: errMsg };
   }
 }
@@ -91,7 +94,7 @@ async function _sendViaSmtp(to, subject, html) {
     return { success: true, messageId: info.messageId };
   } catch (err) {
     const errMsg = err?.message || 'SMTP 发送失败';
-    console.error('[EmailService/SMTP] 发送失败:', errMsg);
+    logger.error({ err }, 'SMTP 邮件发送失败');
     return { success: false, error: errMsg };
   }
 }

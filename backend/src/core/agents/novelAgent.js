@@ -1,6 +1,9 @@
 // NovelWritingAgent — 小说创作 Agent（继承 BaseAgent）
 // 负责 4 个阶段：整书大纲 / 人物设定 / 章节大纲 / 逐章写作
 const BaseAgent = require('./baseAgent');
+const { createLogger } = require('../../utils/logger');
+
+const logger = createLogger('novel-agent');
 
 // ========== Anti-AI 对抗提醒（翻译为自然口吻，不暴露系统术语） ==========
 const ANTI_AI_REMINDER = [
@@ -189,12 +192,12 @@ class NovelWritingAgent extends BaseAgent {
 
     // 解析失败时自动缩小批次重试（最多2轮：原批次 → 半批次）
     if (chapters.length === 0) {
-      console.warn(`[章节大纲] JSON解析失败，原始内容前500字: ${(content || '').substring(0, 500)}`);
+      logger.warn({ from, to, contentLength: (content || '').length }, '章节大纲 JSON 解析失败');
     }
     if (chapters.length === 0 && batchSize > 1) {
       const halfSize = Math.max(1, Math.floor(batchSize / 2));
       const halfEnd = Math.min(from + halfSize - 1, to);
-      console.warn(`[章节大纲] 解析失败，缩小批次重试: ${from}-${to} → ${from}-${halfEnd}`);
+      logger.warn({ from, to, retryFrom: from, retryTo: halfEnd }, '章节大纲解析失败，缩小批次重试');
       return this.generateChapterOutlines(outline, characters, onProgress, from, halfEnd);
     }
 

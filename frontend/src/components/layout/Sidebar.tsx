@@ -40,11 +40,13 @@ const Sidebar: React.FC<SidebarProps> = ({ onMenuClick }) => {
   };
 
   return (
-    <Sider width={200} style={{
-      background: 'rgba(30,41,59,0.5)',
-      backdropFilter: 'blur(12px)',
-      borderRight: '1px solid rgba(99,102,241,0.15)'
-    }}>
+    <Sider
+      width={212}
+      className="app-sidebar"
+      style={{
+        padding: '18px 0',
+      }}
+    >
       <Menu
         mode="inline"
         selectedKeys={[getSelectedKey(location.pathname)]}
@@ -54,7 +56,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onMenuClick }) => {
           height: '100%',
           borderRight: 0,
           background: 'transparent',
-          color: '#cbd5e1'
+          color: '#cbd5e1',
+          paddingTop: 2,
         }}
       />
     </Sider>

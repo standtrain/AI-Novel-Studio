@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const authenticate = require('../middleware/authenticate');
 const skillService = require('../services/skillService');
+const { parsePositiveInt } = require('../utils/requestParser');
 
 const router = Router();
 router.use(authenticate);
@@ -18,7 +19,7 @@ router.get('/', async (req, res) => {
 // 切换技能启用状态
 router.put('/:id/toggle', async (req, res) => {
   try {
-    const skillId = parseInt(req.params.id, 10);
+    const skillId = parsePositiveInt(req.params.id, '技能ID');
     const { enabled } = req.body;
     if (enabled === undefined) {
       return res.status(400).json({ error: '缺少 enabled 参数' });
@@ -33,7 +34,7 @@ router.put('/:id/toggle', async (req, res) => {
 // 更新技能参数
 router.put('/:id/params', async (req, res) => {
   try {
-    const skillId = parseInt(req.params.id, 10);
+    const skillId = parsePositiveInt(req.params.id, '技能ID');
     const { parameters } = req.body;
     if (parameters === undefined) {
       return res.status(400).json({ error: '缺少 parameters 参数' });

@@ -59,6 +59,8 @@ async function _loadUserConfig(userId) {
   return {
     user,
     preferredModel: (user && user.preferred_model && user.can_choose_model) ? user.preferred_model : null,
+    temperaturePreset: user?.temperature_preset || 'balanced',
+    customTemperature: user?.custom_temperature ?? null,
     checkLimitFn: (providerName, modelName) => modelTokenService.checkModelAvailability(providerName, modelName),
   };
 }
@@ -96,6 +98,8 @@ async function _createAgent(ctx, userId, phase, AgentClass = NovelWritingAgent) 
   const agentOptions = {};
   if (cached.globalPrompt) agentOptions.globalPrompt = cached.globalPrompt;
   if (cached.preferredModel) agentOptions.preferredModel = cached.preferredModel;
+  if (cached.temperaturePreset) agentOptions.temperaturePreset = cached.temperaturePreset;
+  if (cached.customTemperature !== undefined) agentOptions.customTemperature = cached.customTemperature;
   if (cached.checkLimitFn) agentOptions.checkLimitFn = cached.checkLimitFn;
 
   const agent = new AgentClass(ctx, agentOptions);
@@ -1508,6 +1512,10 @@ agentService.planRevise = function (userId, novelId, feedback) {
       }
     },
   };
+};
+
+agentService.clearUserCache = function (userId) {
+  _clearAgentCache(userId);
 };
 
 module.exports = agentService;

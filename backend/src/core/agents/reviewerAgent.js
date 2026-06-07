@@ -1,6 +1,9 @@
 // ReviewerAgent — 章节审查 Agent（参考 webnovel-writer reviewer.md）
 // 六维审查 + AI 味检测，输出结构化问题清单
 const BaseAgent = require('./baseAgent');
+const { createLogger } = require('../../utils/logger');
+
+const logger = createLogger('reviewer-agent');
 
 class ReviewerAgent extends BaseAgent {
   /**
@@ -83,7 +86,11 @@ class ReviewerAgent extends BaseAgent {
 
     // 解析失败时重试一次，用更强烈的 JSON 格式要求
     if (result._parseError || result._missingFields) {
-      console.warn(`审查 JSON 初次解析失败，原始内容前 300 字: ${(content || '').substring(0, 300)}`);
+      logger.warn({
+        chapterNumber,
+        contentLength: (content || '').length,
+        missingFields: result._missingFields || [],
+      }, '审查 JSON 初次解析失败');
       if (onProgress) {
         onProgress('progress', { message: '审查结果格式异常，正在重新解析...' });
       }
@@ -101,7 +108,7 @@ class ReviewerAgent extends BaseAgent {
       if (!retryParsed._parseError && !retryParsed._missingFields) {
         result = retryParsed;
       } else {
-        console.error(`审查 JSON 重试仍失败，使用空结果。原始内容: ${(content || '').substring(0, 200)}`);
+        logger.error({ chapterNumber, contentLength: (content || '').length }, '审查 JSON 重试仍失败，使用空结果');
       }
     }
 

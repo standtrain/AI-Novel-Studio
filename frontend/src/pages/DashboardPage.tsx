@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { Row, Col, Button, Modal, Form, Input, Typography, message, Empty, Card, Tabs, Alert, Descriptions, Tag, Divider, Space, Progress, List } from 'antd';
 import { PlusOutlined, BookOutlined, EditOutlined, ExclamationCircleOutlined, ImportOutlined, UploadOutlined, FileTextOutlined, CodeOutlined, ThunderboltOutlined, LoadingOutlined, CheckCircleOutlined, MessageOutlined, SearchOutlined, BulbOutlined, RobotOutlined, RocketOutlined, EnterOutlined, ShopOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -9,13 +9,15 @@ import { startImportAnalysisStream, startNovelPlanningStream, startNovelPlanRevi
 import { getTemplatesApi, createNovelFromTemplateApi, NovelTemplate } from '../api/templates';
 import { useNovelStore } from '../store/novelStore';
 import useMobile from '../hooks/useMobile';
-import type { Novel, ImportNovelData, ImportPreview, ImportAnalysisResult } from '../types';
+import type { Novel, NovelStatus, ImportNovelData, ImportPreview, ImportAnalysisResult } from '../types';
 
 const { Title, Text } = Typography;
 
 // 模块级小说列表缓存，避免路由切换时重复请求
 let novelsCache: { data: Novel[]; timestamp: number } | null = null;
 const NOVELS_CACHE_TTL = 30_000; // 30秒缓存有效期
+type CreateTabKey = 'create' | 'import' | 'smart' | 'plan' | 'template';
+type DashboardStatusFilter = 'all' | 'active' | NovelStatus;
 
 const DashboardPage: React.FC = () => {
   const isMobile = useMobile();
@@ -28,11 +30,13 @@ const DashboardPage: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
   const deletingRef = useRef(false);
   const [confirmText, setConfirmText] = useState('');
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [statusFilter, setStatusFilter] = useState<DashboardStatusFilter>('all');
   const [form] = Form.useForm();
   const navigate = useNavigate();
 
   // 导入相关状态
-  const [activeTab, setActiveTab] = useState<'create' | 'import' | 'smart' | 'plan' | 'template'>('create');
+  const [activeTab, setActiveTab] = useState<CreateTabKey>('create');
   const [importContent, setImportContent] = useState('');
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [parsedImportData, setParsedImportData] = useState<ImportNovelData | null>(null);
@@ -90,6 +94,65 @@ const DashboardPage: React.FC = () => {
     draft: 'default', outline: 'blue', characters: 'green',
     chapters_outline: 'orange', writing: 'volcano', completed: 'purple',
   };
+  const activeStatuses: NovelStatus[] = ['draft', 'outline', 'characters', 'chapters_outline', 'writing'];
+
+  const openCreateModal = (tab: CreateTabKey = 'create') => {
+    const open = () => {
+      setActiveTab(tab);
+      setModalOpen(true);
+      if (tab === 'template') loadTemplates();
+    };
+    const storeState = useNovelStore.getState();
+    if (storeState.isStreaming && storeState.activeNovelId) {
+      Modal.confirm({
+        title: '有小说正在进行 AI 操作',
+        icon: <ExclamationCircleOutlined />,
+        content: `小说《${storeState.currentNovel?.title || ''}》正在生成内容中，创建新书将中断当前操作。确认继续？`,
+        okText: '确认新建（中断当前操作）',
+        cancelText: '取消',
+        okButtonProps: { danger: true },
+        onOk: () => {
+          storeState.safeAbort(storeState.activeNovelId!);
+          open();
+        },
+      });
+      return;
+    }
+    open();
+  };
+
+  const getNovelStatusLabel = (status: string) => statusLabelMap[status] || status;
+  const getNovelTime = (novel: Novel) => new Date(novel.updated_at || novel.created_at).getTime() || 0;
+
+  const sortedNovels = useMemo(
+    () => [...novels].sort((a, b) => getNovelTime(b) - getNovelTime(a)),
+    [novels],
+  );
+
+  const continueNovel = useMemo(
+    () => sortedNovels.find((novel) => novel.status !== 'completed') || sortedNovels[0],
+    [sortedNovels],
+  );
+
+  const statusCounts = useMemo(() => {
+    return novels.reduce<Record<string, number>>((acc, novel) => {
+      acc[novel.status] = (acc[novel.status] || 0) + 1;
+      if (novel.status !== 'completed') acc.active = (acc.active || 0) + 1;
+      return acc;
+    }, { all: novels.length, active: 0 });
+  }, [novels]);
+
+  const filteredNovels = useMemo(() => {
+    const keyword = searchKeyword.trim().toLowerCase();
+    return sortedNovels.filter((novel) => {
+      const matchesStatus = statusFilter === 'all'
+        || (statusFilter === 'active' ? novel.status !== 'completed' : novel.status === statusFilter);
+      const matchesKeyword = !keyword
+        || [novel.title, novel.genre, getNovelStatusLabel(novel.status)]
+          .some((value) => (value || '').toLowerCase().includes(keyword));
+      return matchesStatus && matchesKeyword;
+    });
+  }, [searchKeyword, sortedNovels, statusFilter]);
 
   useEffect(() => {
     // 有有效缓存则跳过请求
@@ -118,7 +181,7 @@ const DashboardPage: React.FC = () => {
     }
     setLoading(true);
     try {
-      const data = await listNovelsApi();
+      const data = await listNovelsApi(1, 50);
       const rows = data.rows || [];
       novelsCache = { data: rows, timestamp: Date.now() };
       setNovels(rows);
@@ -689,25 +752,7 @@ const DashboardPage: React.FC = () => {
         <Button
           type="primary"
           icon={<PlusOutlined />}
-          onClick={() => {
-            const storeState = useNovelStore.getState();
-            if (storeState.isStreaming && storeState.activeNovelId) {
-              Modal.confirm({
-                title: '有小说正在进行 AI 操作',
-                icon: <ExclamationCircleOutlined />,
-                content: `小说《${storeState.currentNovel?.title || ''}》正在生成内容中，创建新书将中断当前操作。确认继续？`,
-                okText: '确认新建（中断当前操作）',
-                cancelText: '取消',
-                okButtonProps: { danger: true },
-                onOk: () => {
-                  storeState.safeAbort(storeState.activeNovelId!);
-                  setModalOpen(true);
-                },
-              });
-            } else {
-              setModalOpen(true);
-            }
-          }}
+          onClick={() => openCreateModal('plan')}
           style={{
             height: 44,
             paddingInline: 24,
@@ -734,6 +779,131 @@ const DashboardPage: React.FC = () => {
           创建新小说
         </Button>
       </div>
+
+      {novels.length > 0 && (
+        <>
+          {/* 继续创作面板：把最可能需要打开的作品放在首屏，减少用户寻找成本 */}
+          {continueNovel && (
+            <div className="dashboard-continue-panel" style={{
+              display: 'grid',
+              gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1fr) auto',
+              gap: 16,
+              alignItems: 'center',
+              marginBottom: 20,
+              padding: isMobile ? 18 : 22,
+              background: 'linear-gradient(135deg, rgba(99,102,241,0.16), rgba(34,211,238,0.08))',
+              border: '1px solid rgba(129,140,248,0.24)',
+              borderRadius: 18,
+              boxShadow: '0 16px 40px rgba(15,23,42,0.28)',
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <Space size={8} wrap style={{ marginBottom: 10 }}>
+                  <Tag color={continueNovel.status === 'completed' ? 'green' : 'blue'} style={{ borderRadius: 8 }}>
+                    {continueNovel.status === 'completed' ? '最近作品' : '继续创作'}
+                  </Tag>
+                  <Text style={{ color: '#94a3b8', fontSize: 13 }}>
+                    更新于 {new Date(continueNovel.updated_at).toLocaleDateString('zh-CN')}
+                  </Text>
+                </Space>
+                <Title level={4} style={{
+                  color: '#f8fafc',
+                  margin: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {continueNovel.title || '未命名小说'}
+                </Title>
+                <Space size={10} wrap style={{ marginTop: 10 }}>
+                  {continueNovel.genre && <Text style={{ color: '#a5b4fc' }}>{continueNovel.genre}</Text>}
+                  <Text style={{ color: '#cbd5e1' }}>{getNovelStatusLabel(continueNovel.status)}</Text>
+                  <Text style={{ color: '#94a3b8' }}>共 {continueNovel.chapter_count || 0} 章</Text>
+                </Space>
+              </div>
+              <Space wrap>
+                <Button
+                  icon={<MessageOutlined />}
+                  onClick={() => openCreateModal('plan')}
+                  style={{
+                    height: 40,
+                    borderRadius: 10,
+                    color: '#cbd5e1',
+                    borderColor: 'rgba(148,163,184,0.28)',
+                    background: 'rgba(15,23,42,0.34)',
+                  }}
+                >
+                  对话规划新书
+                </Button>
+                <Button
+                  type="primary"
+                  icon={<EnterOutlined />}
+                  onClick={() => navigate(`/novel/${continueNovel.id}`)}
+                  style={{ height: 40, borderRadius: 10, fontWeight: 600 }}
+                >
+                  进入工作台
+                </Button>
+              </Space>
+            </div>
+          )}
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: isMobile ? '1fr' : 'minmax(240px, 360px) 1fr auto',
+            gap: 12,
+            alignItems: 'center',
+            marginBottom: 20,
+            padding: 14,
+            background: 'rgba(15,23,42,0.42)',
+            border: '1px solid rgba(99,102,241,0.14)',
+            borderRadius: 16,
+          }}>
+            <Input
+              allowClear
+              prefix={<SearchOutlined />}
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+              placeholder="搜索标题、类型或状态"
+              style={{ height: 40 }}
+            />
+            <Space size={8} wrap>
+              {[
+                { key: 'all', label: '全部', count: statusCounts.all },
+                { key: 'active', label: '未完成', count: statusCounts.active },
+                ...activeStatuses.map((status) => ({
+                  key: status,
+                  label: getNovelStatusLabel(status),
+                  count: statusCounts[status] || 0,
+                })),
+                { key: 'completed', label: getNovelStatusLabel('completed'), count: statusCounts.completed || 0 },
+              ].map((item) => (
+                <Button
+                  key={item.key}
+                  size="small"
+                  type={statusFilter === item.key ? 'primary' : 'default'}
+                  onClick={() => setStatusFilter(item.key as DashboardStatusFilter)}
+                  style={{
+                    borderRadius: 999,
+                    paddingInline: 12,
+                    background: statusFilter === item.key ? undefined : 'rgba(30,41,59,0.6)',
+                    borderColor: statusFilter === item.key ? undefined : 'rgba(99,102,241,0.18)',
+                    color: statusFilter === item.key ? undefined : '#cbd5e1',
+                  }}
+                >
+                  {item.label} {item.count}
+                </Button>
+              ))}
+            </Space>
+            <Space wrap style={{ justifyContent: isMobile ? 'flex-start' : 'flex-end' }}>
+              <Button icon={<ShopOutlined />} onClick={() => openCreateModal('template')}>
+                模板创建
+              </Button>
+              <Button icon={<ThunderboltOutlined />} onClick={() => openCreateModal('smart')}>
+                智能导入
+              </Button>
+            </Space>
+          </div>
+        </>
+      )}
 
       {/* 小说列表 */}
       {novels.length === 0 ? (
@@ -763,25 +933,7 @@ const DashboardPage: React.FC = () => {
           <Button
             type="primary"
             icon={<PlusOutlined />}
-            onClick={() => {
-              const storeState = useNovelStore.getState();
-              if (storeState.isStreaming && storeState.activeNovelId) {
-                Modal.confirm({
-                  title: '有小说正在进行 AI 操作',
-                  icon: <ExclamationCircleOutlined />,
-                  content: `小说《${storeState.currentNovel?.title || ''}》正在生成内容中，创建新书将中断当前操作。确认继续？`,
-                  okText: '确认新建（中断当前操作）',
-                  cancelText: '取消',
-                  okButtonProps: { danger: true },
-                  onOk: () => {
-                    storeState.safeAbort(storeState.activeNovelId!);
-                    setModalOpen(true);
-                  },
-                });
-              } else {
-                setModalOpen(true);
-              }
-            }}
+            onClick={() => openCreateModal('plan')}
             style={{
               height: 44,
               background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
@@ -794,17 +946,35 @@ const DashboardPage: React.FC = () => {
           </Button>
         </div>
       ) : (
-        <Row gutter={[20, 20]}>
-          {novels.map((novel, index) => (
-            <Col key={novel.id} xs={24} sm={12} md={8} lg={6}>
-              <div style={{
-                animation: `slideUp 0.5s ease-out ${index * 0.1}s both`,
-              }}>
-                <NovelCard novel={novel} onClick={() => navigate(`/novel/${novel.id}`)} onDelete={() => handleDeleteClick(novel)} />
-              </div>
-            </Col>
-          ))}
-        </Row>
+        filteredNovels.length === 0 ? (
+          <div style={{
+            padding: '48px 24px',
+            background: 'rgba(30,41,59,0.32)',
+            borderRadius: 16,
+            border: '1px dashed rgba(99,102,241,0.18)',
+            textAlign: 'center',
+          }}>
+            <Empty description="没有匹配的小说" />
+            <Button
+              onClick={() => { setSearchKeyword(''); setStatusFilter('all'); }}
+              style={{ marginTop: 16 }}
+            >
+              清空筛选
+            </Button>
+          </div>
+        ) : (
+          <Row gutter={[20, 20]}>
+            {filteredNovels.map((novel, index) => (
+              <Col key={novel.id} xs={24} sm={12} md={8} lg={6}>
+                <div style={{
+                  animation: `slideUp 0.5s ease-out ${Math.min(index, 8) * 0.06}s both`,
+                }}>
+                  <NovelCard novel={novel} onClick={() => navigate(`/novel/${novel.id}`)} onDelete={() => handleDeleteClick(novel)} />
+                </div>
+              </Col>
+            ))}
+          </Row>
+        )
       )}
 
       {/* 创建 / 导入小说弹窗 */}
@@ -1037,7 +1207,7 @@ const DashboardPage: React.FC = () => {
                     rows={8}
                     placeholder="粘贴 JSON 内容，或点击上方按钮选择文件..."
                     style={{
-                      fontFamily: 'monospace',
+                      fontFamily: 'var(--font-mono)',
                       fontSize: 13,
                       background: 'rgba(15,23,42,0.5)',
                       borderColor: 'rgba(99,102,241,0.3)',

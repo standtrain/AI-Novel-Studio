@@ -1,6 +1,10 @@
 // Agent 基类 — 统一 LLM 调用、重试、模型解析、技能/MCP 注入
 const OpenAI = require('openai');
 const { pickModel } = require('../../config/openai');
+const { createLogger } = require('../../utils/logger');
+const { resolveTemperature, shouldApplyUserTemperature } = require('../../utils/temperaturePreset');
+
+const logger = createLogger('base-agent');
 
 class BaseAgent {
   constructor(contextManager, options = {}) {
@@ -13,6 +17,8 @@ class BaseAgent {
     this.preferredProvider = options.preferredProvider || null;
     this.checkLimitFn = options.checkLimitFn || null;
     this.globalPrompt = options.globalPrompt || null;
+    this.temperaturePreset = options.temperaturePreset || 'balanced';
+    this.customTemperature = options.customTemperature ?? null;
     this.maxTokens = null;
   }
 
@@ -35,6 +41,14 @@ class BaseAgent {
       preferredProviderName: this.preferredProvider,
       checkLimitFn: this.checkLimitFn,
     });
+  }
+
+  // 创作类阶段使用用户温度偏好；审查、摘要、数据抽取等低温任务保持原始稳定设置
+  _resolveTemperature(phase, requestedTemperature) {
+    if (!shouldApplyUserTemperature(phase, requestedTemperature)) {
+      return requestedTemperature;
+    }
+    return resolveTemperature(this.temperaturePreset, this.customTemperature);
   }
 
   // 将技能提示词和全局写作提示词注入系统提示词
@@ -98,7 +112,7 @@ class BaseAgent {
         const unquotedFixed = cleaned.replace(/'/g, '"');
         return JSON.parse(unquotedFixed);
       } catch (err2) {
-        console.warn(`JSON 解析失败: ${err1.message}（已尝试清理/修复）`);
+        logger.warn({ err: err1 }, 'JSON 解析失败，已尝试清理/修复');
         return fallback || { _parseError: true, _rawContent: (text || '').substring(0, 500) };
       }
     }
@@ -110,7 +124,7 @@ class BaseAgent {
     if (result._parseError) return result;
     const missing = requiredFields.filter(f => !(f in result));
     if (missing.length > 0) {
-      console.warn(`JSON 缺少必需字段: ${missing.join(', ')}`);
+      logger.warn({ missing }, 'JSON 缺少必需字段');
       return Object.assign(fallback || {}, result, { _missingFields: missing });
     }
     return result;
@@ -121,6 +135,7 @@ class BaseAgent {
     const { provider, model, skipReasons } = await this._resolve(phase);
     const client = this._getClient(provider);
     const abortSignal = signal || this._abortSignal;
+    const effectiveTemperature = this._resolveTemperature(phase, temperature);
 
     const response = await client.chat.completions.create({
       model,
@@ -128,7 +143,7 @@ class BaseAgent {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      temperature,
+      temperature: effectiveTemperature,
       max_tokens: this.maxTokens,
     }, { signal: abortSignal });
 
@@ -146,6 +161,7 @@ class BaseAgent {
     const maxRetries = options.maxRetries || 3;
     const retryDelay = options.retryDelay || 5000;
     const maxTokens = maxTokensOverride || this.maxTokens;
+    const effectiveTemperature = this._resolveTemperature(phase, temperature);
 
     let lastError = null;
     let skipReasons = [];
@@ -163,7 +179,7 @@ class BaseAgent {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
-          temperature,
+          temperature: effectiveTemperature,
           max_tokens: maxTokens,
           stream: true,
           stream_options: { include_usage: true },
@@ -190,7 +206,7 @@ class BaseAgent {
         lastError = err;
         // 429 限流自动重试
         if (err.status === 429 || (err.message && err.message.includes('429'))) {
-          console.log(`[LLM] 429 限流，自动重试中（第 ${attempt + 1}/${maxRetries} 次）...`);
+          logger.warn({ attempt: attempt + 1, maxRetries }, 'LLM 触发 429 限流，准备自动重试');
           if (attempt < maxRetries - 1) {
             await new Promise(resolve => setTimeout(resolve, retryDelay));
             continue;

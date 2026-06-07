@@ -103,8 +103,6 @@ const GroupManager: React.FC = () => {
     if (!editGroup) return;
     setEditing(true);
     try {
-      console.log('编辑表单数据:', JSON.stringify(values, null, 2));
-
       // 构建更新数据，确保类型正确
       const updateData: any = {};
       if (values.name !== undefined) updateData.name = values.name;
@@ -122,9 +120,7 @@ const GroupManager: React.FC = () => {
         updateData.is_admin = values.is_admin;
       }
 
-      console.log('API提交数据:', JSON.stringify(updateData, null, 2));
-      const result = await updateGroupApi(editGroup.id, updateData);
-      console.log('API返回:', result);
+      await updateGroupApi(editGroup.id, updateData);
       message.success('分组更新成功');
       setEditModal(false);
       loadGroups();
@@ -133,7 +129,6 @@ const GroupManager: React.FC = () => {
         message.error('请检查表单填写');
       } else {
         message.error(err.response?.data?.error || '更新失败: ' + (err.message || ''));
-        console.error('更新失败详情:', err);
       }
     } finally {
       setEditing(false);

@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS `users` (
   `daily_tokens_used` int unsigned NOT NULL DEFAULT 0 COMMENT '今日已用token',
   `last_token_reset_at` timestamp NULL DEFAULT NULL COMMENT '上次token重置时间',
   `preferred_model` varchar(255) DEFAULT NULL COMMENT '用户首选模型(null=按管理员优先级)，格式: provider_name::model_name',
+  `temperature_preset` varchar(20) NOT NULL DEFAULT 'balanced' COMMENT '创作温度预设：precise/balanced/creative/wild/custom',
+  `custom_temperature` decimal(3,2) DEFAULT NULL COMMENT '自定义创作温度，范围0-2，仅custom预设生效',
   `last_login_at` timestamp NULL DEFAULT NULL COMMENT '最后登录时间',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,

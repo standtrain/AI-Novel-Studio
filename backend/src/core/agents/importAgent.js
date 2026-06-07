@@ -1,4 +1,7 @@
 const BaseAgent = require('./baseAgent');
+const { createLogger } = require('../../utils/logger');
+
+const logger = createLogger('import-agent');
 
 // 章节边界检测的正则模式（优先级从高到低）
 const CHAPTER_PATTERNS = [
@@ -277,7 +280,7 @@ ${this._instructions ? `\n【用户补充意见】\n${this._instructions}\n（�
       }
       return parsed;
     } catch (err) {
-      console.warn('[ImportAgent] 概览分析失败:', err.message);
+      logger.warn({ err }, '导入概览分析失败');
       return guessedTitle ? { title: guessedTitle } : {};
     }
   }
@@ -371,7 +374,7 @@ ${this._instructions ? `\n【用户补充意见】\n${this._instructions}\n（�
       const parsed = this.parseJSON(content, []);
       return Array.isArray(parsed) ? parsed : [];
     } catch (err) {
-      console.warn('[ImportAgent] 角色提取失败:', err.message);
+      logger.warn({ err }, '导入角色提取失败');
       return [];
     }
   }
@@ -496,7 +499,7 @@ ${text}
       }
       return parsed;
     } catch (err) {
-      console.warn(`[ImportAgent] 章纲分析失败(chapter ${chapter.chapter_number}):`, err.message);
+      logger.warn({ err, chapterNumber: chapter.chapter_number }, '导入章纲分析失败');
       return {
         chapter_number: chapter.chapter_number,
         title: chapter.title,

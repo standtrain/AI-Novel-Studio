@@ -5,6 +5,9 @@ const characterDao = require('../dao/characterDao');
 const { safeUpdateNovel } = require('../utils/databaseHelper');
 const { countWords } = require('../core/utils/wordCounter');
 const { db } = require('../config/database');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('novel-service');
 
 // 公共辅助：获取小说并校验所有权
 async function _getNovelOrThrow(novelId, userId) {
@@ -39,13 +42,13 @@ const novelService = {
       try {
         scenes = ch.scenes ? JSON.parse(ch.scenes) : [];
       } catch (e) {
-        console.error(`章节 ${ch.chapter_number} 的 scenes 字段 JSON 解析失败:`, String(e));
+        logger.warn({ err: e, chapterNumber: ch.chapter_number, field: 'scenes' }, '章节 JSON 字段解析失败');
         scenes = [];
       }
       try {
         characters_involved = ch.characters_involved ? JSON.parse(ch.characters_involved) : [];
       } catch (e) {
-        console.error(`章节 ${ch.chapter_number} 的 characters_involved 字段 JSON 解析失败:`, String(e));
+        logger.warn({ err: e, chapterNumber: ch.chapter_number, field: 'characters_involved' }, '章节 JSON 字段解析失败');
         characters_involved = [];
       }
       const base = { ...ch, scenes, characters_involved };

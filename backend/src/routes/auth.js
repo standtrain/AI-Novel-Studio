@@ -7,8 +7,24 @@ const authenticate = require('../middleware/authenticate');
 const loginRateLimiter = require('../middleware/loginRateLimiter');
 const userDao = require('../dao/userDao');
 const userGroupDao = require('../dao/userGroupDao');
+const { parsePositiveInt } = require('../utils/requestParser');
+const { normalizeTemperaturePreference } = require('../utils/temperaturePreset');
 
 const router = Router();
+
+// 按站点配置校验图形验证码，避免只在前端校验导致接口可被绕过
+async function verifyCaptchaIfEnabled({ captchaId, captchaCode }, missingMessage = '请输入图形验证码') {
+  const captchaEnabled = await configService.get('captcha_enabled');
+  if (captchaEnabled !== 'true') return null;
+
+  if (!captchaId || captchaCode === undefined) {
+    return { status: 400, error: missingMessage };
+  }
+  if (!captchaService.validate(captchaId, captchaCode)) {
+    return { status: 400, error: '验证码错误或已过期，请刷新后重试' };
+  }
+  return null;
+}
 
 // 发送邮箱验证码（注册/密码重置/邮箱变更）
 const sendCodeSchema = z.object({
@@ -26,16 +42,8 @@ router.post('/send-verify-code', async (req, res) => {
       return res.status(400).json({ error: '邮箱变更验证码需要通过认证接口发送' });
     }
 
-    // 验证码校验（仅在管理员启用时）
-    const captchaEnabled = await configService.get('captcha_enabled');
-    if (captchaEnabled === 'true') {
-      if (!body.captchaId || body.captchaCode === undefined) {
-        return res.status(400).json({ error: '请输入图形验证码' });
-      }
-      if (!captchaService.validate(body.captchaId, body.captchaCode)) {
-        return res.status(400).json({ error: '验证码错误或已过期，请刷新后重试' });
-      }
-    }
+    const captchaError = await verifyCaptchaIfEnabled(body);
+    if (captchaError) return res.status(captchaError.status).json({ error: captchaError.error });
 
     const result = await authService.sendVerificationCode(body.email, body.type);
     res.json(result);
@@ -77,11 +85,16 @@ router.post('/register', async (req, res) => {
 // 忘记密码（发送重置验证码）
 const forgotPasswordSchema = z.object({
   email: z.string().email(),
+  captchaId: z.string().optional(),
+  captchaCode: z.string().optional(),
 });
 
 router.post('/forgot-password', async (req, res) => {
   try {
     const body = forgotPasswordSchema.parse(req.body);
+    const captchaError = await verifyCaptchaIfEnabled(body);
+    if (captchaError) return res.status(captchaError.status).json({ error: captchaError.error });
+
     const result = await authService.forgotPassword(body.email);
     res.json(result);
   } catch (err) {
@@ -152,6 +165,16 @@ router.get('/captcha', async (_req, res) => {
   }
 });
 
+// 检查邮箱验证是否启用（公开接口）
+router.get('/email-verification-status', async (_req, res) => {
+  try {
+    const enabled = await configService.get('email_verification_enabled');
+    res.json({ enabled: enabled === 'true' });
+  } catch {
+    res.json({ enabled: false });
+  }
+});
+
 // 登录
 const loginSchema = z.object({
   username: z.string().min(1),
@@ -164,16 +187,8 @@ router.post('/login', loginRateLimiter, async (req, res) => {
   try {
     const body = loginSchema.parse(req.body);
 
-    // 验证码校验（仅在管理员启用时）
-    const captchaEnabled = await configService.get('captcha_enabled');
-    if (captchaEnabled === 'true') {
-      if (!body.captchaId || body.captchaCode === undefined) {
-        return res.status(400).json({ error: '请输入验证码' });
-      }
-      if (!captchaService.validate(body.captchaId, body.captchaCode)) {
-        return res.status(400).json({ error: '验证码错误或已过期，请刷新后重试' });
-      }
-    }
+    const captchaError = await verifyCaptchaIfEnabled(body, '请输入验证码');
+    if (captchaError) return res.status(captchaError.status).json({ error: captchaError.error });
 
     const result = await authService.login(body);
     res.json(result);
@@ -254,10 +269,14 @@ router.put('/me', authenticate, async (req, res) => {
 // 发送邮箱变更验证码（需登录）
 router.post('/me/send-change-email-code', authenticate, async (req, res) => {
   try {
-    const { email } = req.body;
+    const { email, captchaId, captchaCode } = req.body;
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: '请提供有效的邮箱地址' });
     }
+
+    const captchaError = await verifyCaptchaIfEnabled({ captchaId, captchaCode });
+    if (captchaError) return res.status(captchaError.status).json({ error: captchaError.error });
+
     const result = await authService.sendVerificationCode(email, 'change_email', req.user.id);
     res.json(result);
   } catch (err) {
@@ -298,7 +317,11 @@ router.post('/appeal', async (req, res) => {
       return res.status(400).json({ error: '缺少必要参数' });
     }
     const banService = require('../services/banService');
-    const result = await banService.submitAppeal(parseInt(banId), parseInt(userId), content);
+    const result = await banService.submitAppeal(
+      parsePositiveInt(banId, '封禁ID'),
+      parsePositiveInt(userId, '用户ID'),
+      content,
+    );
     res.json(result);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '提交申诉失败' });
@@ -324,6 +347,25 @@ router.put('/me/preferred-model', authenticate, async (req, res) => {
     res.json({ user: authService.sanitizeUser(updatedUser) });
   } catch (err) {
     res.status(500).json({ error: '更新模型偏好失败' });
+  }
+});
+
+// 更新用户创作温度偏好
+router.put('/me/temperature-preference', authenticate, async (req, res) => {
+  try {
+    const { preset, customTemperature } = req.body;
+    const preference = normalizeTemperaturePreference(preset, customTemperature);
+
+    await userDao.updateTemperaturePreference(req.user.id, preference);
+
+    // 清理 Agent 缓存，确保下一次生成立即使用新温度
+    const agentService = require('../services/agentService');
+    agentService.clearUserCache(req.user.id);
+
+    const updatedUser = await userDao.findById(req.user.id);
+    res.json({ user: authService.sanitizeUser(updatedUser) });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || '更新创作温度失败' });
   }
 });
 

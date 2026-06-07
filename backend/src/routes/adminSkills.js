@@ -2,6 +2,7 @@ const { Router } = require('express');
 const authenticate = require('../middleware/authenticate');
 const authorize = require('../middleware/authorize');
 const skillService = require('../services/skillService');
+const { parsePositiveInt } = require('../utils/requestParser');
 
 const router = Router();
 router.use(authenticate);
@@ -30,7 +31,7 @@ router.post('/', async (req, res) => {
 // 更新技能
 router.put('/:id', async (req, res) => {
   try {
-    const skillId = parseInt(req.params.id, 10);
+    const skillId = parsePositiveInt(req.params.id, '技能ID');
     const skill = await skillService.updateSkill(skillId, req.body);
     res.json({ skill });
   } catch (err) {
@@ -41,7 +42,7 @@ router.put('/:id', async (req, res) => {
 // 删除技能
 router.delete('/:id', async (req, res) => {
   try {
-    const skillId = parseInt(req.params.id, 10);
+    const skillId = parsePositiveInt(req.params.id, '技能ID');
     await skillService.deleteSkill(skillId);
     res.json({ success: true, message: '技能已删除' });
   } catch (err) {

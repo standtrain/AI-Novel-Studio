@@ -53,7 +53,7 @@
   font-weight: 700;
   line-height: 1;
   margin-bottom: 0.5rem;
-  letter-spacing: -1px;
+  letter-spacing: 0;
   /* 渐变数字 */
   background: linear-gradient(135deg, #fff 0%, var(--lp-accent) 100%);
   -webkit-background-clip: text;

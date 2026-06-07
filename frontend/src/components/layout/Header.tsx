@@ -26,9 +26,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   };
 
   return (
-    <AntHeader style={{
-      background: 'rgba(15,23,42,0.95)',
-      backdropFilter: 'blur(12px)',
+    <AntHeader className="app-header" style={{
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
@@ -50,22 +48,28 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
         <div style={{
           color: '#f1f5f9',
           fontSize: isMobile ? 15 : 18,
-          fontWeight: 'bold',
+          fontWeight: 700,
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
-          gap: 8
+          gap: 10
         }} onClick={() => navigate('/dashboard')}>
-          <span style={{
-            color: 'var(--lp-primary)',
-            textShadow: '0 0 10px rgba(99,102,241,0.5)'
-          }}>✦</span>
+          <span className="brand-mark">✦</span>
           {!isMobile && 'AI Novel Studio'}
         </div>
       </div>
       <Space>
         <Dropdown menu={items} placement="bottomRight">
-          <Button type="text" icon={<UserOutlined />} style={{ color: '#cbd5e1', padding: isMobile ? '4px 8px' : undefined }}>
+          <Button
+            type="text"
+            icon={<UserOutlined />}
+            style={{
+              color: '#cbd5e1',
+              padding: isMobile ? '4px 8px' : '4px 14px',
+              background: 'rgba(99,102,241,0.08)',
+              border: '1px solid rgba(99,102,241,0.16)',
+            }}
+          >
             {isMobile ? null : user?.username || '用户'}
           </Button>
         </Dropdown>

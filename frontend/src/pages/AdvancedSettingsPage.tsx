@@ -1,10 +1,11 @@
 import React, { useState, useCallback } from 'react';
 import { Tabs, Typography } from 'antd';
-import { ExperimentOutlined, LinkOutlined, RobotOutlined, EditOutlined } from '@ant-design/icons';
+import { ExperimentOutlined, FireOutlined, LinkOutlined, RobotOutlined, EditOutlined } from '@ant-design/icons';
 import SkillsConfig from '../components/settings/SkillsConfig';
 import McpConfig from '../components/settings/McpConfig';
 import ModelPreference from '../components/settings/ModelPreference';
 import GlobalPromptConfig from '../components/settings/GlobalPromptConfig';
+import TemperaturePreference from '../components/settings/TemperaturePreference';
 
 const { Title } = Typography;
 
@@ -27,9 +28,14 @@ const useLazyTabs = (defaultKey: string) => {
 };
 
 const AdvancedSettingsPage: React.FC = () => {
-  const { activeKey, renderedKeys, onChange } = useLazyTabs('skills');
+  const { activeKey, renderedKeys, onChange } = useLazyTabs('temperature');
 
   const tabItems = [
+    {
+      key: 'temperature',
+      label: <span><FireOutlined /> 创作温度</span>,
+      children: renderedKeys.has('temperature') ? <TemperaturePreference /> : null,
+    },
     {
       key: 'skills',
       label: <span><ExperimentOutlined /> Skills 提示词增强</span>,

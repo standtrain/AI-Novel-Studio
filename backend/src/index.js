@@ -28,6 +28,20 @@ const PORT = parseInt(process.env.PORT, 10) || 3000;
 
 // ---------- 全局中间件 ----------
 
+// 反向代理部署时才信任代理头，避免直接暴露时被伪造来源 IP
+if (process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
+// 基础安全响应头：减少 MIME 嗅探、点击劫持和来源信息泄露风险
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  next();
+});
+
 // 动态 CORS：从 site_config 读取，默认关闭，管理员可在后台开启（60 秒缓存）
 const configDao = require('./dao/configDao');
 
@@ -87,8 +101,17 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.text({ limit: '10mb', type: 'text/plain' }));
 
 // 请求日志
-app.use((req, _res, next) => {
-  logger.info(`${req.method} ${req.path}`);
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    if (req.path === '/api/health' || req.path.startsWith('/assets/')) return;
+    logger.info({
+      method: req.method,
+      path: req.path,
+      statusCode: res.statusCode,
+      durationMs: Date.now() - start,
+    }, 'HTTP 请求完成');
+  });
   next();
 });
 

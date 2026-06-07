@@ -194,7 +194,7 @@ const RegisterPage: React.FC = () => {
                   filter: 'drop-shadow(0 0 8px rgba(34,211,238,0.5))',
                 }}>✦</span>
               </div>
-              <Title level={2} style={{ color: '#f1f5f9', margin: 0, fontWeight: 700, letterSpacing: '-0.5px' }}>创建账号</Title>
+              <Title level={2} style={{ color: '#f1f5f9', margin: 0, fontWeight: 700, letterSpacing: 0 }}>创建账号</Title>
               <Text style={{ color: '#94a3b8', fontSize: 15, marginTop: 8, display: 'block' }}>开始你的 AI 创作之旅</Text>
             </div>
 
@@ -217,7 +217,7 @@ const RegisterPage: React.FC = () => {
                       borderRadius: 6,
                       color: '#a5b4fc',
                       fontSize: 12,
-                      fontFamily: 'monospace',
+                      fontFamily: 'var(--font-mono)',
                     }}>@{d}</span>
                   ))}
                 </div>
@@ -276,7 +276,7 @@ const RegisterPage: React.FC = () => {
                     <Input prefix={<NumberOutlined style={{ color: '#22d3ee', fontSize: 18 }} />}
                       placeholder="6位验证码" maxLength={6}
                       onFocus={() => setFocusedInput('code')} onBlur={() => setFocusedInput(null)}
-                      style={{ ...getInputStyle('code'), letterSpacing: 4, fontFamily: 'monospace', fontSize: 20, textAlign: 'center' }} />
+                      style={{ ...getInputStyle('code'), letterSpacing: 4, fontFamily: 'var(--font-mono)', fontSize: 20, textAlign: 'center' }} />
                   </Form.Item>
                 </>
               ) : (

@@ -2,6 +2,7 @@ const { Router } = require('express');
 const authenticate = require('../middleware/authenticate');
 const authorize = require('../middleware/authorize');
 const mcpService = require('../services/mcpService');
+const { parsePositiveInt } = require('../utils/requestParser');
 
 const router = Router();
 router.use(authenticate);
@@ -30,7 +31,7 @@ router.post('/servers', async (req, res) => {
 // 更新 MCP 服务器
 router.put('/servers/:id', async (req, res) => {
   try {
-    const serverId = parseInt(req.params.id, 10);
+    const serverId = parsePositiveInt(req.params.id, 'MCP服务ID');
     const server = await mcpService.updateServer(serverId, req.body);
     res.json({ server });
   } catch (err) {
@@ -41,7 +42,7 @@ router.put('/servers/:id', async (req, res) => {
 // 删除 MCP 服务器
 router.delete('/servers/:id', async (req, res) => {
   try {
-    const serverId = parseInt(req.params.id, 10);
+    const serverId = parsePositiveInt(req.params.id, 'MCP服务ID');
     await mcpService.deleteServer(serverId);
     res.json({ success: true, message: 'MCP 服务器已删除' });
   } catch (err) {
@@ -52,7 +53,7 @@ router.delete('/servers/:id', async (req, res) => {
 // 测试 MCP 服务器连接
 router.post('/servers/:id/test', async (req, res) => {
   try {
-    const serverId = parseInt(req.params.id, 10);
+    const serverId = parsePositiveInt(req.params.id, 'MCP服务ID');
     const result = await mcpService.testConnection(serverId);
     res.json(result);
   } catch (err) {

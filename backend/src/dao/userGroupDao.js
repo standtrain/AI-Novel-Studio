@@ -1,7 +1,9 @@
 // 用户分组数据访问层
 const { db } = require('../config/database');
+const { createLogger } = require('../utils/logger');
 
 const TABLE = 'user_groups';
+const logger = createLogger('user-group-dao');
 
 const userGroupDao = {
   // 获取所有分组（返回纯对象数组）
@@ -64,7 +66,7 @@ const userGroupDao = {
 
     updateData.updated_at = new Date();
 
-    console.log(`[userGroupDao.update] id=${id}, fields:`, Object.keys(updateData).join(','));
+    logger.debug({ id, fields: Object.keys(updateData) }, '更新用户分组字段');
 
     await db(TABLE).where('id', id).update(updateData);
     return this.findById(id);

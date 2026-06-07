@@ -14,11 +14,6 @@ const CTASection: React.FC<CTASectionProps> = ({ isAuthenticated, onStart }) => 
 
   return (
     <section className="cta-section gradient-blue" ref={ref}>
-      {/* 浮动装饰 */}
-      <div className="cta-blob cta-blob-1" />
-      <div className="cta-blob cta-blob-2" />
-      <div className="cta-blob cta-blob-3" />
-
       <div className={`cta-content${isVisible ? ' cta-visible' : ''}`}>
         <h2 className="cta-heading">
           {isAuthenticated ? '继续你的创作之旅' : '准备好开始你的 AI 创作之旅了吗？'}

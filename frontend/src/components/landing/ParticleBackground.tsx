@@ -11,6 +11,7 @@ const ParticleBackground: React.FC = () => {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -23,9 +24,10 @@ const ParticleBackground: React.FC = () => {
     resize();
     window.addEventListener('resize', resize);
 
-    // 粒子配置
-    const particleCount = Math.min(80, Math.floor(window.innerWidth / 20));
-    const connectionDistance = 150;
+    // 粒子配置：根据屏幕宽度动态调整，移动端减少粒子以保证性能
+    const w = window.innerWidth;
+    const particleCount = w < 480 ? Math.min(18, Math.floor(w / 24)) : Math.min(46, Math.floor(w / 34));
+    const connectionDistance = w < 480 ? 90 : 132;
     const primaryColor = '99, 102, 241'; // RGB 格式，与主色调呼应
     const accentColor = '34, 211, 238';
     const cw = canvas.width;
@@ -43,9 +45,9 @@ const ParticleBackground: React.FC = () => {
       constructor() {
         this.x = Math.random() * cw;
         this.y = Math.random() * ch;
-        this.vx = (Math.random() - 0.5) * 0.5;
-        this.vy = (Math.random() - 0.5) * 0.5;
-        this.size = Math.random() * 2 + 1;
+        this.vx = (Math.random() - 0.5) * 0.32;
+        this.vy = (Math.random() - 0.5) * 0.32;
+        this.size = Math.random() * 1.5 + 0.8;
         this.color = Math.random() > 0.7 ? accentColor : primaryColor;
       }
 
@@ -62,7 +64,7 @@ const ParticleBackground: React.FC = () => {
         if (!ctx) return;
         ctx.beginPath();
         ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(${this.color}, 0.8)`;
+        ctx.fillStyle = `rgba(${this.color}, 0.42)`;
         ctx.fill();
       }
     }
@@ -86,7 +88,7 @@ const ParticleBackground: React.FC = () => {
             ctx.beginPath();
             ctx.moveTo(particles[i].x, particles[i].y);
             ctx.lineTo(particles[j].x, particles[j].y);
-            ctx.strokeStyle = `rgba(99, 102, 241, ${opacity * 0.3})`;
+            ctx.strokeStyle = `rgba(99, 102, 241, ${opacity * 0.14})`;
             ctx.lineWidth = 1;
             ctx.stroke();
           }

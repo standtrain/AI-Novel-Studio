@@ -1,21 +1,21 @@
-/* ====== CSS 变量 - 深色创作工作台风格 ====== */
+/* ====== CSS 变量 - 与应用工作台统一 ====== */
 :root {
   --lp-primary: #6366f1;
   --lp-primary-dark: #4f46e5;
   --lp-primary-light: rgba(99,102,241,0.15);
   --lp-accent: #22d3ee;
   --lp-accent-secondary: #a78bfa;
-  --lp-bg: #070b14;
-  --lp-bg-warm: #1e293b;
+  --lp-bg: #0f172a;
+  --lp-bg-warm: rgba(30,41,59,0.78);
   --lp-text-heading: #f1f5f9;
   --lp-text-body: #cbd5e1;
-  --lp-text-muted: #8a9ab0;
-  --lp-border: rgba(148,163,184,0.13);
-  --lp-radius: 16px;
+  --lp-text-muted: #94a3b8;
+  --lp-border: rgba(99,102,241,0.16);
+  --lp-radius: 8px;
   --lp-shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
   --lp-shadow-md: 0 4px 6px -1px rgba(0,0,0,0.3), 0 2px 4px -2px rgba(0,0,0,0.2);
-  --lp-shadow-lg: 0 20px 25px -5px rgba(0,0,0,0.4), 0 8px 10px -6px rgba(0,0,0,0.2);
-  --lp-glow: 0 0 20px rgba(99,102,241,0.3), 0 0 40px rgba(99,102,241,0.1);
+  --lp-shadow-lg: 0 18px 48px rgba(2,6,23,0.36);
+  --lp-glow: 0 0 20px rgba(99,102,241,0.18);
   --lp-font-display: var(--font-display);
   --lp-font-body: var(--font-sans);
   --lp-font-mono: var(--font-mono);
@@ -27,8 +27,8 @@
   overflow-x: hidden;
   min-height: 100vh;
   background:
-    linear-gradient(180deg, rgba(34,211,238,0.06) 0%, transparent 26%),
-    linear-gradient(135deg, #070b14 0%, #111827 48%, #07111f 100%);
+    linear-gradient(180deg, rgba(99,102,241,0.08) 0%, transparent 30%),
+    linear-gradient(135deg, #0b1022 0%, #0f172a 50%, #111827 100%);
   color: var(--lp-text-body);
   font-family: var(--lp-font-body);
   -webkit-font-smoothing: antialiased;
@@ -40,9 +40,9 @@
   position: fixed;
   inset: 0;
   background-image:
-    linear-gradient(rgba(148,163,184,0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148,163,184,0.035) 1px, transparent 1px);
-  background-size: 60px 60px;
+    linear-gradient(rgba(148,163,184,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148,163,184,0.03) 1px, transparent 1px);
+  background-size: 56px 56px;
   pointer-events: none;
   z-index: 0;
   mask-image: linear-gradient(to bottom, #000 0%, #000 72%, transparent 100%);
@@ -53,15 +53,14 @@
   position: fixed;
   inset: 0;
   background:
-    linear-gradient(90deg, transparent, rgba(99,102,241,0.06), transparent),
-    linear-gradient(180deg, transparent 0%, rgba(2,6,23,0.72) 76%, rgba(2,6,23,0.9) 100%);
+    linear-gradient(180deg, transparent 0%, rgba(2,6,23,0.62) 78%, rgba(2,6,23,0.88) 100%);
   pointer-events: none;
   z-index: 0;
 }
 
 /* ====== 通用区块 ====== */
 .landing-section {
-  padding: 96px 48px;
+  padding: 88px 48px;
   max-width: 1200px;
   margin: 0 auto;
   position: relative;
@@ -71,9 +70,9 @@
 .section-label {
   font-size: 0.85rem;
   font-weight: 600;
-  letter-spacing: 2.4px;
+  letter-spacing: 0;
   text-transform: uppercase;
-  color: #67e8f9;
+  color: #a5b4fc;
   text-align: center;
   margin-bottom: 0.75rem;
   opacity: 0.9;
@@ -81,20 +80,16 @@
 
 .section-heading {
   font-family: var(--lp-font-display);
-  font-size: clamp(2rem, 4vw, 3rem);
+  font-size: 2.55rem;
   font-weight: 800;
   text-align: center;
   color: var(--lp-text-heading);
   margin-bottom: 1rem;
   letter-spacing: 0;
-  background: linear-gradient(135deg, #f8fafc 0%, #dbeafe 58%, #a5f3fc 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
 }
 
 .section-subheading {
-  font-size: clamp(1rem, 2vw, 1.2rem);
+  font-size: 1.08rem;
   color: #91a2b8;
   text-align: center;
   max-width: 600px;
@@ -105,7 +100,7 @@
 /* ====== 滚动渐显动画 ====== */
 .reveal-hidden {
   opacity: 0;
-  transform: translateY(40px);
+  transform: translateY(24px);
 }
 
 .reveal-visible {
@@ -123,48 +118,62 @@
 
 /* ====== 链接悬停辅助 ====== */
 .hover-lift {
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
 }
 .hover-lift:hover {
-  transform: translateY(-4px);
+  transform: translateY(-2px);
   box-shadow: var(--lp-shadow-lg);
 }
 
 /* ====== 按钮渐变 ====== */
 .gradient-blue {
-  background: linear-gradient(135deg, rgba(15,23,42,0.94) 0%, rgba(30,41,59,0.86) 52%, rgba(8,47,73,0.76) 100%);
+  background: linear-gradient(180deg, rgba(30,41,59,0.72), rgba(15,23,42,0.72));
 }
 
 /* ====== 卡片玻璃效果增强 ====== */
 .glass-card {
-  background: rgba(15, 23, 42, 0.62);
+  background: rgba(30, 41, 59, 0.66);
   backdrop-filter: blur(16px);
   border: 1px solid rgba(148, 163, 184, 0.14);
-  border-radius: 16px;
+  border-radius: 8px;
   box-shadow: 0 18px 48px rgba(2, 6, 23, 0.32), inset 0 1px 0 rgba(255,255,255,0.04);
-  transition: all 0.3s ease;
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
 }
 
 @media (hover: hover) and (pointer: fine) {
   .glass-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 24px 56px rgba(2, 6, 23, 0.46), 0 0 30px rgba(34, 211, 238, 0.08);
-    border-color: rgba(34, 211, 238, 0.22);
+    transform: translateY(-2px);
+    box-shadow: 0 18px 42px rgba(2, 6, 23, 0.34);
+    border-color: rgba(129, 140, 248, 0.28);
   }
 }
 
 /* ====== 响应式 ====== */
 @media (max-width: 768px) {
   .landing-section {
-    padding: 64px 24px;
+    padding: 56px 20px;
   }
   .section-heading {
-    font-size: 1.75rem;
+    font-size: 1.7rem;
+  }
+  .section-subheading {
+    font-size: 0.95rem;
+    margin-bottom: 3rem;
   }
 }
 
 @media (max-width: 480px) {
   .landing-section {
-    padding: 48px 16px;
+    padding: 40px 16px;
+  }
+  .section-heading {
+    font-size: 1.45rem;
+  }
+  .section-subheading {
+    font-size: 0.88rem;
+    margin-bottom: 2.5rem;
+  }
+  .section-label {
+    font-size: 0.78rem;
   }
 }

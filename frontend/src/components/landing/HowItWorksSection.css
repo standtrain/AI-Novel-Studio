@@ -1,14 +1,16 @@
 /* ====== 三步流程区 - 深色适配 ====== */
 .how-it-works-section {
-  background: rgba(30,41,59,0.5);
-  padding: 100px 48px;
+  background: rgba(15,23,42,0.24);
+  border-top: 1px solid rgba(99,102,241,0.1);
+  border-bottom: 1px solid rgba(99,102,241,0.1);
+  padding: 88px 48px;
 }
 
 .steps-container {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  gap: 48px;
+  gap: 18px;
   max-width: 1000px;
   margin: 0 auto;
   position: relative;
@@ -19,11 +21,11 @@
   content: '';
   position: absolute;
   top: 36px;
-  left: calc(16.67% + 36px);
-  right: calc(16.67% + 36px);
-  height: 2px;
-  background: linear-gradient(90deg, var(--lp-primary), var(--lp-accent), var(--lp-primary));
-  opacity: 0.4;
+  left: calc(16.67% + 48px);
+  right: calc(16.67% + 48px);
+  height: 1px;
+  background: linear-gradient(90deg, rgba(99,102,241,0.2), rgba(34,211,238,0.22), rgba(99,102,241,0.2));
+  opacity: 0.75;
 }
 
 /* 步骤项 */
@@ -31,7 +33,12 @@
   flex: 1;
   text-align: center;
   opacity: 0;
-  transform: translateY(40px);
+  transform: translateY(24px);
+  min-height: 244px;
+  padding: 24px 18px;
+  border: 1px solid rgba(129,140,248,0.16);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(30,41,59,0.62), rgba(15,23,42,0.58));
 }
 
 .steps-container.steps-visible .step-item {
@@ -44,8 +51,8 @@
 /* 数字圆圈 - 霓虹效果 */
 .step-number-wrap {
   position: relative;
-  width: 72px;
-  height: 72px;
+  width: 58px;
+  height: 58px;
   margin: 0 auto 1.5rem;
   display: flex;
   align-items: center;
@@ -54,40 +61,41 @@
 }
 
 .step-number {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--lp-bg-warm) 0%, var(--lp-bg) 100%);
-  border: 2px solid var(--lp-primary);
+  width: 58px;
+  height: 58px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(34,211,238,0.1));
+  border: 1px solid rgba(129,140,248,0.26);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.5rem;
+  font-size: 1.35rem;
   font-weight: 800;
   color: var(--lp-accent);
-  box-shadow: 0 0 20px rgba(99,102,241,0.3), 0 0 0 8px rgba(99,102,241,0.1);
-  transition: all 0.3s ease;
+  box-shadow: 0 10px 22px rgba(99,102,241,0.14);
+  transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
 }
 
 .step-item:hover .step-number {
-  box-shadow: 0 0 30px rgba(99,102,241,0.5), 0 0 0 8px rgba(99,102,241,0.15);
-  transform: scale(1.05);
+  box-shadow: 0 12px 28px rgba(99,102,241,0.2);
+  border-color: rgba(129,140,248,0.38);
+  transform: translateY(-1px);
 }
 
 .step-icon {
   position: absolute;
-  top: -8px;
-  right: -8px;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--lp-primary) 0%, var(--lp-accent) 100%);
+  top: -7px;
+  right: -7px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 14px;
-  box-shadow: 0 0 15px rgba(99,102,241,0.5);
+  box-shadow: 0 8px 18px rgba(99,102,241,0.26);
 }
 
 /* 文字 */
@@ -108,20 +116,64 @@
 /* ====== 响应式 ====== */
 @media (max-width: 768px) {
   .how-it-works-section {
-    padding: 64px 24px;
+    padding: 56px 20px;
   }
 
   .steps-container {
     flex-direction: column;
     align-items: center;
-    gap: 32px;
+    gap: 20px;
   }
 
   .steps-container::before {
     display: none;
   }
 
+  .step-item {
+    min-height: auto;
+    width: 100%;
+    max-width: 400px;
+  }
+
   .step-desc {
-    max-width: 320px;
+    max-width: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .how-it-works-section {
+    padding: 40px 16px;
+  }
+
+  .step-item {
+    padding: 20px 14px;
+  }
+
+  .step-number-wrap {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 1rem;
+  }
+
+  .step-number {
+    width: 48px;
+    height: 48px;
+    font-size: 1.15rem;
+  }
+
+  .step-icon {
+    width: 24px;
+    height: 24px;
+    font-size: 12px;
+    top: -6px;
+    right: -6px;
+  }
+
+  .step-title {
+    font-size: 1.15rem;
+  }
+
+  .step-desc {
+    font-size: 0.88rem;
   }
 }

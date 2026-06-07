@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Table, Tag, Select, Button, Modal, Typography, message, Space,
   Input, Form, Popconfirm, Tooltip,
@@ -64,11 +64,13 @@ const UserTable: React.FC<UserTableProps> = ({ searchTerm }) => {
 
   const currentUser = useAuthStore((s) => s.user);
   const currentUserId = currentUser?.id;
+  const prevSearchTermRef = useRef(searchTerm);
 
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const data = await getUsersApi({ page, limit: 20 });
+      const q = searchTerm.trim() || undefined;
+      const data = await getUsersApi({ page, limit: 20, q });
       setUsers(data.rows || []);
       setTotal(data.total);
     } catch {
@@ -87,7 +89,17 @@ const UserTable: React.FC<UserTableProps> = ({ searchTerm }) => {
     }
   };
 
-  useEffect(() => { loadUsers(); loadGroups(); }, [page]);
+  useEffect(() => { loadGroups(); }, []);
+
+  useEffect(() => {
+    if (prevSearchTermRef.current !== searchTerm && page !== 1) {
+      prevSearchTermRef.current = searchTerm;
+      setPage(1);
+      return;
+    }
+    prevSearchTermRef.current = searchTerm;
+    loadUsers();
+  }, [page, searchTerm]);
 
   // ---------- 操作处理 ----------
 

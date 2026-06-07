@@ -55,6 +55,7 @@ const AdminPage: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const { activeKey, renderedKeys, onChange } = useLazyTabs('stats');
   const [searchTerm, setSearchTerm] = useState('');
+  const [appliedSearchTerm, setAppliedSearchTerm] = useState('');
   const [searchResult, setSearchResult] = useState<AdminSearchResult | null>(null);
   const [searching, setSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
@@ -82,16 +83,29 @@ const AdminPage: React.FC = () => {
     finally { setSearching(false); }
   };
 
-  const handleSearchChange = (value: string) => {
-    setSearchTerm(value);
-    clearTimeout(timerRef.current);
-    if (!value.trim()) {
+  const applySearch = (value: string) => {
+    const next = value.trim();
+    setAppliedSearchTerm(next);
+    if (!next) {
       setSearchResult(null);
       setShowResults(false);
       return;
     }
     setShowResults(true);
-    timerRef.current = setTimeout(() => doSearch(value), 300);
+    doSearch(next);
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value);
+    clearTimeout(timerRef.current);
+    if (!value.trim()) {
+      setAppliedSearchTerm('');
+      setSearchResult(null);
+      setShowResults(false);
+      return;
+    }
+    setShowResults(true);
+    timerRef.current = setTimeout(() => applySearch(value), 300);
   };
 
   const totalHits = searchResult
@@ -113,14 +127,14 @@ const AdminPage: React.FC = () => {
 
   const tabItems = [
     { key: 'stats', label: <span><BarChartOutlined /> 仪表盘</span>, children: renderedKeys.has('stats') ? <StatsPanel /> : null },
-    { key: 'users', label: <span><TeamOutlined /> 用户管理</span>, children: renderedKeys.has('users') ? <UserTable searchTerm={searchTerm} /> : null },
+    { key: 'users', label: <span><TeamOutlined /> 用户管理</span>, children: renderedKeys.has('users') ? <UserTable searchTerm={appliedSearchTerm} /> : null },
     { key: 'groups', label: <span><FolderOutlined /> 分组管理</span>, children: renderedKeys.has('groups') ? <GroupManager /> : null },
-    { key: 'novels', label: <span><BookOutlined /> 小说管理</span>, children: renderedKeys.has('novels') ? <NovelManager searchTerm={searchTerm} /> : null },
+    { key: 'novels', label: <span><BookOutlined /> 小说管理</span>, children: renderedKeys.has('novels') ? <NovelManager searchTerm={appliedSearchTerm} /> : null },
     { key: 'providers', label: <span><ApiOutlined /> 模型管理</span>, children: renderedKeys.has('providers') ? <ProviderManager /> : null },
     { key: 'token_limits', label: <span><StopOutlined /> Token 限额</span>, children: renderedKeys.has('token_limits') ? <ModelTokenLimitManager /> : null },
     { key: 'skills', label: <span><ThunderboltOutlined /> 技能管理</span>, children: renderedKeys.has('skills') ? <SkillsManager /> : null },
     { key: 'mcp', label: <span><LinkOutlined /> MCP 服务器</span>, children: renderedKeys.has('mcp') ? <McpServerManager /> : null },
-    { key: 'config', label: <span><SettingOutlined /> 站点配置</span>, children: renderedKeys.has('config') ? <ConfigForm searchTerm={searchTerm} /> : null },
+    { key: 'config', label: <span><SettingOutlined /> 站点配置</span>, children: renderedKeys.has('config') ? <ConfigForm searchTerm={appliedSearchTerm} /> : null },
     { key: 'templates', label: <span><ShopOutlined /> 模板审核</span>, children: renderedKeys.has('templates') ? <TemplateReview /> : null },
     { key: 'tickets', label: <span><CustomerServiceOutlined /> 工单管理</span>, children: renderedKeys.has('tickets') ? <TicketManager /> : null },
     { key: 'bans', label: <span><LockOutlined /> 封禁管理</span>, children: renderedKeys.has('bans') ? <BanManager /> : null },
@@ -141,7 +155,11 @@ const AdminPage: React.FC = () => {
             value={searchTerm}
             onChange={(e) => handleSearchChange(e.target.value)}
             onFocus={() => { if (searchTerm.trim()) setShowResults(true); }}
-            onSearch={(v) => doSearch(v)}
+            onSearch={(v) => {
+              clearTimeout(timerRef.current);
+              setSearchTerm(v);
+              applySearch(v);
+            }}
             loading={searching}
             allowClear
             style={{ width: '100%' }}

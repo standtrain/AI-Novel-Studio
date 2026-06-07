@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   Badge, Button, Card, Descriptions, Divider, Input, Modal, Radio, Select,
   Space, Table, Tag, Typography, message,
@@ -88,6 +88,8 @@ const TicketManager: React.FC = () => {
   const [priorityFilter, setPriorityFilter] = useState<TicketPriority | undefined>();
   const [statusFilter, setStatusFilter] = useState<TicketStatus | undefined>();
   const [keyword, setKeyword] = useState('');
+  const keywordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialTicketsLoadFinishedRef = useRef(false);
 
   const [detail, setDetail] = useState<TicketRecord | null>(null);
   const [replies, setReplies] = useState<TicketReply[]>([]);
@@ -117,6 +119,7 @@ const TicketManager: React.FC = () => {
       message.error('加载工单列表失败');
     } finally {
       setLoading(false);
+      initialTicketsLoadFinishedRef.current = true;
     }
   };
 
@@ -139,6 +142,19 @@ const TicketManager: React.FC = () => {
   };
 
   useEffect(() => { loadTickets(); }, [priorityFilter, statusFilter]);
+
+  // 关键词变更防抖搜索
+  useEffect(() => {
+    if (!initialTicketsLoadFinishedRef.current) return;
+    if (keywordTimerRef.current) clearTimeout(keywordTimerRef.current);
+    keywordTimerRef.current = setTimeout(() => {
+      loadTickets();
+    }, 300);
+    return () => {
+      if (keywordTimerRef.current) clearTimeout(keywordTimerRef.current);
+    };
+  }, [keyword]);
+
   useEffect(() => { loadConfig(); }, []);
 
   const openDetail = async (ticketId: number) => {
@@ -360,10 +376,9 @@ const TicketManager: React.FC = () => {
           />
           <Input.Search
             allowClear
-            placeholder="搜索标题/用户"
+            placeholder="搜索标题/用户…"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            onSearch={loadTickets}
             style={{ width: 220 }}
           />
           <Button icon={<ReloadOutlined />} onClick={loadTickets} loading={loading}>刷新</Button>

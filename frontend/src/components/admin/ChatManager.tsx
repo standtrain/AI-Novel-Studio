@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Table, Button, Modal, Typography, Input, App, Tag, Space, Popconfirm } from 'antd';
 import { SearchOutlined, EyeOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
@@ -35,6 +35,8 @@ const ChatManager: React.FC = () => {
   const [limit] = useState(20);
   const [total, setTotal] = useState(0);
   const [keyword, setKeyword] = useState('');
+  const keywordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialLoadFinishedRef = useRef(false);
 
   // 详情弹窗
   const [detailOpen, setDetailOpen] = useState(false);
@@ -57,6 +59,7 @@ const ChatManager: React.FC = () => {
       msgApi.error('加载对话列表失败');
     } finally {
       setLoading(false);
+      initialLoadFinishedRef.current = true;
     }
   };
 
@@ -64,11 +67,20 @@ const ChatManager: React.FC = () => {
     load();
   }, []);
 
-  const handleSearch = () => {
-    load(1, keyword);
-  };
+  // 关键词变更时防抖搜索
+  useEffect(() => {
+    if (!initialLoadFinishedRef.current) return;
+    if (keywordTimerRef.current) clearTimeout(keywordTimerRef.current);
+    keywordTimerRef.current = setTimeout(() => {
+      load(1, keyword);
+    }, 300);
+    return () => {
+      if (keywordTimerRef.current) clearTimeout(keywordTimerRef.current);
+    };
+  }, [keyword]);
 
   const handleRefresh = () => {
+    if (keywordTimerRef.current) clearTimeout(keywordTimerRef.current);
     setKeyword('');
     load(1, '');
   };
@@ -182,14 +194,10 @@ const ChatManager: React.FC = () => {
           placeholder="搜索对话标题..."
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
-          onPressEnter={handleSearch}
           style={{ width: 240, background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9' }}
           prefix={<SearchOutlined style={{ color: '#64748b' }} />}
           allowClear
         />
-        <Button onClick={handleSearch} type="primary" size="small">
-          搜索
-        </Button>
         <Button onClick={handleRefresh} icon={<ReloadOutlined />} size="small">
           刷新
         </Button>

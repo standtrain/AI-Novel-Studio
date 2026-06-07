@@ -150,7 +150,8 @@ router.get('/users', async (req, res) => {
     const { page, limit } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
     const { status, group_id } = req.query;
     const groupId = parseOptionalPositiveInt(group_id, '用户组ID');
-    const result = await userDao.list({ page, limit, status, groupId });
+    const keyword = req.query.q?.trim() || undefined;
+    const result = await userDao.list({ page, limit, status, groupId, keyword });
     res.json({ ...result, rows: result.rows.map(sanitizeAdminUser) });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '获取用户列表失败' });
@@ -482,6 +483,14 @@ router.get('/novels', async (req, res) => {
     const userId = parseOptionalPositiveInt(req.query.user_id, '用户ID');
     if (userId) base = base.where('novels.user_id', userId);
     if (req.query.status) base = base.where('novels.status', req.query.status);
+    const keyword = req.query.q?.trim();
+    if (keyword) {
+      const kw = `%${keyword}%`;
+      base = base.where(function () {
+        this.where('novels.title', 'like', kw)
+          .orWhere('users.username', 'like', kw);
+      });
+    }
 
     const [rows, [{ total }]] = await Promise.all([
       base.clone().select('novels.*', 'users.username')

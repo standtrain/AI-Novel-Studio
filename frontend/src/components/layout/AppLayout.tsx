@@ -3,6 +3,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Layout, Drawer, Menu } from 'antd';
 import Header from './Header';
 import Sidebar, { getMenuItems, getSelectedKey } from './Sidebar';
+import Footer from './Footer';
 import NotificationBanner from '../shared/NotificationBanner';
 import NotificationPopup from '../shared/NotificationPopup';
 import useMobile from '../../hooks/useMobile';
@@ -94,6 +95,7 @@ const AppLayout: React.FC = () => {
           </Content>
         </Layout>
       </Layout>
+      <Footer />
     </Layout>
   );
 };

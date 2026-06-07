@@ -5,7 +5,7 @@ export async function getStatsApi() {
   return data;
 }
 
-export async function getUsersApi(params?: { page?: number; limit?: number; status?: string; group_id?: number }) {
+export async function getUsersApi(params?: { page?: number; limit?: number; status?: string; group_id?: number; q?: string }) {
   const { data } = await client.get('/admin/users', { params });
   return data;
 }
@@ -98,7 +98,7 @@ export async function getSelectableModelsApi() {
 }
 
 // 小说管理
-export async function getAdminNovelsApi(params?: { page?: number; limit?: number; user_id?: number; status?: string }) {
+export async function getAdminNovelsApi(params?: { page?: number; limit?: number; user_id?: number; status?: string; q?: string }) {
   const { data } = await client.get('/admin/novels', { params });
   return data;
 }

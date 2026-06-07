@@ -4,6 +4,7 @@ export interface SiteInfo {
   siteName: string;
   siteDescription: string;
   faviconUrl?: string;
+  footerContent?: string;
 }
 
 export type LegalDocumentType = 'terms' | 'privacy';

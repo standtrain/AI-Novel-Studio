@@ -11,11 +11,13 @@ router.get('/info', async (_req, res) => {
     const siteName = await configService.get('site_name');
     const siteDescription = await configService.get('site_description');
     const faviconPath = await configService.get('favicon_path');
+    const footerContent = await configService.get('footer_content');
     const hasCustomFavicon = !!(faviconPath && faviconPath.trim());
     res.json({
       siteName: siteName || 'AI Novel Studio',
       siteDescription: typeof siteDescription === 'string' ? siteDescription.trim() : '',
       faviconUrl: hasCustomFavicon ? `/uploads/${faviconPath}` : '/favicon.svg',
+      footerContent: typeof footerContent === 'string' ? footerContent.trim() : '',
     });
   } catch (err) {
     res.status(500).json({ error: '获取站点信息失败' });

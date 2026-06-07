@@ -66,10 +66,17 @@ const userDao = {
     });
   },
 
-  async list({ page = 1, limit = 20, status, groupId } = {}) {
+  async list({ page = 1, limit = 20, status, groupId, keyword } = {}) {
     let base = db(TABLE).join('user_groups', 'users.group_id', 'user_groups.id');
     if (status) base = base.where('users.status', status);
     if (groupId) base = base.where('users.group_id', groupId);
+    if (keyword && keyword.trim()) {
+      const kw = `%${keyword.trim()}%`;
+      base = base.where(function () {
+        this.where('users.username', 'like', kw)
+          .orWhere('users.email', 'like', kw);
+      });
+    }
     const offset = (page - 1) * limit;
     const [rows, [{ total }]] = await Promise.all([
       base.clone().select(

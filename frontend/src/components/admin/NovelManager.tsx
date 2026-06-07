@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Table, Tag, Button, Typography, message, Popconfirm, Space, Modal, Descriptions, List } from 'antd';
 import { DeleteOutlined, EyeOutlined } from '@ant-design/icons';
 import { getAdminNovelsApi, getAdminNovelDetailApi, deleteAdminNovelApi } from '../../api/admin';
@@ -43,13 +43,23 @@ const NovelManager: React.FC<NovelManagerProps> = ({ searchTerm }) => {
   // 详情弹窗
   const [detail, setDetail] = useState<any>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const prevSearchTermRef = useRef(searchTerm);
 
-  useEffect(() => { loadNovels(); }, [page]);
+  useEffect(() => {
+    if (prevSearchTermRef.current !== searchTerm && page !== 1) {
+      prevSearchTermRef.current = searchTerm;
+      setPage(1);
+      return;
+    }
+    prevSearchTermRef.current = searchTerm;
+    loadNovels();
+  }, [page, searchTerm]);
 
   const loadNovels = async () => {
     setLoading(true);
     try {
-      const data = await getAdminNovelsApi({ page, limit: 20 });
+      const q = searchTerm.trim() || undefined;
+      const data = await getAdminNovelsApi({ page, limit: 20, q });
       setNovels(data.rows || []);
       setTotal(data.total);
     } catch {

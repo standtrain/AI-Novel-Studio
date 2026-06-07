@@ -22,7 +22,7 @@ const CONFIG_CATEGORIES: { key: string; label: string; icon: React.ReactNode; ke
     key: 'site',
     label: '站点信息',
     icon: <GlobalOutlined />,
-    keys: ['site_name', 'site_description'],
+    keys: ['site_name', 'site_description', 'footer_content'],
   },
   {
     key: 'legal',
@@ -134,10 +134,12 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
     finally { setLoading(false); }
   };
 
-  // 获取指定分类的配置项列表
+  // 获取指定分类的配置项列表（含数据库中尚不存在的预设键）
   const getCategoryConfigs = (catKeys: string[]) => {
-    let list = configs.filter(c => catKeys.includes(c.config_key));
-    list.sort((a, b) => catKeys.indexOf(a.config_key) - catKeys.indexOf(b.config_key));
+    const list = catKeys.map(key => {
+      const existing = configs.find(c => c.config_key === key);
+      return existing || { config_key: key, config_value: '', description: '' };
+    });
     return list;
   };
 
@@ -150,7 +152,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
       message.success('保存成功');
       setEditingValues(prev => { const n = { ...prev }; delete n[key]; return n; });
       loadConfigs();
-      if (key === 'site_name' || key === 'site_description') refreshSiteBrand();
+      if (key === 'site_name' || key === 'site_description' || key === 'footer_content') refreshSiteBrand();
     } catch (err: any) { message.error(err.response?.data?.error || '保存失败'); }
     finally { setSavingKeys(prev => { const n = new Set(prev); n.delete(key); return n; }); }
   };
@@ -184,6 +186,25 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
     }
 
     const inputStyle = { background: modified ? 'rgba(251,191,36,0.08)' : undefined, borderColor: modified ? 'rgba(251,191,36,0.4)' : undefined };
+
+    if (record.config_key === 'footer_content') {
+      return (
+        <Input.TextArea
+          value={currentVal}
+          onChange={(e) => setEditingValues({ ...editingValues, [record.config_key]: e.target.value })}
+          rows={3}
+          maxLength={500}
+          showCount
+          placeholder="页脚文案，支持纯文本，留空则仅显示版权信息"
+          style={{
+            ...inputStyle,
+            background: inputStyle.background || 'rgba(15,23,42,0.5)',
+            color: '#f1f5f9',
+            fontSize: 13,
+          }}
+        />
+      );
+    }
 
     if (record.config_key === 'terms_content' || record.config_key === 'privacy_content') {
       return (

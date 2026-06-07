@@ -223,4 +223,32 @@ async function sendVerificationCode(to, code, purpose) {
   return sendEmail(to, `[${siteName}] ${purposeText}验证码`, html);
 }
 
-module.exports = { sendEmail, sendVerificationCode, checkSendLimit, _recordSendWithType };
+/** 发送通知邮件（批量发送时使用，不做频率限制） */
+async function sendNotification(to, username, title, content) {
+  const siteName = (await configService.get('site_name')) || 'AI Novel Studio';
+  const greeting = username ? `${username}，您好` : '您好';
+
+  const html = `
+<div style="max-width:520px;margin:0 auto;padding:40px 32px;font-family:'Noto Sans SC','PingFang SC','Microsoft YaHei',system-ui,sans-serif;background:#ffffff;border-radius:12px;border:1px solid #e5e7eb;">
+  <div style="text-align:center;margin-bottom:28px;">
+    <div style="display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);border-radius:12px;margin-bottom:16px;">
+      <span style="font-size:24px;color:#ffffff;line-height:1;">✦</span>
+    </div>
+    <h2 style="color:#1e293b;margin:0;font-size:20px;font-weight:700;">${siteName}</h2>
+  </div>
+
+  <h3 style="color:#1e293b;margin:0 0 16px;font-size:17px;">${title}</h3>
+  <div style="color:#475569;font-size:14px;line-height:1.8;white-space:pre-wrap;margin-bottom:24px;">${content}</div>
+
+  <p style="color:#94a3b8;font-size:12px;text-align:center;margin:0;line-height:1.8;">
+    此邮件由系统自动发送，请勿回复。
+  </p>
+  <div style="margin-top:20px;padding-top:16px;border-top:1px solid #f1f5f9;text-align:center;">
+    <p style="color:#cbd5e1;font-size:11px;margin:0;">${siteName} · AI 小说创作平台</p>
+  </div>
+</div>`;
+
+  return sendEmail(to, `[${siteName}] ${title}`, html);
+}
+
+module.exports = { sendEmail, sendVerificationCode, sendNotification, checkSendLimit, _recordSendWithType };

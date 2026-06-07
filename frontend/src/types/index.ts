@@ -244,10 +244,24 @@ export interface Notification {
   content: string;
   show_popup: boolean;
   show_banner: boolean;
+  show_inmail: boolean;
+  show_email: boolean;
   enabled: boolean;
   sort_order: number;
   created_at: string;
   updated_at: string;
+}
+
+// 站内信
+export interface Inmail {
+  id: number;
+  user_id: number;
+  notification_id: number | null;
+  title: string;
+  content: string;
+  is_read: boolean;
+  read_at: string | null;
+  created_at: string;
 }
 
 // 可选模型（供用户偏好选择）

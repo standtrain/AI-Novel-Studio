@@ -27,3 +27,26 @@ export async function getSiteNotificationsApi(): Promise<{ banners: Notification
   const { data } = await client.get('/site/notifications');
   return data;
 }
+
+// 站内信
+import type { Inmail } from '../types';
+
+export async function getInmailUnreadCountApi(): Promise<{ count: number }> {
+  const { data } = await client.get('/inmails/count');
+  return data;
+}
+
+export async function getInmailsApi(params?: { page?: number; limit?: number; unread?: boolean }): Promise<{ rows: Inmail[]; total: number; page: number; limit: number }> {
+  const { data } = await client.get('/inmails', { params });
+  return data;
+}
+
+export async function markInmailReadApi(id: number): Promise<{ success: boolean }> {
+  const { data } = await client.put(`/inmails/${id}/read`);
+  return data;
+}
+
+export async function markAllInmailReadApi(): Promise<{ success: boolean }> {
+  const { data } = await client.put('/inmails/read-all');
+  return data;
+}

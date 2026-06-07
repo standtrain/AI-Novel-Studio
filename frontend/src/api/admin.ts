@@ -291,7 +291,7 @@ export async function getNotificationApi(id: number) {
 
 export async function createNotificationApi(notif: {
   title: string; content: string; show_popup?: boolean; show_banner?: boolean;
-  enabled?: boolean; sort_order?: number;
+  show_inmail?: boolean; show_email?: boolean; enabled?: boolean; sort_order?: number;
 }) {
   const { data } = await client.post('/admin/notifications', notif);
   return data as { notification: Notification };
@@ -299,7 +299,7 @@ export async function createNotificationApi(notif: {
 
 export async function updateNotificationApi(id: number, updates: Partial<{
   title: string; content: string; show_popup: boolean; show_banner: boolean;
-  enabled: boolean; sort_order: number;
+  show_inmail: boolean; show_email: boolean; enabled: boolean; sort_order: number;
 }>) {
   const { data } = await client.put(`/admin/notifications/${id}`, updates);
   return data as { notification: Notification };

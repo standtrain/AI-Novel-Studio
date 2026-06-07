@@ -23,12 +23,14 @@ const notificationDao = {
   },
 
   async create(data) {
-    const { title, content, show_popup, show_banner, enabled, sort_order } = data;
+    const { title, content, show_popup, show_banner, show_inmail, show_email, enabled, sort_order } = data;
     const [id] = await db(TABLE).insert({
       title,
       content,
       show_popup: show_popup ? 1 : 0,
       show_banner: show_banner ? 1 : 0,
+      show_inmail: show_inmail ? 1 : 0,
+      show_email: show_email ? 1 : 0,
       enabled: enabled !== false ? 1 : 0,
       sort_order: sort_order || 0,
     });
@@ -41,6 +43,8 @@ const notificationDao = {
     if (data.content !== undefined) fields.content = data.content;
     if (data.show_popup !== undefined) fields.show_popup = data.show_popup ? 1 : 0;
     if (data.show_banner !== undefined) fields.show_banner = data.show_banner ? 1 : 0;
+    if (data.show_inmail !== undefined) fields.show_inmail = data.show_inmail ? 1 : 0;
+    if (data.show_email !== undefined) fields.show_email = data.show_email ? 1 : 0;
     if (data.enabled !== undefined) fields.enabled = data.enabled ? 1 : 0;
     if (data.sort_order !== undefined) fields.sort_order = data.sort_order;
     fields.updated_at = db.fn.now();

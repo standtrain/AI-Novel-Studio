@@ -1,9 +1,12 @@
 import React from 'react';
 import { Layout, Button, Space, Dropdown, Modal } from 'antd';
-import { UserOutlined, LogoutOutlined, HomeOutlined, EditOutlined, SettingOutlined, MenuOutlined, ShopOutlined, ExperimentOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { UserOutlined, LogoutOutlined, HomeOutlined, EditOutlined, SettingOutlined, MenuOutlined, ShopOutlined, ExperimentOutlined, ExclamationCircleOutlined, MailOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import useMobile from '../../hooks/useMobile';
+import useSiteBrand from '../../hooks/useSiteBrand';
+import BrandIcon from '../shared/BrandIcon';
+import InmailPanel from '../shared/InmailPanel';
 
 const { Header: AntHeader } = Layout;
 
@@ -15,6 +18,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
   const isMobile = useMobile();
+  const { siteName } = useSiteBrand();
   const isAdmin = user?.group?.name === 'admin';
 
   const handleLogout = () => {
@@ -74,11 +78,23 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
           alignItems: 'center',
           gap: 10
         }} onClick={() => navigate('/home')}>
-          <span className="brand-mark">✦</span>
-          {!isMobile && 'AI Novel Studio'}
+          <BrandIcon size="sm" />
+          {!isMobile && siteName}
         </div>
       </div>
       <Space>
+        <InmailPanel>
+          <Button
+            type="text"
+            icon={<MailOutlined />}
+            style={{
+              color: '#cbd5e1',
+              padding: isMobile ? '4px 6px' : '4px 10px',
+              background: 'rgba(99,102,241,0.08)',
+              border: '1px solid rgba(99,102,241,0.16)',
+            }}
+          />
+        </InmailPanel>
         <Dropdown menu={menuItems} placement="bottomRight">
           <Button
             type="text"

@@ -31,7 +31,7 @@ const NotificationManager: React.FC = () => {
   const openCreate = () => {
     setEditingId(null);
     form.resetFields();
-    form.setFieldsValue({ show_popup: false, show_banner: true, enabled: true, sort_order: 0 });
+    form.setFieldsValue({ show_popup: false, show_banner: true, show_inmail: false, show_email: false, enabled: true, sort_order: 0 });
     setModalOpen(true);
   };
 
@@ -68,7 +68,7 @@ const NotificationManager: React.FC = () => {
     } catch { message.error('删除失败'); }
   };
 
-  const toggleSwitch = async (record: Notification, field: 'enabled' | 'show_popup' | 'show_banner', value: boolean) => {
+  const toggleSwitch = async (record: Notification, field: string, value: boolean) => {
     try {
       await updateNotificationApi(record.id, { [field]: value });
       message.success('已更新');
@@ -93,6 +93,18 @@ const NotificationManager: React.FC = () => {
       title: '滚动栏', dataIndex: 'show_banner', width: 80,
       render: (v: boolean, record: Notification) => (
         <Switch size="small" checked={v} onChange={(val) => toggleSwitch(record, 'show_banner', val)} />
+      ),
+    },
+    {
+      title: '站内信', dataIndex: 'show_inmail', width: 80,
+      render: (v: boolean, record: Notification) => (
+        <Switch size="small" checked={v} onChange={(val) => toggleSwitch(record, 'show_inmail', val)} />
+      ),
+    },
+    {
+      title: '邮件', dataIndex: 'show_email', width: 70,
+      render: (v: boolean, record: Notification) => (
+        <Switch size="small" checked={v} onChange={(val) => toggleSwitch(record, 'show_email', val)} />
       ),
     },
     {
@@ -160,11 +172,17 @@ const NotificationManager: React.FC = () => {
           <Form.Item name="content" label="内容" rules={[{ required: true, message: '请填写内容' }]}>
             <TextArea rows={4} placeholder="通知正文内容" />
           </Form.Item>
-          <Space size="large">
+          <Space size="large" wrap>
             <Form.Item name="show_popup" label="登录弹窗" valuePropName="checked">
               <Switch />
             </Form.Item>
             <Form.Item name="show_banner" label="首页滚动栏" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+            <Form.Item name="show_inmail" label="站内信" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+            <Form.Item name="show_email" label="邮件通知" valuePropName="checked">
               <Switch />
             </Form.Item>
             <Form.Item name="enabled" label="启用" valuePropName="checked">

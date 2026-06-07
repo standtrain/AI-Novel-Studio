@@ -6,7 +6,9 @@ import Sidebar, { getMenuItems, getSelectedKey } from './Sidebar';
 import NotificationBanner from '../shared/NotificationBanner';
 import NotificationPopup from '../shared/NotificationPopup';
 import useMobile from '../../hooks/useMobile';
+import useSiteBrand from '../../hooks/useSiteBrand';
 import { useAuthStore } from '../../store/authStore';
+import BrandIcon from '../shared/BrandIcon';
 
 const { Content } = Layout;
 
@@ -17,6 +19,7 @@ const AppLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const user = useAuthStore((s) => s.user);
+  const { siteName } = useSiteBrand();
   const isAdmin = user?.group?.name === 'admin';
 
   const handleMenuClick = ({ key }: { key: string }) => {
@@ -50,9 +53,9 @@ const AppLayout: React.FC = () => {
               header: { background: 'rgba(30,41,59,0.98)', borderBottom: '1px solid rgba(99,102,241,0.15)' },
             }}
             title={
-              <span style={{ color: '#f1f5f9', fontWeight: 600 }}>
-                <span style={{ color: 'var(--lp-primary)', marginRight: 8 }}>✦</span>
-                AI Novel Studio
+              <span style={{ color: '#f1f5f9', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <BrandIcon size="sm" />
+                {siteName}
               </span>
             }
             closeIcon={null}

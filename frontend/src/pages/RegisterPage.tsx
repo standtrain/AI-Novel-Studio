@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Card, Checkbox, Form, Input, Result, Space, Tag, Typography, message } from 'antd';
+import { Button, Card, Checkbox, Form, Input, Result, Typography, message } from 'antd';
 import {
   LockOutlined,
   MailOutlined,
@@ -186,17 +186,6 @@ const RegisterPage: React.FC = () => {
                     <Text className="auth-card-subtitle">几步之后就能开始创作</Text>
                   </div>
                 </div>
-
-                {emailDomainWhitelistEnabled && allowedDomains.length > 0 && (
-                  <div className="auth-domain-panel">
-                    <Text className="auth-domain-title">允许注册的邮箱域名</Text>
-                    <Space size={[6, 6]} wrap>
-                      {allowedDomains.map(domain => (
-                        <Tag key={domain} color="blue">@{domain}</Tag>
-                      ))}
-                    </Space>
-                  </div>
-                )}
 
                 <Form
                   form={form}

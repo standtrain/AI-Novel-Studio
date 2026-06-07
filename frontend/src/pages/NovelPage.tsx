@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Steps, Button, Input, Typography, App, Space, Card, List, Tag, Modal, Popconfirm, Collapse, Badge } from 'antd';
-import { PlayCircleOutlined, ArrowLeftOutlined, ArrowRightOutlined, EditOutlined, SendOutlined, RobotOutlined, ReloadOutlined, WarningOutlined, NodeIndexOutlined, AuditOutlined, PauseCircleOutlined } from '@ant-design/icons';
+import { Steps, Button, Input, Typography, App, Space, Card, List, Tag, Modal, Popconfirm, Collapse, Badge, InputNumber } from 'antd';
+import { PlayCircleOutlined, ArrowLeftOutlined, ArrowRightOutlined, EditOutlined, SendOutlined, RobotOutlined, ReloadOutlined, WarningOutlined, NodeIndexOutlined, AuditOutlined, PauseCircleOutlined, PlusOutlined, DeleteOutlined, SaveOutlined, CloseOutlined } from '@ant-design/icons';
 import { getNovelApi, getChapterContentApi } from '../api/novels';
 import client from '../api/client';
 import {
@@ -70,6 +70,8 @@ const NovelPage: React.FC = () => {
   const [editingPhase, setEditingPhase] = useState<string | null>(null);
   const [editChapterNumber, setEditChapterNumber] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
+  const [editData, setEditData] = useState<any>(null);
+  const [editFallback, setEditFallback] = useState(false);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
 
@@ -577,47 +579,34 @@ const NovelPage: React.FC = () => {
 
   // ====== 编辑 ======
   const openEditor = (phase: string, content: any, chapterNum?: number) => {
+    const normalized = normalizeEditContent(phase, content);
     setEditingPhase(phase);
     setEditChapterNumber(chapterNum || null);
-    setEditText(typeof content === 'string' ? content : JSON.stringify(content, null, 2));
+    setEditData(normalized.data);
+    setEditText(normalized.text);
+    setEditFallback(normalized.fallback);
   };
 
-  // 构建所有可搜索部分的列表（供 SearchEdit 跨部分跳转使用）
-  const buildSearchSections = useCallback((): SearchSection[] => {
-    const secs: SearchSection[] = [];
-    // 大纲
-    if (outline) {
-      secs.push({ phase: 'outline', label: '整书大纲', content: JSON.stringify(outline, null, 2) });
-    }
-    // 人物设定
-    if (characters.length > 0) {
-      secs.push({ phase: 'characters', label: '人物设定', content: JSON.stringify({ characters }, null, 2) });
-    }
-    // 章节大纲
-    if (chapterOutlines.length > 0) {
-      secs.push({ phase: 'chapters_outline', label: '章节大纲', content: JSON.stringify({ chapters: chapterOutlines }, null, 2) });
-    }
-    // 各章节正文
-    chapters.forEach(ch => {
-      if (ch.content) {
-        secs.push({
-          phase: 'chapter_content',
-          chapterNumber: ch.chapter_number,
-          label: `第${ch.chapter_number}章 ${ch.title || ''}`,
-          content: ch.content,
-        });
-      }
-    });
-    return secs;
-  }, [outline, characters, chapterOutlines, chapters]);
+  const closeEditor = () => {
+    setEditingPhase(null);
+    setEditChapterNumber(null);
+    setEditData(null);
+    setEditText('');
+    setEditFallback(false);
+  };
+
   const handleSaveEdit = async () => {
     if (!editingPhase || savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
     try {
-      // 关键修复：将 JSON 字符串解析为对象后再发送
-      let parsedContent = editText;
-      if (editingPhase === 'outline' || editingPhase === 'characters' || editingPhase === 'chapters_outline') {
+      let parsedContent: any = editData;
+
+      if (editFallback) {
+        parsedContent = editText;
+      }
+
+      if (editFallback && (editingPhase === 'outline' || editingPhase === 'characters' || editingPhase === 'chapters_outline')) {
         try {
           parsedContent = JSON.parse(editText);
         } catch (e) {
@@ -627,10 +616,69 @@ const NovelPage: React.FC = () => {
           return;
         }
       }
+
+      if (!editFallback) {
+        if (editingPhase === 'outline') {
+          parsedContent = normalizeOutlineForSave(editData);
+          if (!parsedContent.title.trim()) {
+            message.warning('请填写大纲标题');
+            return;
+          }
+        } else if (editingPhase === 'characters') {
+          const charactersPayload = normalizeCharactersForSave(editData);
+          if (charactersPayload.characters.length === 0) {
+            message.warning('请至少保留一个角色');
+            return;
+          }
+          parsedContent = charactersPayload;
+        } else if (editingPhase === 'chapters_outline') {
+          const chaptersPayload = normalizeChaptersOutlineForSave(editData);
+          if (chaptersPayload.chapters.length === 0) {
+            message.warning('请至少保留一个章节');
+            return;
+          }
+          const invalid = chaptersPayload.chapters.find((ch: any) => !Number.isInteger(ch.chapter) || ch.chapter < 1);
+          if (invalid) {
+            message.warning('章节号必须为正整数');
+            return;
+          }
+          parsedContent = chaptersPayload;
+        } else if (editingPhase === 'chapter_content') {
+          parsedContent = normalizeChapterContentForSave(editData);
+          if (!parsedContent.content.trim()) {
+            message.warning('正文不能为空');
+            return;
+          }
+        }
+      }
+
       await client.put(`/novels/${novelId}/save`, { phase: editingPhase, content: parsedContent, chapterNumber: editChapterNumber });
-      message.success('保存成功'); setEditingPhase(null); loadNovel();
+      message.success('保存成功');
+      closeEditor();
+      loadNovel();
     } catch { message.error('保存失败'); }
     finally { savingRef.current = false; setSaving(false); }
+  };
+
+  const renderInlineEditor = (phase: string, chapterNumber?: number) => {
+    const isCurrent = editingPhase === phase &&
+      (phase !== 'chapter_content' || editChapterNumber === chapterNumber);
+    if (!isCurrent) return null;
+
+    return (
+      <InlineDirectEditor
+        phase={phase}
+        data={editData}
+        onChange={setEditData}
+        fallback={editFallback}
+        fallbackText={editText}
+        onFallbackTextChange={setEditText}
+        saving={saving}
+        onSave={handleSaveEdit}
+        onCancel={closeEditor}
+        isMobile={isMobile}
+      />
+    );
   };
 
   // ====== AI 修订 ======
@@ -792,6 +840,7 @@ const NovelPage: React.FC = () => {
         <ActionCard title="整书大纲" onRegenerate={startPhase1} onEdit={() => openEditor('outline', outline || { title: currentNovel?.title, genre: currentNovel?.genre, theme: currentNovel?.theme, setting: currentNovel?.setting, mainPlot: currentNovel?.main_plot, subPlots: currentNovel?.sub_plots, chapterCount: currentNovel?.chapter_count })} onChat={() => openChat('outline')} onStop={() => abortRef.current?.abort()} isStreaming={isStreaming} isChatting={chatPhase === 'outline' && chatStreaming} novelId={novelId} chapterCount={chapters.filter(c => !!c.content).length}>
           <OutlineView outline={outline || { title: currentNovel?.title, genre: currentNovel?.genre, theme: currentNovel?.theme, setting: currentNovel?.setting, mainPlot: currentNovel?.main_plot, subPlots: currentNovel?.sub_plots, chapterCount: currentNovel?.chapter_count }} />
           {!isStreaming && <Button type="primary" onClick={startPhase2} style={{ marginTop: 16 }}>生成人物设定</Button>}
+          {renderInlineEditor('outline')}
         </ActionCard>
       )}
 
@@ -800,6 +849,7 @@ const NovelPage: React.FC = () => {
         <ActionCard title="人物设定" onRegenerate={startPhase2} onEdit={() => openEditor('characters', { characters })} onChat={() => openChat('characters')} onStop={() => abortRef.current?.abort()} isStreaming={isStreaming} isChatting={chatPhase === 'characters' && chatStreaming} novelId={novelId} chapterCount={chapters.filter(c => !!c.content).length}>
           <CharacterList characters={characters} />
           {!isStreaming && <Button type="primary" onClick={() => startPhase3(1, true)} style={{ marginTop: 16 }}>一键生成全部章节大纲</Button>}
+          {renderInlineEditor('characters')}
         </ActionCard>
       )}
 
@@ -833,6 +883,7 @@ const NovelPage: React.FC = () => {
               writtenChapterNumbers={new Set(chapters.filter((c: Chapter) => !!c.content).map((c: Chapter) => c.chapter_number))}
               disabled={isStreaming}
             />
+            {renderInlineEditor('chapters_outline')}
             {/* 自动生成控制区 */}
             {!isStreaming && (() => {
               const realOutlines = useNovelStore.getState().chapterOutlines;
@@ -960,13 +1011,14 @@ const NovelPage: React.FC = () => {
                     reviewResult={reviewResults[ch.chapter_number] || null}
                     extractionResult={extractionResults[ch.chapter_number] || null}
                     onRegenerate={() => startPhase4(ch.chapter_number)}
-                    onEdit={() => openEditor('chapter_content', ch.content || '', ch.chapter_number)}
+                    onEdit={() => openEditor('chapter_content', { title: ch.title, summary: ch.summary || '', content: ch.content || '' }, ch.chapter_number)}
                     onChat={() => openChat('chapter_content', ch.chapter_number)}
                     onReview={() => startReview(ch.chapter_number)}
                     onExtract={() => startExtract(ch.chapter_number)}
                     isStreaming={isStreaming}
                     isChatting={chatPhase === 'chapter_content' && chatChapter === ch.chapter_number && chatStreaming}
                   />
+                  {renderInlineEditor('chapter_content', ch.chapter_number)}
                 </ChapterCard>
               );
             }
@@ -1031,25 +1083,6 @@ const NovelPage: React.FC = () => {
           })()}
         </div>
       )}
-
-      {/* ====== 编辑弹窗（带搜索定位 + 跨部分跳转） ====== */}
-      <Modal title="直接编辑" open={!!editingPhase} onOk={handleSaveEdit} onCancel={() => setEditingPhase(null)} okText="保存" confirmLoading={saving} width={isMobile ? '95vw' : 700}>
-        <SearchEdit
-          value={editText}
-          onChange={setEditText}
-          monospace={editingPhase !== 'chapter_content'}
-          sections={buildSearchSections()}
-          currentSection={editingPhase || ''}
-          currentChapter={chatChapter || undefined}
-          onNavigateSection={(sec, _searchTerm) => {
-            const content = sec.phase === 'chapter_content'
-              ? (chapters.find(c => c.chapter_number === sec.chapterNumber)?.content || '')
-              : sec.content;
-            openEditor(sec.phase, content, sec.chapterNumber);
-            if (sec.chapterNumber) setChatChapter(sec.chapterNumber);
-          }}
-        />
-      </Modal>
 
       {/* ====== 审查报告弹窗 ====== */}
       <Modal
@@ -1225,161 +1258,316 @@ const NovelPage: React.FC = () => {
   );
 };
 
-// ====== 带搜索定位的编辑框（支持跨部分跳转） ======
-interface SearchSection {
-  phase: string;          // outline / characters / chapters_outline / chapter_content
-  chapterNumber?: number;
-  label: string;
-  content: string;
-}
+const ensureArray = (value: any): any[] => {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed;
+    } catch { /* text list fallback */ }
+    return value.split(/\r?\n|[，,、]/).map(item => item.trim()).filter(Boolean);
+  }
+  return [];
+};
 
-const SearchEdit: React.FC<{
-  value: string; onChange: (v: string) => void; monospace?: boolean;
-  sections: SearchSection[];
-  currentSection: string;
-  currentChapter?: number;
-  onNavigateSection: (section: SearchSection, searchTerm: string) => void;
-}> = ({ value, onChange, monospace, sections, currentSection, currentChapter, onNavigateSection }) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [matches, setMatches] = useState<number[]>([]);
-  const [currentMatch, setCurrentMatch] = useState(0);
-  const [noMoreMsg, setNoMoreMsg] = useState('');
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const searchRef = useRef({ term: '', sections: [] as SearchSection[], pending: false });
+const stringifyField = (value: any) => {
+  if (value === null || value === undefined) return '';
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+};
 
-  // 收集文本中所有匹配位置
-  const collectMatches = (text: string, term: string) => {
-    const idxs: number[] = [];
-    let pos = 0;
-    const lower = text.toLowerCase();
-    const t = term.toLowerCase();
-    while ((pos = lower.indexOf(t, pos)) !== -1) { idxs.push(pos); pos += t.length; }
-    return idxs;
+const normalizeEditContent = (phase: string, content: any): { data: any; text: string; fallback: boolean } => {
+  try {
+    const parsed = typeof content === 'string' && phase !== 'chapter_content' ? JSON.parse(content) : content;
+    if (phase === 'outline') {
+      const data = {
+        title: parsed?.title || '',
+        genre: parsed?.genre || '',
+        theme: parsed?.theme || '',
+        setting: stringifyField(parsed?.setting),
+        mainPlot: parsed?.mainPlot || parsed?.main_plot || '',
+        subPlots: ensureArray(parsed?.subPlots || parsed?.sub_plots).map(stringifyField),
+        chapterCount: Number(parsed?.chapterCount || parsed?.chapter_count || 0) || 0,
+      };
+      return { data, text: JSON.stringify(data, null, 2), fallback: false };
+    }
+    if (phase === 'characters') {
+      const chars = ensureArray(parsed?.characters).map((char: any) => ({
+        name: char?.name || '',
+        age: stringifyField(char?.age),
+        gender: char?.gender || '',
+        role: char?.role || '',
+        appearance: char?.appearance || '',
+        personality: char?.personality || '',
+        background: char?.background || '',
+        motivation: char?.motivation || '',
+        arc: char?.arc || '',
+        relationships: stringifyField(char?.relationships || []),
+      }));
+      const data = { characters: chars };
+      return { data, text: JSON.stringify(data, null, 2), fallback: false };
+    }
+    if (phase === 'chapters_outline') {
+      const chapterList = ensureArray(parsed?.chapters).map((chapter: any, index: number) => ({
+        chapter: Number(chapter?.chapter || chapter?.chapter_number || index + 1) || index + 1,
+        title: chapter?.title || '',
+        synopsis: chapter?.synopsis || chapter?.brief || '',
+        conflict: chapter?.conflict || '',
+        turningPoint: chapter?.turningPoint || chapter?.turning_point || '',
+        emotionalTone: chapter?.emotionalTone || chapter?.emotional_tone || '',
+        endingHook: chapter?.endingHook || chapter?.ending_hook || chapter?.hook || '',
+        scenes: ensureArray(chapter?.scenes).map((scene: any) => ({
+          location: typeof scene === 'object' ? scene?.location || '' : '',
+          description: typeof scene === 'object' ? scene?.description || stringifyField(scene) : String(scene || ''),
+        })),
+        charactersInvolved: ensureArray(chapter?.charactersInvolved || chapter?.characters_involved).map(stringifyField),
+      }));
+      const data = { chapters: chapterList };
+      return { data, text: JSON.stringify(data, null, 2), fallback: false };
+    }
+    if (phase === 'chapter_content') {
+      const data = typeof content === 'string'
+        ? { title: '', summary: '', content }
+        : { title: content?.title || '', summary: content?.summary || '', content: content?.content || '' };
+      return { data, text: data.content, fallback: false };
+    }
+  } catch { /* fallback below */ }
+
+  return {
+    data: null,
+    text: typeof content === 'string' ? content : JSON.stringify(content, null, 2),
+    fallback: true,
   };
+};
 
-  // 在所有部分中查找匹配
-  const findInSections = (term: string, secs: SearchSection[]) =>
-    secs.map(s => {
-      const indices = collectMatches(s.content || '', term);
-      return { section: s, matchCount: indices.length, indices };
-    }).filter(s => s.matchCount > 0);
+const normalizeOutlineForSave = (data: any) => ({
+  title: String(data?.title || '').trim(),
+  genre: String(data?.genre || '').trim(),
+  theme: String(data?.theme || '').trim(),
+  setting: String(data?.setting || '').trim(),
+  mainPlot: String(data?.mainPlot || '').trim(),
+  subPlots: ensureArray(data?.subPlots).map(stringifyField).map(item => item.trim()).filter(Boolean),
+  chapterCount: Number(data?.chapterCount || 0) || 0,
+});
 
-  const doSearch = (term?: string) => {
-    const t = term || searchTerm;
-    if (!t || !textareaRef.current) return;
-    const text = textareaRef.current.value;
-    const idxs = collectMatches(text, t);
-    setMatches(idxs);
-    setNoMoreMsg('');
-    searchRef.current = { term: t, sections, pending: false };
+const normalizeCharactersForSave = (data: any) => ({
+  characters: ensureArray(data?.characters)
+    .map((char: any) => ({
+      name: String(char?.name || '').trim(),
+      age: String(char?.age || '').trim(),
+      gender: String(char?.gender || '').trim(),
+      role: String(char?.role || '').trim(),
+      appearance: String(char?.appearance || '').trim(),
+      personality: String(char?.personality || '').trim(),
+      background: String(char?.background || '').trim(),
+      motivation: String(char?.motivation || '').trim(),
+      arc: String(char?.arc || '').trim(),
+      relationships: ensureArray(char?.relationships),
+    }))
+    .filter((char: any) => char.name),
+});
 
-    if (idxs.length > 0) {
-      setCurrentMatch(1);
-      textareaRef.current.focus();
-      textareaRef.current.setSelectionRange(idxs[0], idxs[0] + t.length);
-    }
+const normalizeChaptersOutlineForSave = (data: any) => ({
+  chapters: ensureArray(data?.chapters).map((chapter: any) => ({
+    chapter: Number(chapter?.chapter || 0),
+    title: String(chapter?.title || '').trim(),
+    synopsis: String(chapter?.synopsis || '').trim(),
+    conflict: String(chapter?.conflict || '').trim(),
+    turningPoint: String(chapter?.turningPoint || '').trim(),
+    emotionalTone: String(chapter?.emotionalTone || '').trim(),
+    endingHook: String(chapter?.endingHook || '').trim(),
+    scenes: ensureArray(chapter?.scenes)
+      .map((scene: any) => ({
+        location: String(scene?.location || '').trim(),
+        description: String(scene?.description || '').trim(),
+      }))
+      .filter((scene: any) => scene.location || scene.description),
+    charactersInvolved: ensureArray(chapter?.charactersInvolved).map(stringifyField).map(item => item.trim()).filter(Boolean),
+  })),
+});
+
+const normalizeChapterContentForSave = (data: any) => ({
+  title: String(data?.title || '').trim(),
+  summary: String(data?.summary || '').trim(),
+  content: String(data?.content || ''),
+});
+
+const fieldStyle: React.CSSProperties = { marginBottom: 10 };
+const rowStyle: React.CSSProperties = {
+  padding: 12,
+  border: '1px solid rgba(99,102,241,0.16)',
+  borderRadius: 6,
+  background: 'rgba(15,23,42,0.38)',
+  marginTop: 10,
+};
+
+const InlineDirectEditor: React.FC<{
+  phase: string;
+  data: any;
+  onChange: (data: any) => void;
+  fallback: boolean;
+  fallbackText: string;
+  onFallbackTextChange: (text: string) => void;
+  saving: boolean;
+  onSave: () => void;
+  onCancel: () => void;
+  isMobile: boolean;
+}> = ({ phase, data, onChange, fallback, fallbackText, onFallbackTextChange, saving, onSave, onCancel, isMobile }) => {
+  const setField = (key: string, value: any) => onChange({ ...(data || {}), [key]: value });
+  const list = (key: string) => ensureArray(data?.[key]);
+  const setListItem = (key: string, index: number, value: any) => {
+    const next = [...list(key)];
+    next[index] = value;
+    setField(key, next);
   };
-
-  // value 变化时：如果是跨部分跳转触发，自动在新内容中搜索
-  useEffect(() => {
-    if (searchRef.current.pending && searchRef.current.term) {
-      // 等 DOM 更新后再执行搜索
-      const timer = setTimeout(() => doSearch(searchRef.current.term), 50);
-      return () => clearTimeout(timer);
-    }
-    setMatches([]);
-    setCurrentMatch(0);
-    setNoMoreMsg('');
-  }, [value]);
-
-  const goToMatch = (dir: 1 | -1) => {
-    if (matches.length === 0) return;
-
-    const nextIdx = currentMatch - 1 + dir;
-    // 当前部分内还有匹配 → 正常导航
-    if (nextIdx >= 0 && nextIdx < matches.length) {
-      const next = nextIdx + 1;
-      setCurrentMatch(next);
-      const pos = matches[next - 1];
-      const ta = textareaRef.current;
-      if (ta) { ta.focus(); ta.setSelectionRange(pos, pos + searchTerm.length); }
-      setNoMoreMsg('');
-      return;
-    }
-
-    // 当前部分无更多匹配 → 查找相邻部分
-    const term = searchRef.current.term;
-    if (!term) return;
-    const allSecs = sections.length > 0 ? sections : searchRef.current.sections;
-    if (allSecs.length <= 1) {
-      setNoMoreMsg('没有其他部分可搜索');
-      return;
-    }
-
-    const results = findInSections(term, allSecs);
-    if (results.length === 0) {
-      setNoMoreMsg('所有部分均无匹配');
-      return;
-    }
-
-    // 找到当前部分在结果中的索引
-    const curResultIdx = results.findIndex(r =>
-      r.section.phase === currentSection &&
-      (r.section.phase !== 'chapter_content' || r.section.chapterNumber === (currentChapter || r.section.chapterNumber))
-    );
-
-    // 当前部分无匹配或不在结果中
-    let targetIdx: number;
-    if (curResultIdx === -1) {
-      targetIdx = dir === 1 ? 0 : results.length - 1;
-    } else {
-      targetIdx = curResultIdx + dir;
-    }
-
-    if (targetIdx >= 0 && targetIdx < results.length) {
-      const target = results[targetIdx];
-      setNoMoreMsg(`已跳转至「${target.section.label}」（${target.matchCount} 处匹配）`);
-      // 标记为待搜索
-      searchRef.current.pending = true;
-      // 触发跳转，同时传递搜索词
-      onNavigateSection(target.section, term);
-    } else {
-      setNoMoreMsg(dir === 1 ? '已搜索完全部内容，无更多匹配' : '已是第一处，无更多匹配');
-    }
+  const removeListItem = (key: string, index: number) => {
+    setField(key, list(key).filter((_, i) => i !== index));
   };
+  const addListItem = (key: string, value: any) => setField(key, [...list(key), value]);
+  const setNested = (key: string, index: number, field: string, value: any) => {
+    const next = [...list(key)];
+    next[index] = { ...(next[index] || {}), [field]: value };
+    setField(key, next);
+  };
+  const panelTitle = {
+    outline: '编辑整书大纲',
+    characters: '编辑人物设定',
+    chapters_outline: '编辑章节大纲',
+    chapter_content: '编辑章节正文',
+  }[phase] || '编辑内容';
 
   return (
-    <div>
-      <Space style={{ marginBottom: 8 }} wrap>
-        <Input size="small" placeholder="搜索..." value={searchTerm}
-          onChange={e => { setSearchTerm(e.target.value); setNoMoreMsg(''); }}
-          onPressEnter={() => doSearch()}
-          style={{ width: 160 }} />
-        <Button size="small" onClick={() => doSearch()}>查找</Button>
-        {matches.length > 0 && (
-          <>
-            <Text style={{ color: '#94a3b8', fontSize: 12 }}>{currentMatch}/{matches.length}</Text>
-            <Button size="small" onClick={() => goToMatch(-1)} title="上一处">▲</Button>
-            <Button size="small" onClick={() => goToMatch(1)} title="下一处（无更多则跳转）">▼</Button>
-          </>
-        )}
-        {matches.length === 0 && searchRef.current.term && (
-          <Text style={{ color: '#f87171', fontSize: 12 }}>当前部分无匹配</Text>
-        )}
-        {noMoreMsg && (
-          <Text style={{ color: matches.length === 0 ? '#fbbf24' : '#6366f1', fontSize: 11 }}>{noMoreMsg}</Text>
-        )}
-      </Space>
-      <textarea ref={textareaRef} value={value} onChange={e => onChange(e.target.value)} rows={18}
-        style={{
-          width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #d9d9d9',
-          fontFamily: monospace ? 'var(--font-mono)' : 'inherit', fontSize: monospace ? 13 : 15,
-          lineHeight: 1.6, resize: 'vertical', boxSizing: 'border-box',
-          outline: 'none', transition: 'border-color 0.3s',
-        }}
-        onFocus={e => { e.currentTarget.style.borderColor = '#4096ff'; e.currentTarget.style.boxShadow = '0 0 0 2px rgba(5,145,255,0.1)'; }}
-        onBlur={e => { e.currentTarget.style.borderColor = '#d9d9d9'; e.currentTarget.style.boxShadow = 'none'; }}
-      />
+    <div style={{
+      marginTop: 16,
+      padding: isMobile ? 12 : 16,
+      border: '1px solid rgba(99,102,241,0.26)',
+      borderRadius: 8,
+      background: 'rgba(15,23,42,0.62)',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+        <Text strong style={{ color: '#e2e8f0' }}>{panelTitle}</Text>
+        <Space>
+          <Button size="small" icon={<CloseOutlined />} onClick={onCancel}>取消</Button>
+          <Button size="small" type="primary" icon={<SaveOutlined />} onClick={onSave} loading={saving}>保存</Button>
+        </Space>
+      </div>
+
+      {fallback ? (
+        <TextArea
+          value={fallbackText}
+          onChange={e => onFallbackTextChange(e.target.value)}
+          rows={18}
+          style={{ fontFamily: phase === 'chapter_content' ? 'inherit' : 'var(--font-mono)', fontSize: phase === 'chapter_content' ? 15 : 13 }}
+        />
+      ) : phase === 'outline' ? (
+        <div>
+          <Input value={data?.title} onChange={e => setField('title', e.target.value)} placeholder="标题" style={fieldStyle} maxLength={200} />
+          <Space.Compact style={{ width: '100%', marginBottom: 10 }}>
+            <Input value={data?.genre} onChange={e => setField('genre', e.target.value)} placeholder="类型" maxLength={100} />
+            <InputNumber value={data?.chapterCount} onChange={value => setField('chapterCount', value || 0)} placeholder="章节数" min={0} precision={0} style={{ width: 120 }} />
+          </Space.Compact>
+          <Input value={data?.theme} onChange={e => setField('theme', e.target.value)} placeholder="主题" style={fieldStyle} maxLength={200} />
+          <TextArea value={data?.setting} onChange={e => setField('setting', e.target.value)} placeholder="世界观/设定" rows={3} style={fieldStyle} maxLength={12000} />
+          <TextArea value={data?.mainPlot} onChange={e => setField('mainPlot', e.target.value)} placeholder="主线剧情" rows={3} style={fieldStyle} maxLength={12000} />
+          <Text style={{ color: '#94a3b8', fontSize: 12 }}>支线</Text>
+          {list('subPlots').map((plot: string, index: number) => (
+            <Space.Compact key={index} style={{ width: '100%', marginTop: 6 }}>
+              <Input value={plot} onChange={e => setListItem('subPlots', index, e.target.value)} placeholder={`支线 ${index + 1}`} maxLength={2000} />
+              <Button icon={<DeleteOutlined />} onClick={() => removeListItem('subPlots', index)} />
+            </Space.Compact>
+          ))}
+          <Button size="small" icon={<PlusOutlined />} onClick={() => addListItem('subPlots', '')} style={{ marginTop: 8 }}>添加支线</Button>
+        </div>
+      ) : phase === 'characters' ? (
+        <div>
+          {list('characters').map((char: any, index: number) => (
+            <div key={index} style={rowStyle}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                <Text strong style={{ color: '#c7d2fe' }}>角色 {index + 1}</Text>
+                <Button size="small" icon={<DeleteOutlined />} onClick={() => removeListItem('characters', index)}>删除</Button>
+              </div>
+              <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
+                <Input value={char.name} onChange={e => setNested('characters', index, 'name', e.target.value)} placeholder="姓名" maxLength={100} />
+                <Input value={char.age} onChange={e => setNested('characters', index, 'age', e.target.value)} placeholder="年龄" maxLength={30} />
+                <Input value={char.gender} onChange={e => setNested('characters', index, 'gender', e.target.value)} placeholder="性别" maxLength={10} />
+                <Input value={char.role} onChange={e => setNested('characters', index, 'role', e.target.value)} placeholder="定位" maxLength={50} />
+              </Space.Compact>
+              <TextArea value={char.appearance} onChange={e => setNested('characters', index, 'appearance', e.target.value)} placeholder="外貌" rows={2} style={fieldStyle} maxLength={4000} />
+              <TextArea value={char.personality} onChange={e => setNested('characters', index, 'personality', e.target.value)} placeholder="性格" rows={2} style={fieldStyle} maxLength={4000} />
+              <TextArea value={char.background} onChange={e => setNested('characters', index, 'background', e.target.value)} placeholder="背景" rows={2} style={fieldStyle} maxLength={4000} />
+              <TextArea value={char.motivation} onChange={e => setNested('characters', index, 'motivation', e.target.value)} placeholder="动机" rows={2} style={fieldStyle} maxLength={4000} />
+              <TextArea value={char.arc} onChange={e => setNested('characters', index, 'arc', e.target.value)} placeholder="成长弧" rows={2} style={fieldStyle} maxLength={4000} />
+              <TextArea value={char.relationships} onChange={e => setNested('characters', index, 'relationships', e.target.value)} placeholder="关系，可填 JSON 数组或逐行文本" rows={2} />
+            </div>
+          ))}
+          <Button icon={<PlusOutlined />} onClick={() => addListItem('characters', { name: '', age: '', gender: '', role: '', appearance: '', personality: '', background: '', motivation: '', arc: '', relationships: '[]' })} style={{ marginTop: 10 }}>添加角色</Button>
+        </div>
+      ) : phase === 'chapters_outline' ? (
+        <div>
+          {list('chapters').map((chapter: any, index: number) => (
+            <div key={index} style={rowStyle}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                <Text strong style={{ color: '#c7d2fe' }}>章节 {index + 1}</Text>
+                <Button size="small" icon={<DeleteOutlined />} onClick={() => removeListItem('chapters', index)}>删除</Button>
+              </div>
+              <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
+                <InputNumber value={chapter.chapter} onChange={value => setNested('chapters', index, 'chapter', value || 0)} min={1} precision={0} style={{ width: 120 }} />
+                <Input value={chapter.title} onChange={e => setNested('chapters', index, 'title', e.target.value)} placeholder="章节标题" maxLength={200} />
+              </Space.Compact>
+              <TextArea value={chapter.synopsis} onChange={e => setNested('chapters', index, 'synopsis', e.target.value)} placeholder="简介/梗概" rows={2} style={fieldStyle} maxLength={8000} />
+              <TextArea value={chapter.conflict} onChange={e => setNested('chapters', index, 'conflict', e.target.value)} placeholder="核心冲突" rows={2} style={fieldStyle} maxLength={4000} />
+              <Space.Compact style={{ width: '100%', marginBottom: 8 }}>
+                <Input value={chapter.turningPoint} onChange={e => setNested('chapters', index, 'turningPoint', e.target.value)} placeholder="转折点" maxLength={2000} />
+                <Input value={chapter.emotionalTone} onChange={e => setNested('chapters', index, 'emotionalTone', e.target.value)} placeholder="情绪基调" maxLength={100} />
+              </Space.Compact>
+              <Input value={chapter.endingHook} onChange={e => setNested('chapters', index, 'endingHook', e.target.value)} placeholder="结尾钩子" style={fieldStyle} maxLength={2000} />
+              <Text style={{ color: '#94a3b8', fontSize: 12 }}>场景</Text>
+              {ensureArray(chapter.scenes).map((scene: any, sceneIndex: number) => (
+                <Space.Compact key={sceneIndex} style={{ width: '100%', marginTop: 6 }}>
+                  <Input value={scene.location} onChange={e => {
+                    const scenes = [...ensureArray(chapter.scenes)];
+                    scenes[sceneIndex] = { ...(scenes[sceneIndex] || {}), location: e.target.value };
+                    setNested('chapters', index, 'scenes', scenes);
+                  }} placeholder="地点" maxLength={200} />
+                  <Input value={scene.description} onChange={e => {
+                    const scenes = [...ensureArray(chapter.scenes)];
+                    scenes[sceneIndex] = { ...(scenes[sceneIndex] || {}), description: e.target.value };
+                    setNested('chapters', index, 'scenes', scenes);
+                  }} placeholder="描述" maxLength={2000} />
+                  <Button icon={<DeleteOutlined />} onClick={() => {
+                    const scenes = ensureArray(chapter.scenes).filter((_, i) => i !== sceneIndex);
+                    setNested('chapters', index, 'scenes', scenes);
+                  }} />
+                </Space.Compact>
+              ))}
+              <Button size="small" icon={<PlusOutlined />} onClick={() => setNested('chapters', index, 'scenes', [...ensureArray(chapter.scenes), { location: '', description: '' }])} style={{ marginTop: 8 }}>添加场景</Button>
+              <div style={{ marginTop: 10 }}>
+                <Text style={{ color: '#94a3b8', fontSize: 12 }}>出场人物</Text>
+                {ensureArray(chapter.charactersInvolved).map((name: string, nameIndex: number) => (
+                  <Space.Compact key={nameIndex} style={{ width: '100%', marginTop: 6 }}>
+                    <Input value={name} onChange={e => {
+                      const names = [...ensureArray(chapter.charactersInvolved)];
+                      names[nameIndex] = e.target.value;
+                      setNested('chapters', index, 'charactersInvolved', names);
+                    }} placeholder="人物名称" maxLength={100} />
+                    <Button icon={<DeleteOutlined />} onClick={() => {
+                      const names = ensureArray(chapter.charactersInvolved).filter((_, i) => i !== nameIndex);
+                      setNested('chapters', index, 'charactersInvolved', names);
+                    }} />
+                  </Space.Compact>
+                ))}
+                <Button size="small" icon={<PlusOutlined />} onClick={() => setNested('chapters', index, 'charactersInvolved', [...ensureArray(chapter.charactersInvolved), ''])} style={{ marginTop: 8 }}>添加人物</Button>
+              </div>
+            </div>
+          ))}
+          <Button icon={<PlusOutlined />} onClick={() => addListItem('chapters', { chapter: list('chapters').length + 1, title: '', synopsis: '', conflict: '', turningPoint: '', emotionalTone: '', endingHook: '', scenes: [], charactersInvolved: [] })} style={{ marginTop: 10 }}>添加章节</Button>
+        </div>
+      ) : (
+        <div>
+          <Input value={data?.title} onChange={e => setField('title', e.target.value)} placeholder="章节标题" style={fieldStyle} maxLength={200} />
+          <TextArea value={data?.summary} onChange={e => setField('summary', e.target.value)} placeholder="章节摘要" rows={2} style={fieldStyle} maxLength={4000} />
+          <TextArea value={data?.content} onChange={e => setField('content', e.target.value)} placeholder="章节正文" rows={20} maxLength={200000} />
+        </div>
+      )}
     </div>
   );
 };

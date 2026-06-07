@@ -5,10 +5,10 @@ const { db } = require('../config/database');
 const { JWT_SECRET, JWT_EXPIRES_IN } = require('../config/auth');
 const userDao = require('../dao/userDao');
 const userGroupDao = require('../dao/userGroupDao');
-const usageLogDao = require('../dao/usageLogDao');
 const emailVerificationDao = require('../dao/emailVerificationDao');
 const emailService = require('./emailService');
 const configService = require('./configService');
+const usageService = require('./usageService');
 
 const SALT_ROUNDS = 12;
 
@@ -36,6 +36,11 @@ async function checkEmailDomainWhitelist(email) {
   if (!allowedDomains.includes(domain)) {
     throw { status: 403, message: `仅允许以下邮箱域名注册：${allowedDomains.join('、')}` };
   }
+}
+
+async function attachActualDailyUsage(user) {
+  const dailyUsed = await usageService.syncDailyUsage(user.id, user);
+  return { ...user, actual_daily_tokens_used: dailyUsed };
 }
 
 const authService = {
@@ -83,7 +88,7 @@ const authService = {
 
     return {
       token,
-      user: this.sanitizeUser(user),
+      user: this.sanitizeUser(await attachActualDailyUsage(user)),
     };
   },
 
@@ -214,7 +219,7 @@ const authService = {
 
     // 获取更新后的用户信息
     const user = await userDao.findById(userId);
-    return { success: true, message: '邮箱变更成功', user: this.sanitizeUser(user) };
+    return { success: true, message: '邮箱变更成功', user: this.sanitizeUser(await attachActualDailyUsage(user)) };
   },
 
   // 登录
@@ -246,7 +251,7 @@ const authService = {
     await userDao.update(user.id, { last_login_at: db.fn.now() });
     // 刷新 user 对象以获取最新的 last_login_at
     const updatedUser = await userDao.findById(user.id);
-    const dailyUsed = await usageLogDao.getDailyUsage(user.id);
+    const dailyUsed = await usageService.syncDailyUsage(user.id, updatedUser);
 
     const token = this.generateToken(updatedUser);
 

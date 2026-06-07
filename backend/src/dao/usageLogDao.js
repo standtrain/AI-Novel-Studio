@@ -2,26 +2,28 @@ const { db } = require('../config/database');
 
 const TABLE = 'usage_logs';
 
-function todayUsageQuery() {
-  return db(TABLE)
-    .where('created_at', '>=', db.raw('CURDATE()'));
+function todayUsageQuery(conn = db) {
+  return conn(TABLE)
+    // 今日用量按数据库自然日统计，使用开区间上界避免异常未来时间戳污染今日额度。
+    .where('created_at', '>=', conn.raw('CURDATE()'))
+    .where('created_at', '<', conn.raw('DATE_ADD(CURDATE(), INTERVAL 1 DAY)'));
 }
 
 const usageLogDao = {
-  async create(data) {
-    const [id] = await db(TABLE).insert(data);
+  async create(data, trx = db) {
+    const [id] = await trx(TABLE).insert(data);
     return id;
   },
 
-  async getDailyUsage(userId) {
-    const [{ total }] = await todayUsageQuery()
+  async getDailyUsage(userId, trx = db) {
+    const [{ total }] = await todayUsageQuery(trx)
       .where('user_id', userId)
       .sum('tokens_used as total');
     return parseInt(total, 10) || 0;
   },
 
-  async getTodayTotalUsage() {
-    const [{ total }] = await todayUsageQuery().sum('tokens_used as total');
+  async getTodayTotalUsage(trx = db) {
+    const [{ total }] = await todayUsageQuery(trx).sum('tokens_used as total');
     return parseInt(total, 10) || 0;
   },
 

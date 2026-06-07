@@ -44,19 +44,23 @@ const userDao = {
     return row || { daily_tokens_used: 0, last_token_reset_at: null };
   },
 
-  async incrementDailyTokens(userId, tokens) {
-    await db(TABLE).where('id', userId).increment('daily_tokens_used', tokens);
+  async lockById(userId, trx = db) {
+    return trx(TABLE).select('id').where('id', userId).forUpdate().first();
   },
 
-  async setDailyTokens(userId, tokens) {
-    await db(TABLE).where('id', userId).update({
+  async incrementDailyTokens(userId, tokens, trx = db) {
+    await trx(TABLE).where('id', userId).increment('daily_tokens_used', tokens);
+  },
+
+  async setDailyTokens(userId, tokens, trx = db) {
+    await trx(TABLE).where('id', userId).update({
       daily_tokens_used: Math.max(0, parseInt(tokens, 10) || 0),
       last_token_reset_at: db.fn.now(),
     });
   },
 
-  async resetDailyTokens(userId) {
-    await db(TABLE).where('id', userId).update({
+  async resetDailyTokens(userId, trx = db) {
+    await trx(TABLE).where('id', userId).update({
       daily_tokens_used: 0,
       last_token_reset_at: db.fn.now(),
     });

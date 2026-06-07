@@ -7,6 +7,7 @@ const authenticate = require('../middleware/authenticate');
 const loginRateLimiter = require('../middleware/loginRateLimiter');
 const userDao = require('../dao/userDao');
 const userGroupDao = require('../dao/userGroupDao');
+const usageService = require('../services/usageService');
 const { parsePositiveInt } = require('../utils/requestParser');
 const { normalizeTemperaturePreference } = require('../utils/temperaturePreset');
 
@@ -24,6 +25,11 @@ async function verifyCaptchaIfEnabled({ captchaId, captchaCode }, missingMessage
     return { status: 400, error: '验证码错误或已过期，请刷新后重试' };
   }
   return null;
+}
+
+async function sanitizeUserWithDailyUsage(user) {
+  const dailyUsed = await usageService.syncDailyUsage(user.id, user);
+  return authService.sanitizeUser({ ...user, actual_daily_tokens_used: dailyUsed });
 }
 
 // 发送邮箱验证码（注册/密码重置/邮箱变更）
@@ -206,10 +212,7 @@ router.post('/login', loginRateLimiter, async (req, res) => {
 // 获取当前用户信息
 router.get('/me', authenticate, async (req, res) => {
   try {
-    const usageService = require('../services/usageService');
-    const dailyUsed = await usageService.getDailyUsage(req.user.id);
-    const user = authService.sanitizeUser({ ...req.user, actual_daily_tokens_used: dailyUsed });
-    res.json({ user });
+    res.json({ user: await sanitizeUserWithDailyUsage(req.user) });
   } catch (err) {
     res.status(500).json({ error: '获取用户信息失败' });
   }
@@ -262,7 +265,7 @@ router.put('/me', authenticate, async (req, res) => {
 
     await userDao.update(req.user.id, data);
     const updatedUser = await userDao.findById(req.user.id);
-    res.json({ success: true, message: '修改成功', user: authService.sanitizeUser(updatedUser) });
+    res.json({ success: true, message: '修改成功', user: await sanitizeUserWithDailyUsage(updatedUser) });
   } catch (err) {
     res.status(500).json({ error: '修改失败' });
   }
@@ -350,7 +353,7 @@ router.put('/me/preferred-model', authenticate, async (req, res) => {
 
     // 重新获取完整用户信息
     const updatedUser = await userDao.findById(req.user.id);
-    res.json({ user: authService.sanitizeUser(updatedUser) });
+    res.json({ user: await sanitizeUserWithDailyUsage(updatedUser) });
   } catch (err) {
     res.status(500).json({ error: '更新模型偏好失败' });
   }
@@ -369,7 +372,7 @@ router.put('/me/temperature-preference', authenticate, async (req, res) => {
     agentService.clearUserCache(req.user.id);
 
     const updatedUser = await userDao.findById(req.user.id);
-    res.json({ user: authService.sanitizeUser(updatedUser) });
+    res.json({ user: await sanitizeUserWithDailyUsage(updatedUser) });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '更新创作温度失败' });
   }

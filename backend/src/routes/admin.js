@@ -62,11 +62,8 @@ router.get('/stats', async (req, res) => {
   try {
     const [{ total: totalUsers }] = await require('../config/database').db('users').count('* as total');
     const totalNovels = await novelDao.getTotalCount();
-    // 使用 MySQL CURDATE() 确保时区一致，避免 JS Date 转 UTC 的偏差
-    const todayTokens = await require('../config/database').db('usage_logs')
-      .where('created_at', '>=', require('../config/database').db.raw('CURDATE()'))
-      .sum('tokens_used as total')
-      .then(([r]) => parseInt(r.total, 10) || 0);
+    // 今日 Token 统计复用用量 DAO，确保后台展示和额度判断使用同一个数据库自然日窗口。
+    const todayTokens = await usageLogDao.getTodayTotalUsage();
 
     const groupStats = await require('../config/database').db('users')
       .join('user_groups', 'users.group_id', 'user_groups.id')

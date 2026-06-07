@@ -3,9 +3,57 @@ const { db } = require('../config/database');
 
 const TABLE = 'model_token_limits';
 
+function isEnabled(row) {
+  return row.enabled === true || row.enabled === 1 || row.enabled === '1';
+}
+
+function normalizeCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+}
+
+async function resetStaleUsage(id, conn = db) {
+  // 与用户每日用量保持一致：每日按数据库自然日重置，每月按数据库自然月重置。
+  await conn(TABLE)
+    .where('id', id)
+    .andWhere((builder) => {
+      builder
+        .whereNull('last_daily_reset_at')
+        .orWhereRaw('DATE(last_daily_reset_at) < CURDATE()')
+        .orWhereNull('last_monthly_reset_at')
+        .orWhereRaw("DATE_FORMAT(last_monthly_reset_at, '%Y-%m') < DATE_FORMAT(CURDATE(), '%Y-%m')");
+    })
+    .update({
+      daily_used: conn.raw('CASE WHEN last_daily_reset_at IS NULL OR DATE(last_daily_reset_at) < CURDATE() THEN 0 ELSE daily_used END'),
+      last_daily_reset_at: conn.raw('CASE WHEN last_daily_reset_at IS NULL OR DATE(last_daily_reset_at) < CURDATE() THEN NOW() ELSE last_daily_reset_at END'),
+      monthly_used: conn.raw("CASE WHEN last_monthly_reset_at IS NULL OR DATE_FORMAT(last_monthly_reset_at, '%Y-%m') < DATE_FORMAT(CURDATE(), '%Y-%m') THEN 0 ELSE monthly_used END"),
+      last_monthly_reset_at: conn.raw("CASE WHEN last_monthly_reset_at IS NULL OR DATE_FORMAT(last_monthly_reset_at, '%Y-%m') < DATE_FORMAT(CURDATE(), '%Y-%m') THEN NOW() ELSE last_monthly_reset_at END"),
+      updated_at: db.fn.now(),
+    });
+}
+
+async function resetAllStaleUsage(conn = db) {
+  await conn(TABLE)
+    .where((builder) => {
+      builder
+        .whereNull('last_daily_reset_at')
+        .orWhereRaw('DATE(last_daily_reset_at) < CURDATE()')
+        .orWhereNull('last_monthly_reset_at')
+        .orWhereRaw("DATE_FORMAT(last_monthly_reset_at, '%Y-%m') < DATE_FORMAT(CURDATE(), '%Y-%m')");
+    })
+    .update({
+      daily_used: conn.raw('CASE WHEN last_daily_reset_at IS NULL OR DATE(last_daily_reset_at) < CURDATE() THEN 0 ELSE daily_used END'),
+      last_daily_reset_at: conn.raw('CASE WHEN last_daily_reset_at IS NULL OR DATE(last_daily_reset_at) < CURDATE() THEN NOW() ELSE last_daily_reset_at END'),
+      monthly_used: conn.raw("CASE WHEN last_monthly_reset_at IS NULL OR DATE_FORMAT(last_monthly_reset_at, '%Y-%m') < DATE_FORMAT(CURDATE(), '%Y-%m') THEN 0 ELSE monthly_used END"),
+      last_monthly_reset_at: conn.raw("CASE WHEN last_monthly_reset_at IS NULL OR DATE_FORMAT(last_monthly_reset_at, '%Y-%m') < DATE_FORMAT(CURDATE(), '%Y-%m') THEN NOW() ELSE last_monthly_reset_at END"),
+      updated_at: db.fn.now(),
+    });
+}
+
 const modelTokenDao = {
   // 获取所有限额配置
   async findAll() {
+    await resetAllStaleUsage();
     return db(TABLE).orderBy('provider_name', 'asc').orderBy('model_name', 'asc');
   },
 
@@ -48,73 +96,52 @@ const modelTokenDao = {
     return db(TABLE).where('id', id).del();
   },
 
-  // 增加已用 Token（使用数据库原生 INCREMENT 避免并发竞态）
+  // 增加已用 Token：自然日/月重置和递增放在同一事务，避免并发竞态。
   async incrementUsage(providerName, modelName, tokens) {
     if (!tokens || tokens <= 0) return;
 
-    const row = await this.findByProviderModel(providerName, modelName);
-    if (!row || !row.enabled) return;
+    await db.transaction(async (trx) => {
+      const row = await trx(TABLE)
+        .where({ provider_name: providerName, model_name: modelName })
+        .forUpdate()
+        .first();
+      if (!row || !isEnabled(row)) return;
 
-    const now = new Date();
-    const updateData = { updated_at: db.fn.now() };
-    let needsReset = false;
-
-    // 延迟日重置：距上次重置超过 24 小时则先归零
-    if (!row.last_daily_reset_at || (now - new Date(row.last_daily_reset_at)) > 24 * 60 * 60 * 1000) {
-      updateData.daily_used = 0;
-      updateData.last_daily_reset_at = now;
-      needsReset = true;
-    }
-
-    // 延迟月重置
-    if (!row.last_monthly_reset_at || (now - new Date(row.last_monthly_reset_at)) > 30 * 24 * 60 * 60 * 1000) {
-      updateData.monthly_used = 0;
-      updateData.last_monthly_reset_at = now;
-      needsReset = true;
-    }
-
-    if (needsReset) {
-      await db(TABLE).where('id', row.id).update(updateData);
-    }
-
-    // 使用数据库原生 INCREMENT 避免竞态条件
-    await db(TABLE).where('id', row.id)
-      .increment('daily_used', tokens)
-      .increment('monthly_used', tokens);
+      await resetStaleUsage(row.id, trx);
+      await trx(TABLE).where('id', row.id).increment({
+        daily_used: normalizeCount(tokens),
+        monthly_used: normalizeCount(tokens),
+      });
+    });
   },
 
   // 检查模型是否在限额内（含延迟重置）
   async checkLimits(providerName, modelName) {
-    const row = await this.findByProviderModel(providerName, modelName);
-    if (!row || !row.enabled) {
-      return { withinDaily: true, withinMonthly: true, dailyUsed: 0, dailyLimit: 0, monthlyUsed: 0, monthlyLimit: 0 };
-    }
+    return db.transaction(async (trx) => {
+      const row = await trx(TABLE)
+        .where({ provider_name: providerName, model_name: modelName })
+        .forUpdate()
+        .first();
+      if (!row || !isEnabled(row)) {
+        return { withinDaily: true, withinMonthly: true, dailyUsed: 0, dailyLimit: 0, monthlyUsed: 0, monthlyLimit: 0 };
+      }
 
-    const now = new Date();
+      await resetStaleUsage(row.id, trx);
+      const current = await trx(TABLE).where('id', row.id).first();
+      const dailyUsed = normalizeCount(current.daily_used);
+      const monthlyUsed = normalizeCount(current.monthly_used);
+      const dailyLimit = normalizeCount(current.daily_limit);
+      const monthlyLimit = normalizeCount(current.monthly_limit);
 
-    // 延迟日重置
-    let dailyUsed = row.daily_used;
-    if (row.last_daily_reset_at && (now - new Date(row.last_daily_reset_at)) > 24 * 60 * 60 * 1000) {
-      dailyUsed = 0;
-    }
-
-    // 延迟月重置
-    let monthlyUsed = row.monthly_used;
-    if (row.last_monthly_reset_at && (now - new Date(row.last_monthly_reset_at)) > 30 * 24 * 60 * 60 * 1000) {
-      monthlyUsed = 0;
-    }
-
-    const withinDaily = row.daily_limit === 0 || dailyUsed < row.daily_limit;
-    const withinMonthly = row.monthly_limit === 0 || monthlyUsed < row.monthly_limit;
-
-    return {
-      withinDaily,
-      withinMonthly,
-      dailyUsed,
-      dailyLimit: row.daily_limit,
-      monthlyUsed,
-      monthlyLimit: row.monthly_limit,
-    };
+      return {
+        withinDaily: dailyLimit === 0 || dailyUsed < dailyLimit,
+        withinMonthly: monthlyLimit === 0 || monthlyUsed < monthlyLimit,
+        dailyUsed,
+        dailyLimit,
+        monthlyUsed,
+        monthlyLimit,
+      };
+    });
   },
 };
 

@@ -1,5 +1,4 @@
-const userDao = require('../dao/userDao');
-const usageLogDao = require('../dao/usageLogDao');
+const usageService = require('../services/usageService');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('token');
@@ -10,18 +9,14 @@ async function checkTokenQuota(req, res, next) {
     return next(); // 非认证路由跳过
   }
 
-  const groupLimit = req.user.token_limit_per_day;
+  const groupLimit = Number(req.user.token_limit_per_day) || 0;
+  const daily_tokens_used = await usageService.syncDailyUsage(req.user.id, req.user);
+  req.user.daily_tokens_used = daily_tokens_used;
+  logger.info(`用户 ${req.user.username} 的每日 token 已同步为 ${daily_tokens_used}`);
 
   // 0 表示不限制
   if (groupLimit === 0) {
     return next();
-  }
-
-  const daily_tokens_used = await usageLogDao.getDailyUsage(req.user.id);
-  if (daily_tokens_used !== Number(req.user.daily_tokens_used || 0)) {
-    await userDao.setDailyTokens(req.user.id, daily_tokens_used);
-    req.user.daily_tokens_used = daily_tokens_used;
-    logger.info(`用户 ${req.user.username} 的每日 token 已同步为 ${daily_tokens_used}`);
   }
 
   // 按请求阶段动态估算 token 消耗
@@ -34,7 +29,9 @@ async function checkTokenQuota(req, res, next) {
     review: 1500,
     data_extraction: 1000,
   };
-  const phase = req.body?.phase || req.query?.phase;
+  const body = req.body || {};
+  const query = req.query || {};
+  const phase = body.phase || query.phase;
   const estimatedTokens = phaseEstimates[phase] || 2000;
   if (daily_tokens_used + estimatedTokens > groupLimit) {
     const remaining = Math.max(0, groupLimit - daily_tokens_used);

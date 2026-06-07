@@ -17,6 +17,7 @@ const queueManager = require('./queueManager');
 const { db } = require('../config/database');
 const { createLogger } = require('../utils/logger');
 const { countWords, stripWordCountLabel } = require('../core/utils/wordCounter');
+const { resolveUserWritingPrompt } = require('../constants/writingPromptDefaults');
 
 const logger = createLogger('agent');
 
@@ -51,12 +52,7 @@ function _getAgentCacheKey(userId) {
 
 async function _loadAgentBaseConfig() {
   const maxTokens = await configDao.getInt('max_tokens_per_request', 0);
-  let globalPrompt = null;
-  try {
-    const gp = await configDao.get('global_writing_prompt');
-    if (gp && gp.trim()) globalPrompt = gp.trim();
-  } catch { /* 忽略 */ }
-  return { maxTokens, globalPrompt };
+  return { maxTokens };
 }
 
 async function _loadUserConfig(userId) {
@@ -65,6 +61,7 @@ async function _loadUserConfig(userId) {
   const modelTokenService = require('./modelTokenService');
   return {
     user,
+    globalPrompt: resolveUserWritingPrompt(user && user.user_writing_prompt),
     preferredModel: (user && user.preferred_model && user.can_choose_model) ? user.preferred_model : null,
     temperaturePreset: user?.temperature_preset || 'balanced',
     customTemperature: user?.custom_temperature ?? null,

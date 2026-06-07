@@ -2,6 +2,13 @@ const express = require('express');
 const configService = require('../services/configService');
 const authenticate = require('../middleware/authenticate');
 const { LEGAL_DOCUMENTS } = require('../constants/legalDefaults');
+const userDao = require('../dao/userDao');
+const {
+  DEFAULT_USER_WRITING_PROMPT,
+  USER_WRITING_PROMPT_MAX_LENGTH,
+  normalizeUserWritingPrompt,
+  resolveUserWritingPrompt,
+} = require('../constants/writingPromptDefaults');
 
 const router = express.Router();
 
@@ -48,27 +55,42 @@ router.get('/legal/:type', async (req, res) => {
   }
 });
 
-// GET /api/site/writing-prompt —— 获取全局写作提示词（需认证）
-router.get('/writing-prompt', authenticate, async (_req, res) => {
+function buildWritingPromptResponse(rawPrompt) {
+  const hasUserValue = rawPrompt !== null && rawPrompt !== undefined;
+  const resolvedPrompt = resolveUserWritingPrompt(rawPrompt);
+  return {
+    prompt: resolvedPrompt || DEFAULT_USER_WRITING_PROMPT,
+    defaultPrompt: DEFAULT_USER_WRITING_PROMPT,
+    enabled: !!resolvedPrompt,
+    source: hasUserValue ? (resolvedPrompt ? 'user' : 'disabled') : 'default',
+  };
+}
+
+// GET /api/site/writing-prompt —— 获取当前用户的个人全局写作提示词（需认证）
+router.get('/writing-prompt', authenticate, async (req, res) => {
   try {
-    const prompt = await configService.get('global_writing_prompt');
-    res.json({ prompt: prompt || '' });
+    res.json(buildWritingPromptResponse(req.user.user_writing_prompt));
   } catch (err) {
     res.status(500).json({ error: '获取写作提示词失败' });
   }
 });
 
-// PUT /api/site/writing-prompt —— 更新全局写作提示词（需认证）
+// PUT /api/site/writing-prompt —— 更新当前用户的个人全局写作提示词（需认证）
 router.put('/writing-prompt', authenticate, async (req, res) => {
   try {
     const { prompt } = req.body;
     if (typeof prompt !== 'string') {
       return res.status(400).json({ error: '请提供有效的提示词内容' });
     }
-    await configService.set('global_writing_prompt', prompt.trim());
+    const normalizedPrompt = normalizeUserWritingPrompt(prompt);
+    if (normalizedPrompt.length > USER_WRITING_PROMPT_MAX_LENGTH) {
+      return res.status(400).json({ error: `提示词不能超过 ${USER_WRITING_PROMPT_MAX_LENGTH} 个字符` });
+    }
+
+    await userDao.updateWritingPrompt(req.user.id, normalizedPrompt);
     const agentService = require('../services/agentService');
-    agentService.clearAllCaches();
-    res.json({ success: true, prompt: prompt.trim() });
+    agentService.clearUserCache(req.user.id);
+    res.json({ success: true, ...buildWritingPromptResponse(normalizedPrompt) });
   } catch (err) {
     res.status(500).json({ error: '保存写作提示词失败' });
   }

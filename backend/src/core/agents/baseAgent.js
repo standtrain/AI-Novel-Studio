@@ -81,7 +81,7 @@ class BaseAgent {
     }
     let enriched = basePrompt;
 
-    // 全局提示词来自高级设置。这里统一注入到所有 Agent 调用，避免某些阶段漏掉。
+    // 个人全局提示词来自高级设置。这里统一注入到所有 Agent 调用，避免某些阶段漏掉。
     if (this.globalPrompt) {
       enriched += `\n\n【全局写作风格指令】\n${this.globalPrompt}`;
     }

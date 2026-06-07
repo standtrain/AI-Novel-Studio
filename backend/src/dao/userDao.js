@@ -100,6 +100,14 @@ const userDao = {
     return db(TABLE).where('id', userId).update(data);
   },
 
+  // 更新当前用户的个人全局写作提示词，避免写入站点级配置造成用户之间串线。
+  async updateWritingPrompt(userId, prompt) {
+    return db(TABLE).where('id', userId).update({
+      user_writing_prompt: prompt,
+      updated_at: db.fn.now(),
+    });
+  },
+
   // 更新用户首选模型（null=按管理员优先级）
   async updatePreferredModel(userId, modelName) {
     return db(TABLE).where('id', userId).update({ preferred_model: modelName || null });

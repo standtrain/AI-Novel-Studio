@@ -3,16 +3,9 @@ import { Button, Input, message, Switch, Space, Divider, Alert } from 'antd';
 import { SaveOutlined, UndoOutlined } from '@ant-design/icons';
 import { getWritingPromptApi, updateWritingPromptApi } from '../../api/site';
 
-const DEFAULT_PROMPT = `1. 保持原文核心语义与情节走向不变，在此基础上提升表达质量，尊重作者的创作意图与角色个性。
-2. 语句通顺、逻辑清晰：补充缺失主语，修正语法错误，消除歧义表达。短句与长句交替使用，保持自然的阅读节奏。
-3. 句式灵活多变，避免同一句式连续重复；相邻句段中的高频词汇使用恰当近义词替换，专业术语辅以通俗解释。
-4. 叙事语言流畅自然不堆砌修饰；对话贴合角色身份与性格，口语化但不粗俗；描写注重画面感与沉浸感，避免空洞形容词罗列。
-5. 根据小说类型（玄幻/都市/科幻/言情等）适当调整用词与修辞风格，不同类型场景（动作/抒情/悬疑）采用对应的语言节奏。
-6. 使用规范中文标点，避免中英符号混用；段落间保持逻辑衔接，段落长度适中以维持视觉呼吸感。
-7. 以上要求适用于所有写作输出阶段，请严格执行。`;
-
 const GlobalPromptConfig: React.FC = () => {
   const [prompt, setPrompt] = useState('');
+  const [defaultPrompt, setDefaultPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [enabled, setEnabled] = useState(true);
@@ -26,18 +19,14 @@ const GlobalPromptConfig: React.FC = () => {
     setLoading(true);
     try {
       const data = await getWritingPromptApi();
-      const saved = data?.prompt;
-      if (saved) {
-        setPrompt(saved);
-        setEnabled(true);
-      } else {
-        setPrompt(DEFAULT_PROMPT);
-        setEnabled(true);
-      }
+      const nextDefault = data.defaultPrompt || data.prompt || '';
+      setDefaultPrompt(nextDefault);
+      setPrompt(data.prompt || nextDefault);
+      setEnabled(data.enabled !== false);
     } catch (err: any) {
       // 非管理员用户可能无法访问，静默处理
       if (err.response?.status !== 401) {
-        message.error('加载全局提示词失败');
+        message.error('加载个人提示词失败');
       }
     } finally {
       setLoading(false);
@@ -49,8 +38,11 @@ const GlobalPromptConfig: React.FC = () => {
     const text = enabled ? prompt.trim() : '';
     setSaving(true);
     try {
-      await updateWritingPromptApi(text);
-      message.success('全局提示词已保存');
+      const data = await updateWritingPromptApi(text);
+      setDefaultPrompt(data.defaultPrompt || defaultPrompt);
+      setPrompt(data.prompt || data.defaultPrompt || defaultPrompt);
+      setEnabled(data.enabled !== false);
+      message.success('个人提示词已保存');
     } catch (err: any) {
       message.error(err.response?.data?.error || '保存失败');
     } finally {
@@ -59,7 +51,7 @@ const GlobalPromptConfig: React.FC = () => {
   };
 
   const handleReset = () => {
-    setPrompt(DEFAULT_PROMPT);
+    setPrompt(defaultPrompt);
     setEnabled(true);
   };
 
@@ -68,12 +60,12 @@ const GlobalPromptConfig: React.FC = () => {
       <Alert
         type="info"
         showIcon
-        message="全局提示词会在每次 AI 写作、润色、修订时自动注入到系统指令中，影响所有章节的写作风格"
+        message="个人全局提示词只对当前账号生效，会在每次 AI 写作、润色、修订时自动注入到系统指令中"
         style={{ marginBottom: 16 }}
       />
 
       <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ color: '#cbd5e1', fontWeight: 500 }}>启用全局提示词</span>
+        <span style={{ color: '#cbd5e1', fontWeight: 500 }}>启用个人提示词</span>
         <Switch
           checked={enabled}
           onChange={(v) => setEnabled(v)}
@@ -89,7 +81,7 @@ const GlobalPromptConfig: React.FC = () => {
         onChange={(e) => setPrompt(e.target.value)}
         rows={14}
         disabled={!enabled || saving}
-        placeholder="自定义全局写作风格指令..."
+        placeholder="自定义个人写作风格指令..."
         style={{
           fontSize: 13,
           fontFamily: 'var(--font-mono)',

@@ -20,7 +20,14 @@ export async function getSiteInfoApi(): Promise<SiteInfo> {
   return data;
 }
 
-export async function getWritingPromptApi(): Promise<{ prompt: string }> {
+export interface WritingPromptConfig {
+  prompt: string;
+  defaultPrompt: string;
+  enabled: boolean;
+  source: 'default' | 'user' | 'disabled';
+}
+
+export async function getWritingPromptApi(): Promise<WritingPromptConfig> {
   const { data } = await client.get('/site/writing-prompt');
   return data;
 }
@@ -30,7 +37,7 @@ export async function getLegalDocumentApi(type: LegalDocumentType): Promise<Lega
   return data;
 }
 
-export async function updateWritingPromptApi(prompt: string): Promise<{ success: boolean }> {
+export async function updateWritingPromptApi(prompt: string): Promise<{ success: boolean } & WritingPromptConfig> {
   const { data } = await client.put('/site/writing-prompt', { prompt });
   return data;
 }

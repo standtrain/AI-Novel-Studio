@@ -52,7 +52,7 @@ const AdvancedSettingsPage: React.FC = () => {
     },
     {
       key: 'prompt',
-      label: <span><EditOutlined /> 全局提示词</span>,
+      label: <span><EditOutlined /> 个人提示词</span>,
       children: renderedKeys.has('prompt') ? <GlobalPromptConfig /> : null,
     },
   ];
@@ -60,7 +60,7 @@ const AdvancedSettingsPage: React.FC = () => {
   return (
     <PageShell
       title="高级设置"
-      subtitle="管理创作温度、模型偏好、工具连接与全局提示词"
+      subtitle="管理创作温度、模型偏好、工具连接与个人提示词"
       icon={<ExperimentOutlined />}
     >
       <Tabs activeKey={activeKey} onChange={onChange} items={tabItems} />

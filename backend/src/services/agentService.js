@@ -14,6 +14,7 @@ const characterDao = require('../dao/characterDao');
 const configDao = require('../dao/configDao');
 const usageService = require('./usageService');
 const queueManager = require('./queueManager');
+const { inspectModelCapacity } = require('../config/openai');
 const { db } = require('../config/database');
 const { createLogger } = require('../utils/logger');
 const { countWords, stripWordCountLabel } = require('../core/utils/wordCounter');
@@ -26,6 +27,10 @@ const logger = createLogger('agent');
 const PHASE_MAP = {
   plan_revise: 'plan',
   import_analysis: 'all',
+  outline: 'outline',
+  characters: 'characters',
+  chapters_outline: 'chapters_outline',
+  extract: 'write_chapter',
   character: 'characters',
   chapter_outline: 'chapters_outline',
   writing: 'write_chapter',
@@ -265,8 +270,29 @@ function _onClose(req, res, abortController, novelId, phase, onAbort) {
   });
 }
 
-async function _waitForQueueTurn(req, res, userId, novelId, phase, abortController) {
+async function _buildQueueCapacityChecker(userId, phase, options = {}) {
+  if (options.capacityChecker) return options.capacityChecker;
+  const capacityPhase = options.modelPhase || _normalizePhase(phase);
+  const agent = options.agent || null;
+  if (agent) {
+    return () => inspectModelCapacity(capacityPhase, {
+      preferredModelName: agent.preferredModel,
+      checkLimitFn: agent.checkLimitFn,
+      requireVision: options.requireVision === true,
+    });
+  }
+
+  const cached = await _getOrCreateCache(userId);
+  return () => inspectModelCapacity(capacityPhase, {
+    preferredModelName: cached.preferredModel,
+    checkLimitFn: cached.checkLimitFn,
+    requireVision: options.requireVision === true,
+  });
+}
+
+async function _waitForQueueTurn(req, res, userId, novelId, phase, abortController, options = {}) {
   const groupPriority = await queueManager.getUserGroupPriority(userId);
+  const capacityChecker = await _buildQueueCapacityChecker(userId, phase, options);
   let queueTask = null;
   let cancelledWhileWaiting = false;
 
@@ -278,7 +304,7 @@ async function _waitForQueueTurn(req, res, userId, novelId, phase, abortControll
 
   req.on('close', cancelWaiting);
   try {
-    queueTask = await queueManager.enqueue(userId, novelId, phase, groupPriority, res);
+    queueTask = await queueManager.enqueue(userId, novelId, phase, groupPriority, res, { capacityChecker });
   } finally {
     req.off?.('close', cancelWaiting);
   }
@@ -291,8 +317,8 @@ async function _waitForQueueTurn(req, res, userId, novelId, phase, abortControll
   return { queueTaskId: queueTask?.id, groupPriority };
 }
 
-async function _acquireQueueSlot(req, res, userId, novelId, phase, abortController) {
-  const slot = await _waitForQueueTurn(req, res, userId, novelId, phase, abortController);
+async function _acquireQueueSlot(req, res, userId, novelId, phase, abortController, options = {}) {
+  const slot = await _waitForQueueTurn(req, res, userId, novelId, phase, abortController, options);
   return {
     userId,
     novelId,
@@ -485,7 +511,7 @@ function _inferPlanStatus(characters, chapters) {
  * @param {boolean} [opts.rejectIfActive] - 是否在注册前检查重复任务
  */
 function _runSSETask(req, res, novelId, phase, agent, opts) {
-  const { task, onDone, label, rejectIfActive } = opts;
+  const { task, onDone, label, rejectIfActive, modelPhase } = opts;
   const logLabel = label || phase;
 
   const abortController = new AbortController();
@@ -502,7 +528,7 @@ function _runSSETask(req, res, novelId, phase, agent, opts) {
 
   (async () => {
     try {
-      await _waitForQueueTurn(req, res, req.user.id, novelId, phase, abortController);
+      await _waitForQueueTurn(req, res, req.user.id, novelId, phase, abortController, { agent, modelPhase });
       _registerTask(novelId, phase, abortController, {
         userId: req.user.id,
         queueNovelId: novelId,
@@ -766,7 +792,7 @@ const agentService = {
 
         (async () => {
           try {
-            await _waitForQueueTurn(req, res, userId, novelId, 'write_chapter', abortController);
+            await _waitForQueueTurn(req, res, userId, novelId, 'write_chapter', abortController, { agent: writingAgent });
             _registerTask(novelId, 'write_chapter', abortController, {
               userId,
               queueNovelId: novelId,
@@ -1314,7 +1340,7 @@ agentService.planNovel = function (userId, userInput) {
       let queueSlot = null;
       let finalStatus = queueManager.STATUS.COMPLETED;
       try {
-        queueSlot = await _acquireQueueSlot(req, res, userId, 0, 'plan', abortController);
+        queueSlot = await _acquireQueueSlot(req, res, userId, 0, 'plan', abortController, { agent });
         _registerTask(0, 'plan', abortController, {
           userId,
           queueNovelId: 0,
@@ -1481,7 +1507,7 @@ agentService.runImportAnalysis = function (userId, text, instructions) {
       let queueSlot = null;
       let finalStatus = queueManager.STATUS.COMPLETED;
       try {
-        queueSlot = await _acquireQueueSlot(req, res, userId, 0, 'import_analysis', abortController);
+        queueSlot = await _acquireQueueSlot(req, res, userId, 0, 'import_analysis', abortController, { agent });
         _registerTask(0, 'import_analysis', abortController, {
           userId,
           queueNovelId: 0,
@@ -1596,7 +1622,7 @@ agentService.planRevise = function (userId, novelId, feedback) {
       let queueSlot = null;
       let finalStatus = queueManager.STATUS.COMPLETED;
       try {
-        queueSlot = await _acquireQueueSlot(req, res, userId, novelId, 'plan_revise', abortController);
+        queueSlot = await _acquireQueueSlot(req, res, userId, novelId, 'plan_revise', abortController, { agent });
         _registerTask(novelId, 'plan_revise', abortController, {
           userId,
           queueNovelId: novelId,
@@ -1818,7 +1844,10 @@ agentService.chat = function (userId, message, conversationId, fileList) {
       let resolvedConvId = conversationId;
       let filePathsToClean = [];
       try {
-        queueSlot = await _acquireQueueSlot(req, res, userId, 0, 'chat', abortController);
+        queueSlot = await _acquireQueueSlot(req, res, userId, 0, 'chat', abortController, {
+          agent,
+          requireVision: (fileList || []).some(file => file.isImage),
+        });
         agent._abortSignal = abortController.signal;
 
         // 自动创建对话（无 conversationId 时）

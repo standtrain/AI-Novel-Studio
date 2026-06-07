@@ -18,6 +18,9 @@ const DEFAULT_MAX_RUNNING_TASKS = 5;
 const CONCURRENCY_CONFIG_KEY = 'agent_max_concurrent_tasks';
 const CONCURRENCY_CONFIG_TTL_MS = 10 * 1000;
 const RESERVATION_TIMEOUT_MS = 30 * 1000;
+const QUEUE_POLL_INTERVAL_MS = 3000;
+const QUEUE_NOTICE_INTERVAL_MS = 15000;
+const DEFAULT_ESTIMATED_TASK_MS = 120 * 1000;
 
 const STATUS = {
   WAITING: 'waiting',
@@ -36,6 +39,7 @@ let processing = false;
 let maxRunningTasks = DEFAULT_MAX_RUNNING_TASKS;
 let maxRunningTasksLoadedAt = 0;
 let maxRunningTasksLoading = null;
+let queuePollTimer = null;
 
 function buildTaskKey(userId, novelId, phase) {
   return `${userId}:${novelId || 0}:${phase}`;
@@ -118,6 +122,56 @@ function sendSSE(res, event, data) {
 function getQueuePosition(task) {
   sortWaitingQueue();
   return waitingQueue.findIndex((item) => item.id === task.id) + 1;
+}
+
+function formatEstimatedWait(ms) {
+  const seconds = Math.max(1, Math.ceil((ms || 0) / 1000));
+  if (seconds < 60) return `约 ${seconds} 秒`;
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 60) return `约 ${minutes} 分钟`;
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  return restMinutes > 0 ? `约 ${hours} 小时 ${restMinutes} 分钟` : `约 ${hours} 小时`;
+}
+
+function estimateWaitMs(position) {
+  return Math.max(1, position || 1) * DEFAULT_ESTIMATED_TASK_MS;
+}
+
+function buildQueuePayload(task, status, extra = {}) {
+  const position = status === 'waiting' ? Math.max(1, getQueuePosition(task)) : 0;
+  const estimatedWaitMs = status === 'waiting' ? estimateWaitMs(position) : 0;
+  const capacity = extra.capacity || task.capacitySnapshot || {};
+  return {
+    status,
+    position,
+    priority: task.groupPriority,
+    queueLength: waitingQueue.length,
+    waitingCount: waitingQueue.length,
+    runningCount: runningTasks.size,
+    reservedCount: reservedTasks.size,
+    maxRunningTasks: getMaxRunningTasks(),
+    estimatedWaitMs,
+    estimatedWaitText: status === 'waiting' ? formatEstimatedWait(estimatedWaitMs) : '即将开始',
+    reason: extra.reason || task.queueReason || null,
+    reasonText: extra.reasonText || task.queueReasonText || '',
+    selectedMode: extra.selectedMode || task.selectedMode || 'default',
+    providerName: extra.providerName || task.providerName || null,
+    modelName: extra.modelName || task.modelName || null,
+    providerInflight: capacity.inflight,
+    providerMaxConcurrency: capacity.maxConcurrency,
+    providerUnlimited: capacity.unlimited,
+    waitedMs: Date.now() - task.createdAt,
+    message: extra.message || '',
+  };
+}
+
+function sendQueueNotice(task, status, extra = {}) {
+  sendSSE(task.res, 'queue', buildQueuePayload(task, status, extra));
+}
+
+function sendQueueNoticeTo(res, task, status, extra = {}) {
+  sendSSE(res, 'queue', buildQueuePayload(task, status, extra));
 }
 
 async function getUserGroupPriority(userId) {
@@ -238,25 +292,71 @@ function hasCapacity() {
   return limit === 0 || runningTasks.size + reservedTasks.size < limit;
 }
 
-function checkNeedWait() {
-  return !hasCapacity();
+async function hasExecutionCapacity(task) {
+  if (!hasCapacity()) {
+    return {
+      canRun: false,
+      reason: 'global_concurrency_full',
+      reasonText: '当前全局 AI 任务并发已满',
+    };
+  }
+  if (!task?.capacityChecker) {
+    return { canRun: true, reason: 'available' };
+  }
+  try {
+    const result = await task.capacityChecker();
+    return result || { canRun: true, reason: 'available' };
+  } catch (err) {
+    logger.warn(`检查 API 容量失败，允许进入执行阶段兜底重试: ${err.message}`);
+    return { canRun: true, reason: 'capacity_check_failed' };
+  }
 }
 
-function getNextExecutableTask() {
+function applyCapacityMeta(task, capacityStatus = {}) {
+  task.queueReason = capacityStatus.reason || task.queueReason || null;
+  task.queueReasonText = capacityStatus.reasonText || task.queueReasonText || '';
+  task.selectedMode = capacityStatus.selectedMode || task.selectedMode || 'default';
+  task.providerName = capacityStatus.providerName || task.providerName || null;
+  task.modelName = capacityStatus.modelName || task.modelName || null;
+  task.capacitySnapshot = capacityStatus.capacity || task.capacitySnapshot || null;
+}
+
+async function checkNeedWait(capacityChecker = null) {
+  const task = { capacityChecker };
+  const capacity = await hasExecutionCapacity(task);
+  return !capacity.canRun;
+}
+
+async function getNextExecutableTask() {
   if (waitingQueue.length === 0) return null;
   sortWaitingQueue();
-  return waitingQueue.shift();
+  for (let i = 0; i < waitingQueue.length; i++) {
+    const task = waitingQueue[i];
+    if (task.cancelled) continue;
+    const capacityStatus = await hasExecutionCapacity(task);
+    applyCapacityMeta(task, capacityStatus);
+    if (!capacityStatus.canRun) {
+      const now = Date.now();
+      if (!task.lastNoticeAt || now - task.lastNoticeAt >= QUEUE_NOTICE_INTERVAL_MS) {
+        task.lastNoticeAt = now;
+        sendQueueNotice(task, 'waiting', {
+          ...capacityStatus,
+          message: capacityStatus.reasonText || '正在等待可用 API 接口',
+        });
+      }
+      continue;
+    }
+    return waitingQueue.splice(i, 1)[0];
+  }
+  return null;
 }
 
-async function enqueue(userId, novelId, phase, groupPriority, res) {
+async function enqueue(userId, novelId, phase, groupPriority, res, options = {}) {
   await refreshConcurrencyConfig();
   const priority = normalizePriority(groupPriority);
   const existing = findQueuedTask(userId, novelId, phase);
   if (existing) {
-    sendSSE(res, 'queue', {
-      status: 'waiting',
-      position: getQueuePosition(existing),
-      priority: existing.groupPriority,
+    sendQueueNoticeTo(res, existing, 'waiting', {
       message: '相同任务已在队列中，请等待执行',
     });
     throw { status: 409, message: '相同任务已在队列中，请等待执行' };
@@ -274,6 +374,7 @@ async function enqueue(userId, novelId, phase, groupPriority, res) {
     sequence: ++sequence,
     res,
     cancelled: false,
+    capacityChecker: options.capacityChecker || null,
   };
 
   const waitPromise = new Promise((resolve, reject) => {
@@ -285,13 +386,14 @@ async function enqueue(userId, novelId, phase, groupPriority, res) {
     await forceInterruptForHighPriority(userId, priority);
   }
 
-  if (hasCapacity()) {
+  const capacityStatus = await hasExecutionCapacity(task);
+  applyCapacityMeta(task, capacityStatus);
+
+  if (capacityStatus.canRun) {
     task.reservedAt = Date.now();
     reservedTasks.set(task.key, task);
-    sendSSE(res, 'queue', {
-      status: 'running',
-      priority,
-      waitedMs: 0,
+    sendQueueNotice(task, 'running', {
+      ...capacityStatus,
       message: '已获得执行权，开始执行任务',
     });
     logger.info(`任务直接执行: id=${taskId}, userId=${userId}, novelId=${novelId || 0}, phase=${phase}, priority=${priority}`);
@@ -302,36 +404,33 @@ async function enqueue(userId, novelId, phase, groupPriority, res) {
   waitingQueue.push(task);
   sortWaitingQueue();
 
-  sendSSE(res, 'queue', {
-    status: 'waiting',
-    position: getQueuePosition(task),
-    priority,
-    waitingCount: waitingQueue.length,
-    message: '当前已有任务运行，已加入等待队列',
+  task.lastNoticeAt = Date.now();
+  sendQueueNotice(task, 'waiting', {
+    ...capacityStatus,
+    message: capacityStatus.reasonText || '当前接口繁忙，已加入等待队列',
   });
 
   logger.info(`任务入队: id=${taskId}, userId=${userId}, novelId=${novelId || 0}, phase=${phase}, priority=${priority}`);
   processQueue();
+  ensureQueuePolling();
 
   return waitPromise;
 }
 
 async function processQueue() {
   await refreshConcurrencyConfig();
-  if (processing || !hasCapacity()) return;
+  if (processing) return;
   processing = true;
 
   try {
     while (hasCapacity()) {
-      const next = getNextExecutableTask();
+      const next = await getNextExecutableTask();
       if (!next) break;
       if (next.cancelled) continue;
 
       logger.info(`队列任务开始执行: id=${next.id}, userId=${next.userId}, phase=${next.phase}, priority=${next.groupPriority}`);
-      sendSSE(next.res, 'queue', {
-        status: 'running',
-        priority: next.groupPriority,
-        waitedMs: Date.now() - next.createdAt,
+      sendQueueNotice(next, 'running', {
+        reason: 'available',
         message: '排队结束，开始执行任务',
       });
       next.reservedAt = Date.now();
@@ -340,7 +439,24 @@ async function processQueue() {
     }
   } finally {
     processing = false;
+    ensureQueuePolling();
   }
+}
+
+function ensureQueuePolling() {
+  cleanupStaleQueuedTasks();
+  if (waitingQueue.length === 0) {
+    if (queuePollTimer) {
+      clearTimeout(queuePollTimer);
+      queuePollTimer = null;
+    }
+    return;
+  }
+  if (queuePollTimer) return;
+  queuePollTimer = setTimeout(() => {
+    queuePollTimer = null;
+    processQueue().catch((err) => logger.warn(`队列轮询失败: ${err.message}`));
+  }, QUEUE_POLL_INTERVAL_MS);
 }
 
 function registerRunning(userId, novelId, phase, abortController, res, groupPriority, taskId = null) {

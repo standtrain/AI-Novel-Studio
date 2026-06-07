@@ -57,6 +57,7 @@ const ChatPage: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamContent, setStreamContent] = useState('');
+  const [queueNotice, setQueueNotice] = useState('');
 
   const abortRef = useRef<AbortController | null>(null);
   const streamingRef = useRef(false);
@@ -234,6 +235,7 @@ const ChatPage: React.FC = () => {
     convIdRef.current = null;
     setMessages([]);
     setStreamContent('');
+    setQueueNotice('');
     setIsStreaming(false);
     streamingRef.current = false;
   };
@@ -248,6 +250,7 @@ const ChatPage: React.FC = () => {
     }
     setActiveConvId(id);
     setStreamContent('');
+    setQueueNotice('');
   };
 
   // 删除对话
@@ -282,6 +285,21 @@ const ChatPage: React.FC = () => {
     setMessages((prev) => [...prev, { role: 'assistant', content }]);
   };
 
+  const formatQueueNotice = (data: any) => {
+    const queueLength = data.queueLength ?? data.waitingCount ?? 0;
+    const runningCount = data.runningCount ?? 0;
+    const maxRunning = data.maxRunningTasks === 0 ? '不限' : (data.maxRunningTasks ?? '-');
+    const modelInfo = data.providerName && data.modelName
+      ? `\n接口模型：${data.providerName}/${data.modelName}`
+      : '';
+    if (data.status === 'running') {
+      const waited = data.waitedMs ? `，已等待约 ${Math.ceil(data.waitedMs / 1000)} 秒` : '';
+      return `排队结束${waited}，正在开始生成。`;
+    }
+    const reason = data.reasonText || data.message || '当前接口繁忙，已加入等待队列';
+    return `${reason}\n队列长度：${queueLength}，当前位置：${data.position || 1}，预计等待：${data.estimatedWaitText || '计算中'}\n运行中：${runningCount}/${maxRunning}${modelInfo}`;
+  };
+
   const handleSend = () => {
     const trimmed = inputValue.trim();
     const hasFiles = selectedFiles.length > 0;
@@ -300,6 +318,7 @@ const ChatPage: React.FC = () => {
     setInputValue('');
     setIsStreaming(true);
     setStreamContent('');
+    setQueueNotice('');
     streamingRef.current = true;
 
     const filesToSend = hasFiles ? [...selectedFiles] : undefined;
@@ -315,7 +334,11 @@ const ChatPage: React.FC = () => {
             convIdRef.current = data.conversationId;
           }
           break;
+        case 'queue':
+          setQueueNotice(formatQueueNotice(data));
+          break;
         case 'chunk':
+          setQueueNotice('');
           setStreamContent((prev) => prev + (data.text || ''));
           break;
         case 'model_fallback':
@@ -326,11 +349,13 @@ const ChatPage: React.FC = () => {
           break;
         case 'error':
           msgApi.error(data.message || '对话失败');
+          setQueueNotice('');
           setIsStreaming(false);
           streamingRef.current = false;
           break;
         case 'abort':
           setStreamContent('');
+          setQueueNotice('');
           setIsStreaming(false);
           streamingRef.current = false;
           loadConversations();
@@ -340,6 +365,7 @@ const ChatPage: React.FC = () => {
             appendAssistant(prev);
             return '';
           });
+          setQueueNotice('');
           setIsStreaming(false);
           streamingRef.current = false;
           loadConversations();
@@ -803,7 +829,7 @@ const ChatPage: React.FC = () => {
                         borderTopLeftRadius: 4,
                       }}
                     >
-                      {streamContent || <Spin size="small" />}
+                      {streamContent || queueNotice || <Spin size="small" />}
                       {streamContent && <span className="stream-cursor" />}
                     </div>
                   </div>

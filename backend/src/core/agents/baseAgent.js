@@ -32,6 +32,10 @@ function getPromptPhaseSet(phase) {
   return phases;
 }
 
+function isExactPreferredModel(value) {
+  return typeof value === 'string' && value.includes('::');
+}
+
 class BaseAgent {
   constructor(contextManager, options = {}) {
     this._clients = new Map();
@@ -75,6 +79,7 @@ class BaseAgent {
   async _withProviderRetry(phase, options = {}, runner) {
     const maxProviderAttempts = options.maxProviderAttempts || 20;
     const excludedProviders = new Set(options.excludeProviders || []);
+    const exactPreferredModel = isExactPreferredModel(this.preferredModel);
     let lastError = null;
     let allSkipReasons = [];
 
@@ -88,6 +93,9 @@ class BaseAgent {
 
       const releaseProviderSlot = acquireProviderSlot(provider);
       if (!releaseProviderSlot) {
+        if (exactPreferredModel) {
+          throw { status: 429, message: `所选模型 ${provider.name}/${model} 当前接口并发已满，请稍后重试` };
+        }
         excludedProviders.add(provider.name);
         allSkipReasons.push(`API ${provider.name} 当前并发已满，已自动切换`);
         continue;
@@ -107,6 +115,9 @@ class BaseAgent {
           throw err;
         }
         markProviderUnavailable(provider.name, err.status || err.code || 'retryable_error');
+        if (exactPreferredModel) {
+          throw err;
+        }
         excludedProviders.add(provider.name);
         allSkipReasons.push(`API ${provider.name} 请求受限或暂不可用，已自动切换`);
         logger.warn({ provider: provider.name, model, attempt: attempt + 1 }, 'LLM Provider 不可用，尝试切换');

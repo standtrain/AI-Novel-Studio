@@ -259,10 +259,31 @@ const NovelPage: React.FC = () => {
   };
 
   // ====== SSE 事件处理 ======
+  const formatQueueNotice = (data: any) => {
+    const queueLength = data.queueLength ?? data.waitingCount ?? 0;
+    const runningCount = data.runningCount ?? 0;
+    const maxRunning = data.maxRunningTasks === 0 ? '不限' : (data.maxRunningTasks ?? '-');
+    const modelInfo = data.providerName && data.modelName
+      ? `\n接口模型：${data.providerName}/${data.modelName}`
+      : '';
+    const reason = data.reasonText || data.message || '当前接口繁忙';
+    if (data.status === 'running') {
+      const waited = data.waitedMs ? `，本次等待约 ${Math.ceil(data.waitedMs / 1000)} 秒` : '';
+      return `\n\n[排队结束] 已获得执行权${waited}，开始执行任务。\n`;
+    }
+    return `\n\n[排队中] ${reason}\n队列长度：${queueLength}，当前位置：${data.position || 1}，预计等待：${data.estimatedWaitText || '计算中'}\n运行中：${runningCount}/${maxRunning}${modelInfo}\n`;
+  };
+
   const handleSSEEvent = (event: string, data: any) => {
     // 守卫：如果 SSE 事件对应的 novelId 与当前页面不匹配，忽略该事件
     if (activeNovelIdRef.current !== novelId) return;
     switch (event) {
+      case 'queue':
+        appendStreamText(formatQueueNotice(data));
+        if (data.status === 'waiting') {
+          message.info(data.message || data.reasonText || '已加入等待队列');
+        }
+        break;
       case 'progress':
         message.info(data.message);
         // 写作流程的步骤进度同步追加到流式输出区，让用户看到写入阶段

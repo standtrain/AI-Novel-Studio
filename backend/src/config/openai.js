@@ -163,6 +163,17 @@ function _isProviderAtCapacity(provider) {
   return (providerInflight.get(_providerKey(provider)) || 0) >= maxConcurrency;
 }
 
+function _getProviderCapacitySnapshot(provider) {
+  const maxConcurrency = _getProviderMaxConcurrency(provider);
+  const inflight = providerInflight.get(_providerKey(provider)) || 0;
+  return {
+    maxConcurrency,
+    inflight,
+    unlimited: maxConcurrency === 0,
+    available: maxConcurrency === 0 || inflight < maxConcurrency,
+  };
+}
+
 function _rotateSamePriorityProviders(providers, phaseKey) {
   const grouped = new Map();
   providers.forEach((provider) => {
@@ -217,6 +228,159 @@ function modelSupportsVision(model = {}) {
   const name = String(model.name || '').toLowerCase();
   if (/(embedding|tts|audio|whisper|moderation)/.test(name)) return false;
   return /(gpt-4o|gpt-4\.1|gpt-5|o3|o4|gemini|claude-3|claude-4|qwen.*vl|vision|llava|\bvl\b)/.test(name);
+}
+
+function _parsePreferredModel(preferredModelName) {
+  if (!preferredModelName) return { providerName: null, modelName: null };
+  const parts = String(preferredModelName).split('::');
+  if (parts.length > 1) {
+    return { providerName: parts[0] || null, modelName: parts.slice(1).join('::') || null };
+  }
+  return { providerName: null, modelName: preferredModelName };
+}
+
+function _buildCapacityResult(canRun, reason, details = {}) {
+  return {
+    canRun,
+    reason,
+    reasonText: details.reasonText || '',
+    selectedMode: details.selectedMode || 'default',
+    providerName: details.providerName || null,
+    modelName: details.modelName || null,
+    availableProviders: details.availableProviders || 0,
+    eligibleProviders: details.eligibleProviders || 0,
+    capacity: details.capacity || null,
+    skipReasons: details.skipReasons || [],
+  };
+}
+
+/**
+ * 只检查当前模型/API 是否有可执行容量，不占用并发槽位。
+ * 默认模式：任一匹配当前阶段的 API 有容量即可放行。
+ * 指定模型：只看用户指定的 provider/model，满载时进入队列。
+ */
+async function inspectModelCapacity(phase, options = {}) {
+  const { preferredModelName, checkLimitFn, requireVision } = options;
+  const phaseKey = phaseMap[phase] || phase;
+  const sortedProviders = _rotateSamePriorityProviders(_sortedProviders(), phaseKey);
+  const preferred = _parsePreferredModel(preferredModelName);
+  const selectedMode = preferred.modelName ? 'preferred' : 'default';
+  const skipReasons = [];
+  let eligibleProviders = 0;
+  let busyProviders = 0;
+  let coolingProviders = 0;
+  let limitedModels = 0;
+  let unsupportedModels = 0;
+
+  async function checkProvider(provider, targetModelName) {
+    const matchingModels = (provider.models || []).filter((model) => {
+      if (!_modelMatchesPhase(model, phaseKey)) return false;
+      if (targetModelName && model.name !== targetModelName) return false;
+      if (requireVision && !modelSupportsVision(model)) {
+        unsupportedModels++;
+        return false;
+      }
+      return true;
+    });
+
+    if (matchingModels.length === 0) return null;
+    eligibleProviders++;
+
+    if (_isProviderCooling(provider.name)) {
+      coolingProviders++;
+      skipReasons.push(`API ${provider.name} 正在冷却中`);
+      return { provider, model: matchingModels[0], blocked: true, reason: 'cooling' };
+    }
+
+    const capacity = _getProviderCapacitySnapshot(provider);
+    if (!capacity.available) {
+      busyProviders++;
+      skipReasons.push(`API ${provider.name} 当前并发已满`);
+      return { provider, model: matchingModels[0], blocked: true, reason: 'provider_full', capacity };
+    }
+
+    for (const model of matchingModels) {
+      if (checkLimitFn) {
+        try {
+          const { available, reason } = await checkLimitFn(provider.name, model.name);
+          if (!available) {
+            limitedModels++;
+            skipReasons.push(reason || `模型 ${provider.name}/${model.name} 额度不可用`);
+            continue;
+          }
+        } catch {
+          // 限额检查失败不阻塞容量探测，实际调用阶段仍会再次检查。
+        }
+      }
+
+      return { provider, model, blocked: false, capacity };
+    }
+
+    return { provider, model: matchingModels[0], blocked: true, reason: 'token_limited', capacity };
+  }
+
+  if (selectedMode === 'preferred') {
+    const candidates = preferred.providerName
+      ? sortedProviders.filter((provider) => provider.name === preferred.providerName)
+      : sortedProviders;
+    for (const provider of candidates) {
+      const result = await checkProvider(provider, preferred.modelName);
+      if (!result) continue;
+      const detail = {
+        selectedMode,
+        providerName: result.provider.name,
+        modelName: result.model.name,
+        eligibleProviders,
+        capacity: result.capacity || _getProviderCapacitySnapshot(result.provider),
+        skipReasons,
+      };
+      if (!result.blocked) return _buildCapacityResult(true, 'available', detail);
+      if (result.reason === 'provider_full') {
+        return _buildCapacityResult(false, 'preferred_model_busy', {
+          ...detail,
+          reasonText: `所选模型 ${result.provider.name}/${result.model.name} 当前接口并发已满`,
+        });
+      }
+      return _buildCapacityResult(false, result.reason || 'preferred_model_unavailable', {
+        ...detail,
+        reasonText: `所选模型 ${result.provider.name}/${result.model.name} 暂不可用`,
+      });
+    }
+
+    return _buildCapacityResult(true, 'preferred_model_not_matched', {
+      selectedMode,
+      providerName: preferred.providerName,
+      modelName: preferred.modelName,
+      skipReasons,
+    });
+  }
+
+  for (const provider of sortedProviders) {
+    const result = await checkProvider(provider, null);
+    if (!result) continue;
+    if (!result.blocked) {
+      return _buildCapacityResult(true, 'available', {
+        selectedMode,
+        providerName: result.provider.name,
+        modelName: result.model.name,
+        eligibleProviders,
+        availableProviders: 1,
+        capacity: result.capacity,
+        skipReasons,
+      });
+    }
+  }
+
+  const allBusy = eligibleProviders > 0 && busyProviders + coolingProviders + limitedModels >= eligibleProviders;
+  return _buildCapacityResult(!allBusy, allBusy ? 'all_apis_busy' : 'no_matching_api', {
+    selectedMode,
+    eligibleProviders,
+    availableProviders: 0,
+    skipReasons,
+    reasonText: allBusy
+      ? '当前所有可用 API 均已满载或暂不可用'
+      : (unsupportedModels > 0 ? '当前可用模型不满足本次任务能力要求' : '未匹配到当前阶段可用模型'),
+  });
 }
 
 /**
@@ -286,10 +450,10 @@ async function pickModel(phase, options = {}) {
 
     let searchProviders = sortedProviders;
     if (targetProviderName) {
-      // 先在指定 Provider 中查找
+      // provider::model 表示用户精确选择了某个接口，满载时进入队列，不自动换到其它接口。
       const targetProvider = sortedProviders.find(p => p.name === targetProviderName);
       if (targetProvider) {
-        searchProviders = [targetProvider, ...sortedProviders.filter(p => p.name !== targetProviderName)];
+        searchProviders = [targetProvider];
       }
     }
 
@@ -297,6 +461,14 @@ async function pickModel(phase, options = {}) {
     if (result) return { ...result, skipReasons };
 
     skipReasons.push(`首选模型 ${preferredModelName} 不可用或未匹配当前阶段`);
+    if (targetProviderName) {
+      throw {
+        status: availabilitySkipped ? 429 : 400,
+        message: availabilitySkipped
+          ? `所选模型 ${preferredModelName} 当前接口繁忙或暂不可用，请稍后重试`
+          : `所选模型 ${preferredModelName} 不可用或未匹配当前阶段`,
+      };
+    }
   }
 
   // 2. 指定 Provider（兼容旧逻辑）
@@ -472,6 +644,7 @@ module.exports = {
   getNextAvailableProvider,
   updateProviderPriority,
   modelSupportsVision,
+  inspectModelCapacity,
   acquireProviderSlot,
   markProviderUnavailable,
   isRetryableProviderError,

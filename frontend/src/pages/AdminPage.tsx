@@ -92,7 +92,7 @@ const AdminPage: React.FC = () => {
   };
 
   const totalHits = searchResult
-    ? searchResult.users.length + searchResult.novels.length + searchResult.configs.length
+    ? searchResult.users.length + searchResult.novels.length + searchResult.configs.length + searchResult.notifications.length
     : 0;
 
   // 点击搜索结果跳转到对应 tab
@@ -101,6 +101,7 @@ const AdminPage: React.FC = () => {
     if (_type === 'user') onChange('users');
     else if (_type === 'novel') onChange('novels');
     else if (_type === 'config') onChange('config');
+    else if (_type === 'notification') onChange('notifications');
   };
 
   if (user?.group?.name !== 'admin') {
@@ -128,7 +129,7 @@ const AdminPage: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <Title level={4} style={{ margin: 0 }}>管理后台</Title>
           <Input.Search
-            placeholder="全局搜索（用户、小说、配置）..."
+            placeholder="全局搜索（用户、小说、配置、通知）..."
             value={searchTerm}
             onChange={(e) => handleSearchChange(e.target.value)}
             onFocus={() => { if (searchTerm.trim()) setShowResults(true); }}
@@ -157,7 +158,7 @@ const AdminPage: React.FC = () => {
           }}>
             <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(99,102,241,0.15)' }}>
               <Text style={{ color: '#94a3b8', fontSize: 12 }}>
-                {searching ? '搜索中...' : <>找到 <Text strong style={{ color: '#a5b4fc' }}>{totalHits}</Text> 项结果（用户、小说、配置）</>}
+                {searching ? '搜索中...' : <>找到 <Text strong style={{ color: '#a5b4fc' }}>{totalHits}</Text> 项结果（用户、小说、配置、通知）</>}
               </Text>
             </div>
             {!searchResult || totalHits === 0 ? (
@@ -268,6 +269,39 @@ const AdminPage: React.FC = () => {
                           </List.Item>
                         );
                       }}
+                    />
+                  </>
+                )}
+
+                {/* 通知 */}
+                {searchResult.notifications.length > 0 && (
+                  <>
+                    <div style={{ padding: '8px 16px', background: 'rgba(99,102,241,0.06)' }}>
+                      <Text style={{ color: '#818cf8', fontSize: 11, fontWeight: 600 }}>
+                        <BellOutlined style={{ marginRight: 6 }} />通知
+                      </Text>
+                    </div>
+                    <List
+                      dataSource={searchResult.notifications}
+                      renderItem={(item: any) => (
+                        <List.Item onClick={() => handleResultClick('notification')} style={resultItemStyle}>
+                          <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <Text style={{ color: '#f1f5f9', fontSize: 13 }}>{item.title}</Text>
+                              <Text style={{ color: '#64748b', fontSize: 11, display: 'block', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {item.content?.substring(0, 80)}{item.content?.length > 80 ? '...' : ''}
+                              </Text>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 8 }}>
+                              {item.enabled ? (
+                                <Tag style={{ fontSize: 10, background: 'rgba(52,211,141,0.12)', border: 'none', color: '#34d399' }}>已启用</Tag>
+                              ) : (
+                                <Tag style={{ fontSize: 10, background: 'rgba(100,116,139,0.12)', border: 'none', color: '#94a3b8' }}>已禁用</Tag>
+                              )}
+                            </div>
+                          </div>
+                        </List.Item>
+                      )}
                     />
                   </>
                 )}

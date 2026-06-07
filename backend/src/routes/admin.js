@@ -55,11 +55,11 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-// 全局搜索（跨模块：用户、小说、配置项）
+// 全局搜索（跨模块：用户、小说、配置项、通知）
 router.get('/search', async (req, res) => {
   try {
     const { q } = req.query;
-    if (!q || !q.trim()) return res.json({ users: [], novels: [], configs: [] });
+    if (!q || !q.trim()) return res.json({ users: [], novels: [], configs: [], notifications: [] });
 
     const term = `%${q.trim()}%`;
     const { db } = require('../config/database');
@@ -96,10 +96,21 @@ router.get('/search', async (req, res) => {
       })
       .limit(10);
 
+    // 搜索通知（标题、内容）
+    const notifications = await db('notifications')
+      .select('id', 'title', 'content', 'enabled', 'show_popup', 'show_banner', 'show_inmail', 'show_email', 'created_at')
+      .where(function () {
+        this.where('title', 'like', term)
+          .orWhere('content', 'like', term);
+      })
+      .orderBy('created_at', 'desc')
+      .limit(10);
+
     res.json({
       users: users.map(u => ({ ...u, _type: 'user' })),
       novels: novels.map(n => ({ ...n, _type: 'novel' })),
       configs: configs.map(c => ({ ...c, _type: 'config' })),
+      notifications: notifications.map(n => ({ ...n, _type: 'notification' })),
     });
   } catch (err) {
     res.status(500).json({ error: '搜索失败' });

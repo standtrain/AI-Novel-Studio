@@ -20,6 +20,18 @@ const novelDao = {
     return { rows, total: parseInt(total, 10), page, limit };
   },
 
+  async findByUserId(userId, { limit = 100, status } = {}) {
+    let query = db(TABLE)
+      .select('id', 'user_id', 'title', 'genre', 'theme', 'status', 'current_step', 'chapter_count', 'created_at', 'updated_at')
+      .where('user_id', userId)
+      .orderBy('updated_at', 'desc')
+      .limit(limit);
+    if (status) {
+      query = query.andWhere('status', status);
+    }
+    return query;
+  },
+
   async create(data) {
     const [id] = await db(TABLE).insert(data);
     return id;

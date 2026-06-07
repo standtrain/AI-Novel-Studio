@@ -75,6 +75,61 @@ const PLATFORM_TOOLS = [
   },
 ];
 
+const NOVEL_STATUS_SET = new Set(['draft', 'outline', 'characters', 'chapters_outline', 'writing', 'completed']);
+
+function _requireMcpUser(context) {
+  const userId = Number(context?.userId);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    throw new Error('请使用用户登录令牌访问该工具，避免跨用户读取数据');
+  }
+  return userId;
+}
+
+function _toPositiveInt(value, fieldName) {
+  const num = Number(value);
+  if (!Number.isInteger(num) || num <= 0) {
+    throw new Error(`${fieldName} 参数无效`);
+  }
+  return num;
+}
+
+function _normalizeLimit(value, fallback = 20, max = 100) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const limit = _toPositiveInt(value, 'limit');
+  return Math.min(limit, max);
+}
+
+function _normalizeStatus(status) {
+  if (status === undefined || status === null || status === '') return null;
+  const text = String(status).trim();
+  if (!NOVEL_STATUS_SET.has(text)) {
+    throw new Error('status 参数无效');
+  }
+  return text;
+}
+
+function _normalizeText(value, fieldName, maxLength, required = false) {
+  const text = value === undefined || value === null ? '' : String(value).replace(/\u0000/g, '').trim();
+  if (required && !text) {
+    throw new Error(`缺少 ${fieldName} 参数`);
+  }
+  if (text.length > maxLength) {
+    throw new Error(`${fieldName} 不能超过 ${maxLength} 个字符`);
+  }
+  return text;
+}
+
+async function _getOwnedNovel(novelId, userId) {
+  const novelDao = require('../../dao/novelDao');
+  const novel = await novelDao.findById(novelId);
+  if (!novel) throw new Error('小说不存在');
+  // MCP 属于外部入口，所有按 novel_id 读取的数据必须先校验小说归属。
+  if (Number(novel.user_id) !== Number(userId)) {
+    throw new Error('无权访问该小说');
+  }
+  return novel;
+}
+
 // 处理 JSON-RPC 请求
 async function handleJsonRpc(request, context) {
   const { method, params, id } = request;
@@ -133,16 +188,14 @@ async function handleJsonRpc(request, context) {
 
 // 执行工具调用
 async function _executeTool(toolName, args, context) {
-  const { userId } = context;
+  const userId = _requireMcpUser(context);
 
   switch (toolName) {
     case 'list_novels': {
       const novelDao = require('../../dao/novelDao');
-      const novels = await novelDao.findByUserId(userId);
-      const limit = args?.limit || 20;
-      const filtered = args?.status
-        ? novels.filter(n => n.status === args.status).slice(0, limit)
-        : novels.slice(0, limit);
+      const limit = _normalizeLimit(args?.limit);
+      const status = _normalizeStatus(args?.status);
+      const filtered = await novelDao.findByUserId(userId, { limit, status });
 
       return {
         content: [{
@@ -161,13 +214,11 @@ async function _executeTool(toolName, args, context) {
     }
 
     case 'get_novel': {
-      if (!args?.novel_id) throw new Error('缺少 novel_id 参数');
-      const novelDao = require('../../dao/novelDao');
+      const novelId = _toPositiveInt(args?.novel_id, 'novel_id');
       const chapterDao = require('../../dao/chapterDao');
       const characterDao = require('../../dao/characterDao');
 
-      const novel = await novelDao.findById(args.novel_id);
-      if (!novel) throw new Error('小说不存在');
+      const novel = await _getOwnedNovel(novelId, userId);
 
       const [chapters, characters] = await Promise.all([
         chapterDao.findByNovelId(novel.id),
@@ -183,15 +234,17 @@ async function _executeTool(toolName, args, context) {
     }
 
     case 'create_novel': {
-      if (!args?.title) throw new Error('缺少 title 参数');
+      const title = _normalizeText(args?.title, 'title', 200, true);
+      const genre = _normalizeText(args?.genre, 'genre', 100);
       const novelDao = require('../../dao/novelDao');
-      const novel = await novelDao.create({
+      const novelId = await novelDao.create({
         user_id: userId,
-        title: args.title,
-        genre: args.genre || '',
+        title,
+        genre,
         status: 'draft',
         current_step: 0,
       });
+      const novel = await novelDao.findById(novelId);
 
       return {
         content: [{
@@ -202,9 +255,10 @@ async function _executeTool(toolName, args, context) {
     }
 
     case 'get_characters': {
-      if (!args?.novel_id) throw new Error('缺少 novel_id 参数');
+      const novelId = _toPositiveInt(args?.novel_id, 'novel_id');
+      await _getOwnedNovel(novelId, userId);
       const characterDao = require('../../dao/characterDao');
-      const characters = await characterDao.findByNovelId(args.novel_id);
+      const characters = await characterDao.findByNovelId(novelId);
 
       return {
         content: [{
@@ -215,9 +269,10 @@ async function _executeTool(toolName, args, context) {
     }
 
     case 'get_chapters': {
-      if (!args?.novel_id) throw new Error('缺少 novel_id 参数');
+      const novelId = _toPositiveInt(args?.novel_id, 'novel_id');
+      await _getOwnedNovel(novelId, userId);
       const chapterDao = require('../../dao/chapterDao');
-      const chapters = await chapterDao.findByNovelId(args.novel_id);
+      const chapters = await chapterDao.findByNovelId(novelId);
 
       return {
         content: [{

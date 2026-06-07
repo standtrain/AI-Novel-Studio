@@ -9,7 +9,7 @@ const router = Router();
 
 // API Key 认证中间件
 // 优先从 Authorization header 提取，其次从 x-api-key header
-function mcpAuth(req, res, next) {
+async function mcpAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   const apiKeyHeader = req.headers['x-api-key'];
 
@@ -20,10 +20,11 @@ function mcpAuth(req, res, next) {
     token = apiKeyHeader;
   }
 
-  // 从站点配置获取 MCP API Key
-  const configDao = require('../dao/configDao');
+  try {
+    // 从站点配置获取 MCP API Key
+    const configDao = require('../dao/configDao');
+    const expectedKey = await configDao.get('mcp_api_key');
 
-  configDao.get('mcp_api_key').then(expectedKey => {
     // 如果未配置 API Key，拒绝所有外部请求
     if (!expectedKey) {
       logger.warn('MCP API Key 未配置，拒绝所有外部请求。请在管理后台"安全设置"中配置 mcp_api_key。');
@@ -40,7 +41,15 @@ function mcpAuth(req, res, next) {
         const jwt = require('jsonwebtoken');
         const auth = require('../config/auth');
         const decoded = jwt.verify(token, auth.JWT_SECRET);
-        req.mcpUserId = decoded.userId;
+        // 平台 JWT 使用 id 字段；兼容历史 userId 字段，避免外部工具拿不到当前用户身份。
+        const userId = decoded.id || decoded.userId;
+        if (!userId) {
+          return res.status(401).json({
+            jsonrpc: '2.0',
+            error: { code: -32001, message: '未授权：用户身份无效' },
+          });
+        }
+        req.mcpUserId = userId;
         return next();
       } catch {
         return res.status(401).json({
@@ -53,13 +62,13 @@ function mcpAuth(req, res, next) {
     // API Key 认证通过，使用匿名/管理员身份
     req.mcpUserId = null;
     next();
-  }).catch(err => {
+  } catch (err) {
     logger.error('MCP 认证失败：' + err.message);
     res.status(500).json({
       jsonrpc: '2.0',
       error: { code: -32603, message: '服务器内部错误' },
     });
-  });
+  }
 }
 
 // MCP JSON-RPC 端点

@@ -154,12 +154,12 @@ async function _createAgent(ctx, userId, phase, AgentClass = NovelWritingAgent) 
 
 const _activeTasks = new Map();
 
-function _taskKey(novelId, phase) {
-  return `${novelId}:${phase}`;
+function _taskKey(userId, novelId, phase) {
+  return `${userId || 'anon'}:${novelId}:${phase}`;
 }
 
-function _cancelTask(novelId, phase) {
-  const key = _taskKey(novelId, phase);
+function _cancelTask(userId, novelId, phase) {
+  const key = _taskKey(userId, novelId, phase);
   const existing = _activeTasks.get(key);
   if (existing) {
     logger.info(`取消旧的进行中任务：${key}`);
@@ -173,13 +173,17 @@ function _cancelTask(novelId, phase) {
 }
 
 function _registerTask(novelId, phase, abortController, queueMeta = {}) {
-  const key = _taskKey(novelId, phase);
-  _cancelTask(novelId, phase);
+  const userId = queueMeta.userId;
+  const key = _taskKey(userId, novelId, phase);
+  _cancelTask(userId, novelId, phase);
+  // AbortController 本身会贯穿任务生命周期，记录用户维度用于清理同一个任务键。
+  abortController._taskUserId = userId;
   _activeTasks.set(key, { abortController, ...queueMeta });
 }
 
 function _cleanupTask(novelId, phase, abortController, status = queueManager.STATUS.COMPLETED) {
-  const key = _taskKey(novelId, phase);
+  const userId = abortController?._taskUserId;
+  const key = _taskKey(userId, novelId, phase);
   // 仅当 Map 中的 AbortController 与当前一致时才删除，防止旧任务误清新任务
   const existing = _activeTasks.get(key);
   const currentAbortController = existing?.abortController || existing;
@@ -193,8 +197,8 @@ function _cleanupTask(novelId, phase, abortController, status = queueManager.STA
 
 // 如果该 novel + phase 已有进行中任务，抛出 409 拒绝新请求
 // 但如果旧任务已被中止（abortController.signal.aborted），自动清理并放行
-function _rejectIfActive(novelId, phase) {
-  const key = _taskKey(novelId, phase);
+function _rejectIfActive(userId, novelId, phase) {
+  const key = _taskKey(userId, novelId, phase);
   const existing = _activeTasks.get(key);
   if (existing) {
     const abortController = existing.abortController || existing;
@@ -207,7 +211,7 @@ function _rejectIfActive(novelId, phase) {
   }
   // 也检查相关的写章任务（写章时不允许独立审查/提取）
   if (phase !== 'write_chapter') {
-    const writeKey = _taskKey(novelId, 'write_chapter');
+    const writeKey = _taskKey(userId, novelId, 'write_chapter');
     const writeTask = _activeTasks.get(writeKey);
     if (writeTask) {
       const writeAbortController = writeTask.abortController || writeTask;
@@ -341,9 +345,26 @@ async function _recordUsage(userId, novelId, phase, usage, model, provider) {
 
 // ========== 构建小说上下文对象 ==========
 
-async function _buildNovelContext(novelId) {
-  const novel = await novelDao.findById(novelId);
+function _assertNovelOwner(novel, userId) {
   if (!novel) throw { status: 404, message: '小说不存在' };
+  if (!Number.isInteger(Number(userId)) || Number(userId) <= 0) {
+    throw { status: 401, message: '用户身份无效' };
+  }
+  // 生成服务会读取完整大纲、角色和章节，服务层必须再次校验小说归属。
+  if (Number(novel.user_id) !== Number(userId)) {
+    throw { status: 403, message: '无权访问该小说' };
+  }
+  return novel;
+}
+
+async function _getOwnedNovel(novelId, userId) {
+  const novel = await novelDao.findById(novelId);
+  return _assertNovelOwner(novel, userId);
+}
+
+async function _buildNovelContext(novelId, userId) {
+  const novel = await novelDao.findById(novelId);
+  _assertNovelOwner(novel, userId);
 
   const characters = await characterDao.findByNovelId(novelId);
   const allChapters = await chapterDao.findByNovelId(novelId);
@@ -469,7 +490,7 @@ function _runSSETask(req, res, novelId, phase, agent, opts) {
 
   const abortController = new AbortController();
   if (rejectIfActive) {
-    _rejectIfActive(novelId, phase);
+    _rejectIfActive(req.user.id, novelId, phase);
   }
 
   setupSSE(res);
@@ -518,6 +539,7 @@ function _runSSETask(req, res, novelId, phase, agent, opts) {
 const agentService = {
   // ========== 阶段1：生成大纲 ==========
   async generateOutline(userId, novelId, userInput) {
+    await _getOwnedNovel(novelId, userId);
     const ctx = new ContextManager(novelDao, novelId);
     await ctx.loadContext();
 
@@ -557,7 +579,7 @@ const agentService = {
 
   // ========== 阶段2：生成人物设定 ==========
   async generateCharacters(userId, novelId) {
-    const { novel } = await _buildNovelContext(novelId);
+    const { novel } = await _buildNovelContext(novelId, userId);
     const ctx = new ContextManager(novelDao, novelId);
     await ctx.loadContext();
 
@@ -611,7 +633,7 @@ const agentService = {
 
   // ========== 阶段3：生成逐章大纲（支持分段生成） ==========
   async generateChapterOutlines(userId, novelId, startChapter) {
-    const { novel } = await _buildNovelContext(novelId);
+    const { novel } = await _buildNovelContext(novelId, userId);
     const ctx = new ContextManager(novelDao, novelId);
     await ctx.loadContext();
 
@@ -689,7 +711,7 @@ const agentService = {
   // ========== 阶段4：写章节（5步主链） ==========
   // 上下文组装 → 起草 → 审查+润色 → 数据提取 → 持久化
   async writeChapter(userId, novelId, chapterNumber) {
-    const { novel, characters, allChapters } = await _buildNovelContext(novelId);
+    const { novel, characters, allChapters } = await _buildNovelContext(novelId, userId);
     const ctx = new ContextManager(novelDao, novelId);
     await ctx.loadContext();
 
@@ -732,7 +754,7 @@ const agentService = {
     return {
       execute: (req, res) => {
         const abortController = new AbortController();
-        _rejectIfActive(novelId, 'write_chapter');
+        _rejectIfActive(userId, novelId, 'write_chapter');
 
         setupSSE(res);
         const onProgress = (event, data) => {
@@ -1007,7 +1029,7 @@ ${finalContent}
 
   // ========== 独立审查（不重新生成正文） ==========
   async reviewChapter(userId, novelId, chapterNumber) {
-    const { novel, characters, allChapters } = await _buildNovelContext(novelId);
+    const { novel, characters, allChapters } = await _buildNovelContext(novelId, userId);
 
     const targetChapter = allChapters.find(c => c.chapter_number === chapterNumber);
     if (!targetChapter || !targetChapter.content) {
@@ -1066,7 +1088,7 @@ ${finalContent}
 
   // ========== 独立数据提取（用于已有章节） ==========
   async extractChapterData(userId, novelId, chapterNumber) {
-    const { characters, allChapters } = await _buildNovelContext(novelId);
+    const { characters, allChapters } = await _buildNovelContext(novelId, userId);
 
     const targetChapter = allChapters.find(c => c.chapter_number === chapterNumber);
     if (!targetChapter || !targetChapter.content) {
@@ -1110,8 +1132,7 @@ ${finalContent}
 
   // ========== AI 修订内容 ==========
   async reviseContent(userId, novelId, { phase, chapterNumber, currentContent, feedback }) {
-    const novel = await novelDao.findById(novelId);
-    if (!novel) throw { status: 404, message: '小说不存在' };
+    const novel = await _getOwnedNovel(novelId, userId);
 
     const ctx = new ContextManager(novelDao, novelId);
     await ctx.loadContext();
@@ -1186,7 +1207,7 @@ ${finalContent}
               wordCount = countWords(finalRevised);
 
               try {
-                const { novel, characters, allChapters } = await _buildNovelContext(novelId);
+                const { novel, characters, allChapters } = await _buildNovelContext(novelId, userId);
                 const reviewAgent = await _createAgent(null, userId, 'review', ReviewerAgent);
                 reviewAgent._abortSignal = abortController.signal;
 
@@ -1583,13 +1604,8 @@ agentService.planRevise = function (userId, novelId, feedback) {
         });
         agent._abortSignal = abortController.signal;
 
-        // 从 DB 加载当前方案
-        const novel = await novelDao.findById(novelId);
-        if (!novel) {
-          sendSSE(res, 'error', { message: '小说不存在' });
-          _safeEnd(res);
-          return;
-        }
+        // 从 DB 加载当前方案，读取前先校验小说归属，避免方案修订串线。
+        const novel = await _getOwnedNovel(novelId, userId);
 
         const characters = await characterDao.findByNovelId(novelId);
         const chapters = await chapterDao.findByNovelId(novelId);

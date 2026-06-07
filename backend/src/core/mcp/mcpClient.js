@@ -1,6 +1,7 @@
 // MCP 客户端管理器
 // 管理与外部 MCP 服务器的连接、工具发现和调用
 const { createLogger } = require('../../utils/logger');
+const crypto = require('crypto');
 
 const logger = createLogger('mcp-client');
 
@@ -15,7 +16,15 @@ class McpClientManager {
 
   // 生成服务器唯一键
   _serverKey(serverConfig) {
-    return `mcp:${serverConfig.id || serverConfig.name}:${serverConfig.transport}`;
+    // 用户级 MCP 密钥或请求头可能影响工具列表，缓存键只保存哈希，避免明文密钥进入内存日志。
+    const identity = JSON.stringify({
+      url: serverConfig.url || '',
+      headers: serverConfig.headers || {},
+      userApiKey: serverConfig.user_api_key ? '__configured__' : '',
+      userExtraConfig: serverConfig.user_extra_config || {},
+    });
+    const fingerprint = crypto.createHash('sha256').update(identity).digest('hex').slice(0, 16);
+    return `mcp:${serverConfig.id || serverConfig.name}:${serverConfig.transport}:${fingerprint}`;
   }
 
   // 构建请求头

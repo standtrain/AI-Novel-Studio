@@ -1,9 +1,9 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Button, Input, Typography, App, Spin, Modal, Tooltip } from 'antd';
 import {
   SendOutlined, StopOutlined, RobotOutlined, DeleteOutlined,
   PlusOutlined, MessageOutlined, ExclamationCircleOutlined,
-  FileAddOutlined, LoadingOutlined,
+  FileAddOutlined, LoadingOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import useMobile from '../hooks/useMobile';
@@ -32,6 +32,7 @@ const ChatPage: React.FC = () => {
   const [activeConvId, setActiveConvId] = useState<number | null>(null);
   const [convsLoading, setConvsLoading] = useState(true);
   const [msgsLoading, setMsgsLoading] = useState(false);
+  const [conversationQuery, setConversationQuery] = useState('');
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -286,46 +287,96 @@ const ChatPage: React.FC = () => {
     abortRef.current?.abort();
   };
 
-  const convList = conversations;
+  const convList = useMemo(() => {
+    const keyword = conversationQuery.trim().toLowerCase();
+    if (!keyword) return conversations;
+    return conversations.filter((conv) => conv.title.toLowerCase().includes(keyword));
+  }, [conversations, conversationQuery]);
+
+  const formatConversationTime = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const now = new Date();
+    const sameYear = date.getFullYear() === now.getFullYear();
+    return date.toLocaleDateString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      ...(sameYear ? {} : { year: '2-digit' }),
+    });
+  };
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 120px)', gap: 0 }}>
-      {/* ====== 对话列表侧边栏（常驻） ====== */}
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        height: isMobile ? 'auto' : 'calc(100vh - 120px)',
+        minHeight: isMobile ? 'calc(100vh - 160px)' : 560,
+        gap: isMobile ? 14 : 18,
+      }}
+    >
+      {/* ====== 对话历史 ====== */}
       <div
         style={{
-          width: 260,
+          width: isMobile ? '100%' : 300,
+          height: isMobile ? 220 : '100%',
           flexShrink: 0,
-          borderRight: '1px solid rgba(99,102,241,0.12)',
+          border: '1px solid rgba(99,102,241,0.16)',
+          borderRadius: 10,
+          background: 'rgba(15,23,42,0.34)',
           display: 'flex',
           flexDirection: 'column',
+          overflow: 'hidden',
         }}
       >
         <div
           style={{
-            padding: '12px 12px 8px',
+            padding: '14px 14px 10px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            borderBottom: '1px solid rgba(99,102,241,0.1)',
           }}
         >
-          <Text strong style={{ color: '#cbd5e1', fontSize: 13 }}>
-            对话列表
-          </Text>
+          <div style={{ minWidth: 0 }}>
+            <Text strong style={{ color: '#f1f5f9', fontSize: 14, display: 'block' }}>
+              对话历史
+            </Text>
+            <Text style={{ color: '#64748b', fontSize: 12 }}>
+              {conversations.length} 个会话
+            </Text>
+          </div>
           <Button
             type="primary"
             size="small"
             icon={<PlusOutlined />}
             onClick={handleNewConversation}
+            style={{ flexShrink: 0, height: 32 }}
           >
             新建
           </Button>
+        </div>
+
+        <div style={{ padding: '10px 12px 8px' }}>
+          <Input
+            allowClear
+            size="small"
+            prefix={<SearchOutlined style={{ color: '#64748b' }} />}
+            placeholder="搜索对话"
+            value={conversationQuery}
+            onChange={(e) => setConversationQuery(e.target.value)}
+            style={{
+              background: 'rgba(15,23,42,0.48)',
+              borderColor: 'rgba(99,102,241,0.18)',
+            }}
+          />
         </div>
 
         <div
           style={{
             flex: 1,
             overflowY: 'auto',
-            padding: '0 8px',
+            padding: '0 8px 10px',
             scrollbarWidth: 'thin',
             scrollbarColor: 'rgba(99,102,241,0.3) transparent',
           }}
@@ -335,9 +386,12 @@ const ChatPage: React.FC = () => {
               <Spin size="small" />
             </div>
           ) : convList.length === 0 ? (
-            <Text style={{ color: '#64748b', fontSize: 12, textAlign: 'center', display: 'block', padding: 20 }}>
-              暂无对话
-            </Text>
+            <div style={{ padding: '22px 10px', textAlign: 'center' }}>
+              <MessageOutlined style={{ color: '#475569', fontSize: 20, marginBottom: 8 }} />
+              <Text style={{ color: '#64748b', fontSize: 12, display: 'block' }}>
+                {conversationQuery.trim() ? '没有匹配的对话' : '暂无对话'}
+              </Text>
+            </div>
           ) : (
             convList.map((conv) => (
               <div
@@ -345,35 +399,57 @@ const ChatPage: React.FC = () => {
                 onClick={() => handleSelectConversation(conv.id)}
                 style={{
                   display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '8px 10px',
-                  marginBottom: 4,
+                  alignItems: 'stretch',
+                  gap: 10,
+                  padding: '10px 8px 10px 10px',
+                  marginBottom: 6,
                   borderRadius: 8,
                   cursor: 'pointer',
-                  background: activeConvId === conv.id ? 'rgba(99,102,241,0.15)' : 'transparent',
-                  border: activeConvId === conv.id ? '1px solid rgba(99,102,241,0.2)' : '1px solid transparent',
-                  transition: 'background 0.15s',
+                  background: activeConvId === conv.id
+                    ? 'linear-gradient(135deg, rgba(99,102,241,0.18), rgba(34,211,238,0.07))'
+                    : 'rgba(15,23,42,0.2)',
+                  border: activeConvId === conv.id ? '1px solid rgba(129,140,248,0.42)' : '1px solid transparent',
+                  transition: 'background 0.15s, border-color 0.15s',
                 }}
                 onMouseEnter={(e) => {
                   (e.currentTarget as HTMLElement).style.background =
-                    activeConvId === conv.id ? 'rgba(99,102,241,0.15)' : 'rgba(99,102,241,0.06)';
+                    activeConvId === conv.id
+                      ? 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(34,211,238,0.08))'
+                      : 'rgba(99,102,241,0.07)';
                 }}
                 onMouseLeave={(e) => {
                   (e.currentTarget as HTMLElement).style.background =
-                    activeConvId === conv.id ? 'rgba(99,102,241,0.15)' : 'transparent';
+                    activeConvId === conv.id
+                      ? 'linear-gradient(135deg, rgba(99,102,241,0.18), rgba(34,211,238,0.07))'
+                      : 'rgba(15,23,42,0.2)';
                 }}
               >
-                <div style={{ overflow: 'hidden', flex: 1 }}>
-                  <Text
-                    ellipsis
-                    style={{ color: '#cbd5e1', fontSize: 13, display: 'block' }}
-                  >
-                    <MessageOutlined style={{ marginRight: 6, fontSize: 12, color: '#6366f1' }} />
-                    {conv.title}
-                  </Text>
-                  <Text style={{ color: '#64748b', fontSize: 11 }}>
-                    {new Date(conv.updated_at).toLocaleDateString('zh-CN')}
+                <div
+                  style={{
+                    width: 3,
+                    borderRadius: 999,
+                    background: activeConvId === conv.id ? '#818cf8' : 'transparent',
+                    flexShrink: 0,
+                  }}
+                />
+                <div style={{ overflow: 'hidden', flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                    <MessageOutlined style={{ fontSize: 13, color: activeConvId === conv.id ? '#a5b4fc' : '#64748b', flexShrink: 0 }} />
+                    <Text
+                      ellipsis
+                      style={{
+                        color: activeConvId === conv.id ? '#f1f5f9' : '#cbd5e1',
+                        fontSize: 13,
+                        fontWeight: activeConvId === conv.id ? 600 : 500,
+                        display: 'block',
+                        minWidth: 0,
+                      }}
+                    >
+                      {conv.title || '未命名对话'}
+                    </Text>
+                  </div>
+                  <Text style={{ color: '#64748b', fontSize: 11, display: 'block', marginTop: 4 }}>
+                    更新于 {formatConversationTime(conv.updated_at)}
                   </Text>
                 </div>
                 <Tooltip title="删除">
@@ -382,7 +458,15 @@ const ChatPage: React.FC = () => {
                     size="small"
                     icon={<DeleteOutlined />}
                     onClick={(e) => handleDeleteConversation(conv.id, e)}
-                    style={{ color: '#64748b', flexShrink: 0, opacity: 0.6 }}
+                    style={{
+                      color: '#64748b',
+                      flexShrink: 0,
+                      opacity: activeConvId === conv.id ? 0.9 : 0.55,
+                      width: 28,
+                      height: 28,
+                      minHeight: 28,
+                      alignSelf: 'center',
+                    }}
                   />
                 </Tooltip>
               </div>
@@ -398,9 +482,10 @@ const ChatPage: React.FC = () => {
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
-          maxWidth: 800,
+          maxWidth: isMobile ? '100%' : 840,
           margin: '0 auto',
           width: '100%',
+          minHeight: isMobile ? 'calc(100vh - 400px)' : 0,
         }}
       >
         {/* 标题栏 */}

@@ -45,4 +45,18 @@ router.put('/writing-prompt', authenticate, async (req, res) => {
   }
 });
 
+// GET /api/site/notifications —— 获取启用的通知（公开接口）
+router.get('/notifications', async (_req, res) => {
+  try {
+    const notificationDao = require('../dao/notificationDao');
+    const [banners, popups] = await Promise.all([
+      notificationDao.getActiveForBanner(),
+      notificationDao.getActiveForPopup(),
+    ]);
+    res.json({ banners, popups });
+  } catch (err) {
+    res.status(500).json({ error: '获取通知失败' });
+  }
+});
+
 module.exports = router;

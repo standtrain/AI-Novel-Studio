@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Tabs, Typography, Input, List, Tag, Button, message, Divider } from 'antd';
-import { BarChartOutlined, TeamOutlined, SettingOutlined, ApiOutlined, BookOutlined, FolderOutlined, ThunderboltOutlined, LinkOutlined, StopOutlined, ShopOutlined, LockOutlined, SearchOutlined, UserOutlined, FileTextOutlined, ToolOutlined } from '@ant-design/icons';
+import { BarChartOutlined, TeamOutlined, SettingOutlined, ApiOutlined, BookOutlined, FolderOutlined, ThunderboltOutlined, LinkOutlined, StopOutlined, ShopOutlined, LockOutlined, SearchOutlined, UserOutlined, FileTextOutlined, ToolOutlined, BellOutlined } from '@ant-design/icons';
 import StatsPanel from '../components/admin/StatsPanel';
 import UserTable from '../components/admin/UserTable';
 import GroupManager from '../components/admin/GroupManager';
@@ -12,6 +12,7 @@ import McpServerManager from '../components/admin/McpServerManager';
 import ModelTokenLimitManager from '../components/admin/ModelTokenLimitManager';
 import TemplateReview from '../components/admin/TemplateReview';
 import BanManager from '../components/admin/BanManager';
+import NotificationManager from '../components/admin/NotificationManager';
 import { adminSearchApi, AdminSearchResult } from '../api/admin';
 import { useAuthStore } from '../store/authStore';
 import { Navigate } from 'react-router-dom';
@@ -103,7 +104,7 @@ const AdminPage: React.FC = () => {
   };
 
   if (user?.group?.name !== 'admin') {
-    return <Navigate to="/dashboard" />;
+    return <Navigate to="/home" replace />;
   }
 
   const tabItems = [
@@ -118,6 +119,7 @@ const AdminPage: React.FC = () => {
     { key: 'config', label: <span><SettingOutlined /> 站点配置</span>, children: renderedKeys.has('config') ? <ConfigForm searchTerm={searchTerm} /> : null },
     { key: 'templates', label: <span><ShopOutlined /> 模板审核</span>, children: renderedKeys.has('templates') ? <TemplateReview /> : null },
     { key: 'bans', label: <span><LockOutlined /> 封禁管理</span>, children: renderedKeys.has('bans') ? <BanManager /> : null },
+    { key: 'notifications', label: <span><BellOutlined /> 通知管理</span>, children: renderedKeys.has('notifications') ? <NotificationManager /> : null },
   ];
 
   return (

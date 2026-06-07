@@ -3,6 +3,8 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Layout, Drawer, Menu } from 'antd';
 import Header from './Header';
 import Sidebar, { getMenuItems, getSelectedKey } from './Sidebar';
+import NotificationBanner from '../shared/NotificationBanner';
+import NotificationPopup from '../shared/NotificationPopup';
 import useMobile from '../../hooks/useMobile';
 import { useAuthStore } from '../../store/authStore';
 
@@ -25,6 +27,8 @@ const AppLayout: React.FC = () => {
   return (
     <Layout className="app-shell">
       <Header onMenuToggle={() => setDrawerOpen(true)} />
+      <NotificationBanner />
+      <NotificationPopup />
       <Layout style={{ background: 'transparent' }}>
         {/* 桌面端：可折叠侧边栏 */}
         {!isMobile && (

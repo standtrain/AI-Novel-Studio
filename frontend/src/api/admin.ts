@@ -275,3 +275,37 @@ export async function deleteFaviconApi(): Promise<{ success: boolean; message: s
   const { data } = await client.delete('/admin/favicon');
   return data;
 }
+
+// 通知管理
+import type { Notification } from '../types';
+
+export async function getNotificationsApi(params?: { page?: number; limit?: number; enabled?: boolean }) {
+  const { data } = await client.get('/admin/notifications', { params });
+  return data as { rows: Notification[]; total: number; page: number; limit: number };
+}
+
+export async function getNotificationApi(id: number) {
+  const { data } = await client.get(`/admin/notifications/${id}`);
+  return data as { notification: Notification };
+}
+
+export async function createNotificationApi(notif: {
+  title: string; content: string; show_popup?: boolean; show_banner?: boolean;
+  enabled?: boolean; sort_order?: number;
+}) {
+  const { data } = await client.post('/admin/notifications', notif);
+  return data as { notification: Notification };
+}
+
+export async function updateNotificationApi(id: number, updates: Partial<{
+  title: string; content: string; show_popup: boolean; show_banner: boolean;
+  enabled: boolean; sort_order: number;
+}>) {
+  const { data } = await client.put(`/admin/notifications/${id}`, updates);
+  return data as { notification: Notification };
+}
+
+export async function deleteNotificationApi(id: number) {
+  const { data } = await client.delete(`/admin/notifications/${id}`);
+  return data as { success: boolean; message: string };
+}

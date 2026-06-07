@@ -237,6 +237,19 @@ export interface ModelTokenLimit {
   enabled: boolean;
 }
 
+// 系统通知
+export interface Notification {
+  id: number;
+  title: string;
+  content: string;
+  show_popup: boolean;
+  show_banner: boolean;
+  enabled: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // 可选模型（供用户偏好选择）
 export interface SelectableModel {
   providerName: string;

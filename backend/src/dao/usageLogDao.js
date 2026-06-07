@@ -2,6 +2,11 @@ const { db } = require('../config/database');
 
 const TABLE = 'usage_logs';
 
+function todayUsageQuery() {
+  return db(TABLE)
+    .where('created_at', '>=', db.raw('CURDATE()'));
+}
+
 const usageLogDao = {
   async create(data) {
     const [id] = await db(TABLE).insert(data);
@@ -9,11 +14,22 @@ const usageLogDao = {
   },
 
   async getDailyUsage(userId) {
-    const [{ total }] = await db(TABLE)
+    const [{ total }] = await todayUsageQuery()
       .where('user_id', userId)
-      .where('created_at', '>=', db.raw('CURDATE()'))
       .sum('tokens_used as total');
     return parseInt(total, 10) || 0;
+  },
+
+  async getTodayTotalUsage() {
+    const [{ total }] = await todayUsageQuery().sum('tokens_used as total');
+    return parseInt(total, 10) || 0;
+  },
+
+  todayUsageByUserSubquery() {
+    return todayUsageQuery()
+      .select('user_id')
+      .sum('tokens_used as tokens_used')
+      .groupBy('user_id');
   },
 
   async getTotalUsage({ startDate, endDate } = {}) {

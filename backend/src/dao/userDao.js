@@ -1,4 +1,5 @@
 const { db } = require('../config/database');
+const usageLogDao = require('./usageLogDao');
 
 const TABLE = 'users';
 
@@ -47,6 +48,13 @@ const userDao = {
     await db(TABLE).where('id', userId).increment('daily_tokens_used', tokens);
   },
 
+  async setDailyTokens(userId, tokens) {
+    await db(TABLE).where('id', userId).update({
+      daily_tokens_used: Math.max(0, parseInt(tokens, 10) || 0),
+      last_token_reset_at: db.fn.now(),
+    });
+  },
+
   async resetDailyTokens(userId) {
     await db(TABLE).where('id', userId).update({
       daily_tokens_used: 0,
@@ -64,8 +72,13 @@ const userDao = {
         'users.*',
         'user_groups.name as group_name',
         'user_groups.token_limit_per_day',
-        db.raw('IF(DATE(users.last_token_reset_at) < CURDATE() OR users.last_token_reset_at IS NULL, 0, users.daily_tokens_used) as daily_tokens_used')
+        db.raw('COALESCE(today_usage.tokens_used, 0) as daily_tokens_used')
       )
+        .leftJoin(
+          usageLogDao.todayUsageByUserSubquery().as('today_usage'),
+          'today_usage.user_id',
+          'users.id',
+        )
         .orderBy('users.created_at', 'desc').limit(limit).offset(offset),
       base.clone().count('* as total'),
     ]);

@@ -1,4 +1,5 @@
 const userDao = require('../dao/userDao');
+const usageLogDao = require('../dao/usageLogDao');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('token');
@@ -16,18 +17,11 @@ async function checkTokenQuota(req, res, next) {
     return next();
   }
 
-  let { daily_tokens_used, last_token_reset_at } = req.user;
-
-  // 惰性每日重置：检查是否需要重置
-  const now = new Date();
-  const resetDate = last_token_reset_at ? new Date(last_token_reset_at) : null;
-
-  // 跨自然日则重置计数器
-  if (resetDate && resetDate.toDateString() !== now.toDateString()) {
-    await userDao.resetDailyTokens(req.user.id);
-    daily_tokens_used = 0;
-    req.user.daily_tokens_used = 0;
-    logger.info(`用户 ${req.user.username} 的每日 token 已重置`);
+  const daily_tokens_used = await usageLogDao.getDailyUsage(req.user.id);
+  if (daily_tokens_used !== Number(req.user.daily_tokens_used || 0)) {
+    await userDao.setDailyTokens(req.user.id, daily_tokens_used);
+    req.user.daily_tokens_used = daily_tokens_used;
+    logger.info(`用户 ${req.user.username} 的每日 token 已同步为 ${daily_tokens_used}`);
   }
 
   // 按请求阶段动态估算 token 消耗

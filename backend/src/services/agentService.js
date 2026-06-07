@@ -334,10 +334,10 @@ function parseJson(val) {
 
 async function _recordUsage(userId, novelId, phase, usage, model, provider) {
   if (!usage) return;
-  await usageService.recordUsage(userId, novelId, phase, usage, model);
+  const tokensUsed = await usageService.recordUsage(userId, novelId, phase, usage, model);
   try {
     const modelTokenService = require('./modelTokenService');
-    await modelTokenService.recordUsage(provider, model, usage.total_tokens || usage.totalTokens || 0);
+    await modelTokenService.recordUsage(provider, model, tokensUsed);
   } catch { /* 记录失败不阻塞主流程 */ }
 }
 

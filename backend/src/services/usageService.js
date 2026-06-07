@@ -4,18 +4,36 @@ const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('usage');
 
+function toTokenCount(value) {
+  const tokens = Number(value);
+  return Number.isFinite(tokens) && tokens > 0 ? Math.floor(tokens) : 0;
+}
+
+function getUsageTokens(usage = {}) {
+  const promptTokens = toTokenCount(usage.prompt_tokens || usage.promptTokens);
+  const completionTokens = toTokenCount(usage.completion_tokens || usage.completionTokens);
+  return toTokenCount(usage.total_tokens || usage.totalTokens) || (promptTokens + completionTokens);
+}
+
 const usageService = {
   // 记录 token 使用量
   async recordUsage(userId, novelId, requestType, usage, model) {
-    const tokensUsed = (usage.prompt_tokens || 0) + (usage.completion_tokens || 0);
+    const promptTokens = toTokenCount(usage.prompt_tokens || usage.promptTokens);
+    const completionTokens = toTokenCount(usage.completion_tokens || usage.completionTokens);
+    const tokensUsed = getUsageTokens(usage);
+    if (!tokensUsed || tokensUsed <= 0) {
+      logger.warn({ userId, requestType, model }, 'LLM 未返回可记录的 token 用量');
+      return 0;
+    }
+
     await Promise.all([
       usageLogDao.create({
         user_id: userId,
         novel_id: novelId || null,
         request_type: requestType,
         tokens_used: tokensUsed,
-        prompt_tokens: usage.prompt_tokens || 0,
-        completion_tokens: usage.completion_tokens || 0,
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
         model: model || 'gpt-4o',
       }),
       userDao.incrementDailyTokens(userId, tokensUsed),
@@ -34,14 +52,9 @@ const usageService = {
     const user = await userDao.findById(userId);
     if (!user) throw { status: 404, message: '用户不存在' };
 
-    const now = new Date();
-    const resetDate = user.last_token_reset_at ? new Date(user.last_token_reset_at) : null;
-    let actualUsed = user.daily_tokens_used;
-
-    // 惰性重置：跨自然日则归零并持久化到数据库
-    if (resetDate && resetDate.toDateString() !== now.toDateString()) {
-      actualUsed = 0;
-      await userDao.resetDailyTokens(userId);
+    const actualUsed = await usageLogDao.getDailyUsage(userId);
+    if (actualUsed !== user.daily_tokens_used) {
+      await userDao.setDailyTokens(userId, actualUsed);
     }
 
     return {
@@ -57,6 +70,8 @@ const usageService = {
     const totalTokens = await usageLogDao.getTotalUsage({ startDate, endDate });
     return { totalTokens, startDate, endDate };
   },
+
+  getUsageTokens,
 };
 
 module.exports = usageService;

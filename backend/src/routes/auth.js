@@ -206,7 +206,9 @@ router.post('/login', loginRateLimiter, async (req, res) => {
 // 获取当前用户信息
 router.get('/me', authenticate, async (req, res) => {
   try {
-    const user = authService.sanitizeUser(req.user);
+    const usageService = require('../services/usageService');
+    const dailyUsed = await usageService.getDailyUsage(req.user.id);
+    const user = authService.sanitizeUser({ ...req.user, actual_daily_tokens_used: dailyUsed });
     res.json({ user });
   } catch (err) {
     res.status(500).json({ error: '获取用户信息失败' });

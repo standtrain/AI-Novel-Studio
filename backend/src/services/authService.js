@@ -5,6 +5,7 @@ const { db } = require('../config/database');
 const { JWT_SECRET, JWT_EXPIRES_IN } = require('../config/auth');
 const userDao = require('../dao/userDao');
 const userGroupDao = require('../dao/userGroupDao');
+const usageLogDao = require('../dao/usageLogDao');
 const emailVerificationDao = require('../dao/emailVerificationDao');
 const emailService = require('./emailService');
 const configService = require('./configService');
@@ -245,12 +246,13 @@ const authService = {
     await userDao.update(user.id, { last_login_at: db.fn.now() });
     // 刷新 user 对象以获取最新的 last_login_at
     const updatedUser = await userDao.findById(user.id);
+    const dailyUsed = await usageLogDao.getDailyUsage(user.id);
 
     const token = this.generateToken(updatedUser);
 
     return {
       token,
-      user: this.sanitizeUser(updatedUser),
+      user: this.sanitizeUser({ ...updatedUser, actual_daily_tokens_used: dailyUsed }),
     };
   },
 
@@ -265,6 +267,10 @@ const authService = {
 
   // 脱敏用户信息（移除密码等敏感字段）
   sanitizeUser(user) {
+    const dailyTokensUsed = user.actual_daily_tokens_used !== undefined && user.actual_daily_tokens_used !== null
+      ? Number(user.actual_daily_tokens_used)
+      : user.daily_tokens_used;
+
     return {
       id: user.id,
       username: user.username,
@@ -282,7 +288,7 @@ const authService = {
         isAdmin: !!user.is_admin,
       },
       status: user.status,
-      dailyTokensUsed: user.daily_tokens_used,
+      dailyTokensUsed,
       preferredModel: user.preferred_model || null,
       temperaturePreset: user.temperature_preset || 'balanced',
       customTemperature: user.custom_temperature !== undefined && user.custom_temperature !== null

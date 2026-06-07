@@ -1773,12 +1773,13 @@ agentService.planRevise = function (userId, novelId, feedback) {
 };
 
 // ========== 通用AI多轮对话（支持持久化） ==========
-agentService.chat = function (userId, message, conversationId) {
+agentService.chat = function (userId, message, conversationId, fileList) {
   if (!message || message.trim().length < 1) {
     throw { status: 400, message: '请输入消息内容' };
   }
 
   const chatDao = require('../dao/chatDao');
+  const fs = require('fs');
 
   return {
     execute: async (req, res) => {
@@ -1801,6 +1802,7 @@ agentService.chat = function (userId, message, conversationId) {
       let queueSlot = null;
       let finalStatus = queueManager.STATUS.COMPLETED;
       let resolvedConvId = conversationId;
+      let filePathsToClean = [];
       try {
         queueSlot = await _acquireQueueSlot(req, res, userId, 0, 'chat', abortController);
         agent._abortSignal = abortController.signal;
@@ -1816,8 +1818,26 @@ agentService.chat = function (userId, message, conversationId) {
           }
         }
 
-        // 保存用户消息
-        await chatDao.addMessage(resolvedConvId, 'user', message.trim());
+        // 构建用于数据库存储的消息内容（包含文件引用信息）
+        let storedMessage = message.trim();
+        filePathsToClean = (fileList || []).map(f => f.path);
+
+        if (fileList && fileList.length > 0) {
+          const fileNames = fileList.map(f => f.originalName).join(', ');
+          storedMessage += `\n\n[已上传文件：${fileNames}]`;
+
+          // 通知前端已上传的文件列表
+          sendSSE(res, 'file_uploads', {
+            files: fileList.map(f => ({
+              name: f.originalName,
+              size: f.size,
+              isImage: f.isImage,
+            })),
+          });
+        }
+
+        // 保存用户消息（含文件引用标记）
+        await chatDao.addMessage(resolvedConvId, 'user', storedMessage);
         await chatDao.touch(resolvedConvId, userId);
 
         // 检查是否为首条消息，自动设置标题
@@ -1833,10 +1853,66 @@ agentService.chat = function (userId, message, conversationId) {
         // 从数据库构建权威上下文，避免信任前端 history 或重复加入当前消息。
         const maxHistory = 20;
         const dbMessages = await chatDao.listMessages(resolvedConvId);
-        const messages = dbMessages
+        const historyMessages = dbMessages
           .slice(-maxHistory)
           .filter((msg) => (msg.role === 'user' || msg.role === 'assistant') && msg.content)
           .map((msg) => ({ role: msg.role, content: String(msg.content) }));
+
+        // 构建包含文件内容的最终用户消息（多模态支持）
+        const lastUserMessage = { role: 'user', content: message.trim() };
+
+        const hasImageUploads = (fileList || []).some(file => file.isImage);
+
+        // 处理上传文件：文本文件读取内容拼接，图片转为 vision 格式
+        if (fileList && fileList.length > 0) {
+          const textParts = [];
+          const visionParts = [];
+
+          for (const file of fileList) {
+            if (file.isImage) {
+              try {
+                const imgData = fs.readFileSync(file.path);
+                const base64 = imgData.toString('base64');
+                const mime = file.mimetype || 'image/png';
+                visionParts.push({
+                  type: 'image_url',
+                  image_url: { url: `data:${mime};base64,${base64}`, detail: 'auto' },
+                });
+              } catch (readErr) {
+                logger.error(`读取图片文件失败：${file.originalName} — ${readErr.message}`);
+              }
+            } else {
+              // 文本文件：读取内容
+              try {
+                const content = fs.readFileSync(file.path, 'utf-8');
+                if (content && content.trim()) {
+                  const truncated = content.substring(0, 12000);
+                  textParts.push(`\n\n=== 文件：${file.originalName} ===\n${truncated}`);
+                }
+              } catch (readErr) {
+                // 非UTF-8编码或二进制文件，仅记录文件名
+                textParts.push(`\n\n[用户上传了文件：${file.originalName}（${(file.size / 1024).toFixed(1)}KB）]`);
+              }
+            }
+          }
+
+          // 构建消息内容
+          if (visionParts.length > 0) {
+            // 多模态：图片 + 文本
+            const contentArray = [{ type: 'text', text: message.trim() }];
+            if (textParts.length > 0) {
+              contentArray.push({ type: 'text', text: textParts.join('') });
+            }
+            contentArray.push(...visionParts);
+            lastUserMessage.content = contentArray;
+          } else if (textParts.length > 0) {
+            lastUserMessage.content = message.trim() + textParts.join('');
+          }
+        }
+
+        // 最终消息列表：历史 + 当前（文件增强）用户消息
+        // 历史消息最后一条是刚存入的用户消息（含文件引用标记），用增强版替换
+        const messages = historyMessages.slice(0, -1).concat([lastUserMessage]);
 
         const systemPrompt =
           '你是一位专业的小说创作助手。你可以：\n' +
@@ -1844,6 +1920,7 @@ agentService.chat = function (userId, message, conversationId) {
           '2. 提供写作建议、文学技巧、叙事结构分析\n' +
           '3. 回答关于小说创作、出版、类型文学的任何问题\n' +
           '4. 进行头脑风暴，帮助用户突破写作瓶颈\n' +
+          '5. 如果用户上传了文件或图片，请根据文件/图片内容进行针对性分析\n' +
           '请用热情、专业且富有启发性的方式回答，像一位经验丰富的写作导师。';
 
         const { content, usage, model, provider, skipReasons } = await agent.callLLMStream(
@@ -1856,7 +1933,7 @@ agentService.chat = function (userId, message, conversationId) {
           'chat',
           abortController.signal,
           undefined,
-          { messages }
+          { messages, requireVision: hasImageUploads }
         );
 
         if (skipReasons && skipReasons.length > 0) {
@@ -1887,6 +1964,10 @@ agentService.chat = function (userId, message, conversationId) {
         }
         _safeEnd(res);
       } finally {
+        // 清理上传的文件
+        filePathsToClean.forEach((p) => {
+          try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch { /* 忽略 */ }
+        });
         if (queueSlot) {
           _releaseQueueSlot(queueSlot, finalStatus);
         }

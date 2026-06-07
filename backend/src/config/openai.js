@@ -98,7 +98,7 @@ function buildSingleProvider() {
     apiKey: process.env.OPENAI_API_KEY || '',
     models: [{
       name: process.env.OPENAI_MODEL || 'gpt-4o',
-      phases: ['outline', 'characters', 'chapters_outline', 'write_chapter'],
+      phases: ['outline', 'characters', 'chapters_outline', 'write_chapter', 'chat'],
     }],
   }];
 }
@@ -122,17 +122,34 @@ function _sortedProviders() {
 
 // 检查模型是否匹配阶段
 function _modelMatchesPhase(model, phaseKey) {
+  if (phaseKey === 'chat') {
+    const phases = Array.isArray(model.phases) ? model.phases : [];
+    return phases.some(phase => ['chat', 'all', 'outline', 'characters', 'chapters_outline', 'write_chapter'].includes(phase));
+  }
   return model.phases.includes(phaseKey) || model.phases.includes('all');
+}
+
+function modelSupportsVision(model = {}) {
+  if (model.supportsVision === true || model.vision === true) return true;
+  const capabilityText = [
+    ...(Array.isArray(model.capabilities) ? model.capabilities : []),
+    ...(Array.isArray(model.modalities) ? model.modalities : []),
+  ].join(' ').toLowerCase();
+  if (/\b(image|vision|multimodal)\b/.test(capabilityText)) return true;
+
+  const name = String(model.name || '').toLowerCase();
+  if (/(embedding|tts|audio|whisper|moderation)/.test(name)) return false;
+  return /(gpt-4o|gpt-4\.1|gpt-5|o3|o4|gemini|claude-3|claude-4|qwen.*vl|vision|llava|\bvl\b)/.test(name);
 }
 
 /**
  * 按阶段和用户偏好选择模型（异步，支持 Token 限额检查）
  * @param {string} phase - 写作阶段
- * @param {object} options - { preferredModelName, preferredProviderName, checkLimitFn }
+ * @param {object} options - { preferredModelName, preferredProviderName, checkLimitFn, requireVision }
  * @returns {Promise<{provider, model: string, skipReasons: string[]}>}
  */
 async function pickModel(phase, options = {}) {
-  const { preferredModelName, preferredProviderName, checkLimitFn } = options;
+  const { preferredModelName, preferredProviderName, checkLimitFn, requireVision } = options;
   const providers = getProviders();
   const phaseKey = phaseMap[phase] || phase;
   const skipReasons = [];
@@ -144,6 +161,10 @@ async function pickModel(phase, options = {}) {
       for (const model of provider.models) {
         if (!_modelMatchesPhase(model, phaseKey)) continue;
         if (modelNameFilter && model.name !== modelNameFilter) continue;
+        if (requireVision && !modelSupportsVision(model)) {
+          skipReasons.push(`模型 ${provider.name}/${model.name} 不支持图片识别`);
+          continue;
+        }
 
         // 检查 Token 限额
         if (checkLimitFn) {
@@ -201,9 +222,13 @@ async function pickModel(phase, options = {}) {
 
   // 4. 绝对兜底（跳过限额检查）
   const fallback = providers[0];
+  const fallbackModel = fallback.models[0];
+  if (requireVision && !modelSupportsVision(fallbackModel)) {
+    throw { status: 400, message: '当前可用模型不支持图片识别，请切换支持视觉能力的模型或移除图片后重试' };
+  }
   return {
     provider: fallback,
-    model: fallback.models[0]?.name || 'gpt-4o',
+    model: fallbackModel?.name || 'gpt-4o',
     skipReasons,
   };
 }
@@ -295,4 +320,5 @@ module.exports = {
   writeEnvValue,
   getNextAvailableProvider,
   updateProviderPriority,
+  modelSupportsVision,
 };

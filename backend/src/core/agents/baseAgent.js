@@ -57,11 +57,12 @@ class BaseAgent {
   }
 
   // 根据阶段选择客户端和模型
-  async _resolve(phase) {
+  async _resolve(phase, options = {}) {
     return pickModel(phase, {
       preferredModelName: this.preferredModel,
       preferredProviderName: this.preferredProvider,
       checkLimitFn: this.checkLimitFn,
+      requireVision: options.requireVision === true,
     });
   }
 
@@ -195,7 +196,9 @@ class BaseAgent {
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        const { provider, model, skipReasons: reasons } = await this._resolve(phase);
+        const { provider, model, skipReasons: reasons } = await this._resolve(phase, {
+          requireVision: options.requireVision === true,
+        });
         skipReasons = reasons || [];
         const client = this._getClient(provider);
         const abortSignal = signal || this._abortSignal;

@@ -108,9 +108,10 @@ async function readSSEStream(response: Response, onEvent: SSEEventHandler, contr
 
 // 通用 SSE 请求工厂，消除 6 个方法中的重复代码
 // 支持409错误自动重试（取消后重新发起请求时后端任务可能还未清理）
+// body 支持 string（JSON）或 FormData（文件上传场景）
 export function startSSE(
   url: string,
-  body: string,
+  body: string | FormData,
   onEvent: SSEEventHandler,
   contentType: string = 'application/json',
   maxRetries: number = 3,
@@ -120,6 +121,7 @@ export function startSSE(
   const token = localStorage.getItem('token');
   let streamFinished = false;
   let retryCount = 0;
+  const isFormData = body instanceof FormData;
 
   // 主动 abort 时通知前端，避免 isStreaming 卡死
   // 但如果流已正常结束（done），不触发 abort 事件，避免自动链竞态
@@ -130,12 +132,17 @@ export function startSSE(
   });
 
   function doFetch() {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+    };
+    // FormData 不需要设置 Content-Type，浏览器会自动设置含 boundary 的头
+    if (!isFormData) {
+      headers['Content-Type'] = contentType;
+    }
+
     fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': contentType,
-        Authorization: `Bearer ${token}`,
-      },
+      headers,
       body,
       signal: controller.signal,
     }).then((response) => {

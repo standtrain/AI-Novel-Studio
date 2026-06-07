@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Button, Input, Typography, App, Spin, Modal, Tooltip, Space } from 'antd';
+import { Button, Input, Typography, App, Spin, Modal, Tooltip, Space, Tag } from 'antd';
 import {
   SendOutlined, StopOutlined, RobotOutlined, DeleteOutlined,
   PlusOutlined, MessageOutlined, ExclamationCircleOutlined,
   FileAddOutlined, LoadingOutlined, SearchOutlined,
   CopyOutlined, UserOutlined, CheckOutlined,
+  PaperClipOutlined, FileTextOutlined, FileImageOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import useMobile from '../hooks/useMobile';
@@ -71,6 +72,10 @@ const ChatPage: React.FC = () => {
   // 智能导入状态
   const [importingMsgIdx, setImportingMsgIdx] = useState<number | null>(null);
   const importAbortRef = useRef<AbortController | null>(null);
+
+  // 文件上传状态
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const showImportConfirm = (payload: ImportNovelData) => {
     const chapters = payload.chapters || [];
@@ -279,9 +284,17 @@ const ChatPage: React.FC = () => {
 
   const handleSend = () => {
     const trimmed = inputValue.trim();
-    if (!trimmed || isStreaming) return;
+    const hasFiles = selectedFiles.length > 0;
+    if ((!trimmed && !hasFiles) || isStreaming) return;
+    const outboundMessage = trimmed || '请分析这些文件，并给出关键内容总结和写作建议。';
 
-    const userMsg: ChatMessage = { role: 'user', content: trimmed };
+    // 文件预览文本
+    let displayContent = outboundMessage;
+    if (hasFiles) {
+      displayContent += '\n\n[已上传文件：' + selectedFiles.map(f => f.name).join(', ') + ']';
+    }
+
+    const userMsg: ChatMessage = { role: 'user', content: displayContent };
     const updated = [...messages, userMsg];
     setMessages(updated);
     setInputValue('');
@@ -289,9 +302,12 @@ const ChatPage: React.FC = () => {
     setStreamContent('');
     streamingRef.current = true;
 
+    const filesToSend = hasFiles ? [...selectedFiles] : undefined;
+    setSelectedFiles([]);
+
     const convId = convIdRef.current;
 
-    abortRef.current = startChatStream(trimmed, (event, data) => {
+    abortRef.current = startChatStream(outboundMessage, (event, data) => {
       switch (event) {
         case 'conversation':
           if (data.conversationId && !convId) {
@@ -304,6 +320,9 @@ const ChatPage: React.FC = () => {
           break;
         case 'model_fallback':
           msgApi.warning(`模型已切换：${data.actualModel || '备选'}`);
+          break;
+        case 'file_uploads':
+          // 服务端确认文件已接收
           break;
         case 'error':
           msgApi.error(data.message || '对话失败');
@@ -326,11 +345,44 @@ const ChatPage: React.FC = () => {
           loadConversations();
           break;
       }
-    }, convId);
+    }, convId, filesToSend);
   };
 
   const handleStop = () => {
     abortRef.current?.abort();
+  };
+
+  // 文件选择
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const allowedTypes = [
+      'text/plain', 'text/markdown', 'text/csv', 'application/json', 'text/xml',
+      'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+      'text/html',
+    ];
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    const newFiles: File[] = [];
+    for (const file of Array.from(files)) {
+      if (!allowedTypes.includes(file.type) && !file.name.match(/\.(md|csv|json|xml|txt|html|htm)$/i)) {
+        msgApi.warning(`不支持的文件类型：${file.name}`);
+        continue;
+      }
+      if (file.size > maxSize) {
+        msgApi.warning(`文件过大（超过10MB）：${file.name}`);
+        continue;
+      }
+      newFiles.push(file);
+    }
+    if (newFiles.length > 0) {
+      setSelectedFiles(prev => [...prev, ...newFiles].slice(0, 5));
+    }
+    // 清空 input 以便重复选择同名文件
+    e.target.value = '';
+  };
+
+  const handleRemoveFile = (idx: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== idx));
   };
 
   const convList = useMemo(() => {
@@ -764,55 +816,119 @@ const ChatPage: React.FC = () => {
         </div>
 
         {/* 输入区域 */}
-        <div
-          style={{
-            paddingTop: 12,
-            borderTop: '1px solid rgba(99,102,241,0.15)',
-            display: 'flex',
-            gap: 8,
-            alignItems: 'flex-end',
-            flexShrink: 0,
-          }}
-        >
-          <TextArea
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            placeholder="输入消息，Enter 发送，Shift+Enter 换行…"
-            disabled={isStreaming}
-            autoSize={{ minRows: 1, maxRows: 5 }}
-            style={{
-              background: 'rgba(15,23,42,0.5)',
-              borderColor: 'rgba(99,102,241,0.3)',
-              color: '#f1f5f9',
-              resize: 'none',
-            }}
-          />
-          {isStreaming ? (
-            <Button
-              danger
-              icon={<StopOutlined />}
-              onClick={handleStop}
-              style={{ height: 40, flexShrink: 0 }}
-            >
-              停止
-            </Button>
-          ) : (
-            <Button
-              type="primary"
-              icon={<SendOutlined />}
-              onClick={handleSend}
-              disabled={!inputValue.trim()}
-              style={{ height: 40, flexShrink: 0 }}
-            >
-              发送
-            </Button>
+        <div style={{ flexShrink: 0 }}>
+          {/* 文件预览 */}
+          {selectedFiles.length > 0 && (
+            <div style={{
+              display: 'flex', flexWrap: 'wrap', gap: 6,
+              marginBottom: 8, padding: '0 4px',
+            }}>
+              {selectedFiles.map((file, idx) => {
+                const isImage = file.type.startsWith('image/');
+                return (
+                  <Tag
+                    key={`${file.name}_${idx}`}
+                    closable
+                    onClose={() => handleRemoveFile(idx)}
+                    icon={isImage ? <FileImageOutlined /> : <FileTextOutlined />}
+                    style={{
+                      background: 'rgba(99,102,241,0.12)',
+                      border: '1px solid rgba(99,102,241,0.2)',
+                      color: '#cbd5e1',
+                      borderRadius: 6,
+                      padding: '2px 8px',
+                      fontSize: 12,
+                      margin: 0,
+                    }}
+                  >
+                    <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', display: 'inline-block', verticalAlign: 'middle' }}>
+                      {file.name}
+                    </span>
+                    <Text style={{ color: '#64748b', fontSize: 10, marginLeft: 4 }}>
+                      {(file.size / 1024).toFixed(0)}KB
+                    </Text>
+                  </Tag>
+                );
+              })}
+            </div>
           )}
+
+          <div
+            style={{
+              paddingTop: 12,
+              borderTop: '1px solid rgba(99,102,241,0.15)',
+              display: 'flex',
+              gap: 8,
+              alignItems: 'flex-end',
+            }}
+          >
+            {/* 隐藏文件输入 */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".txt,.md,.csv,.json,.xml,.html,.htm,.png,.jpg,.jpeg,.gif,.webp"
+              onChange={handleFileSelect}
+              style={{ display: 'none' }}
+            />
+
+            {/* 上传按钮 */}
+            <Tooltip title="上传文件（支持文本、HTML、JSON、CSV、Markdown 和图片，最多5个，≤10MB）">
+              <Button
+                icon={<PaperClipOutlined />}
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isStreaming || selectedFiles.length >= 5}
+                style={{
+                  height: 40,
+                  flexShrink: 0,
+                  color: '#94a3b8',
+                  borderColor: 'rgba(99,102,241,0.25)',
+                }}
+              />
+            </Tooltip>
+
+            <TextArea
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              placeholder={selectedFiles.length > 0
+                ? `已选择 ${selectedFiles.length} 个文件，可直接发送或补充要求…`
+                : '输入消息，Enter 发送，Shift+Enter 换行…'}
+              disabled={isStreaming}
+              autoSize={{ minRows: 1, maxRows: 5 }}
+              style={{
+                background: 'rgba(15,23,42,0.5)',
+                borderColor: 'rgba(99,102,241,0.3)',
+                color: '#f1f5f9',
+                resize: 'none',
+              }}
+            />
+            {isStreaming ? (
+              <Button
+                danger
+                icon={<StopOutlined />}
+                onClick={handleStop}
+                style={{ height: 40, flexShrink: 0 }}
+              >
+                停止
+              </Button>
+            ) : (
+              <Button
+                type="primary"
+                icon={<SendOutlined />}
+                onClick={handleSend}
+                disabled={!inputValue.trim() && selectedFiles.length === 0}
+                style={{ height: 40, flexShrink: 0 }}
+              >
+                发送
+              </Button>
+            )}
+          </div>
         </div>
       </div>
       </div>

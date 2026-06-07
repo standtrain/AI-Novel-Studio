@@ -1103,6 +1103,26 @@ samp,
   gap: 10px;
 }
 
+.admin-page-shell .unified-page-header {
+  position: relative;
+  z-index: 20;
+  overflow: visible;
+}
+
+.admin-page-shell .unified-page-actions {
+  position: relative;
+  z-index: 21;
+}
+
+.admin-page-shell .unified-page-content {
+  position: relative;
+  z-index: 1;
+}
+
+.admin-global-search-results {
+  z-index: 2000;
+}
+
 .unified-page-content {
   display: flex;
   flex-direction: column;

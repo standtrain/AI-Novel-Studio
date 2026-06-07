@@ -130,6 +130,7 @@ const AdminPage: React.FC = () => {
 
   return (
     <PageShell
+      className="admin-page-shell"
       title="管理后台"
       subtitle="统一管理用户、模型、通知、工单与站点配置"
       icon={<SettingOutlined />}
@@ -148,7 +149,7 @@ const AdminPage: React.FC = () => {
 
           {/* 全局搜索结果下拉面板 */}
           {showResults && searchTerm.trim() && (
-            <div style={{
+            <div className="admin-global-search-results" style={{
               position: 'absolute',
               top: 46,
               right: 0,

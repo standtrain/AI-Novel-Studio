@@ -41,7 +41,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
       { key: 'advanced', icon: <ExperimentOutlined />, label: '高级设置', onClick: () => navigate('/advanced') },
       { key: 'settings', icon: <UserOutlined />, label: '个人设置', onClick: () => navigate('/settings') },
       { type: 'divider' as const },
-      { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', onClick: handleLogout },
+      { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', onClick: handleLogout, danger: true },
     ],
   };
 

@@ -65,7 +65,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onMenuClick, collapsed, onCollapse })
     <Tooltip title="退出登录" placement="right">
       <Button
         type="text"
-        danger
         icon={<LogoutOutlined />}
         onClick={handleLogout}
         style={{ color: '#ef4444', width: '100%', height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -74,7 +73,6 @@ const Sidebar: React.FC<SidebarProps> = ({ onMenuClick, collapsed, onCollapse })
   ) : (
     <Button
       type="text"
-      danger
       icon={<LogoutOutlined />}
       onClick={handleLogout}
       block

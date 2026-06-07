@@ -7,12 +7,14 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { sendChangeEmailCodeApi, changeEmailApi, getCaptchaApi, sendVerifyCodeApi, resetPasswordApi } from '../api/auth';
 import client from '../api/client';
+import useMobile from '../hooks/useMobile';
 
 const { Title, Text } = Typography;
 
 const SettingsPage: React.FC = () => {
   const { user, token, logout, setUser } = useAuthStore();
   const navigate = useNavigate();
+  const isMobile = useMobile();
 
   // 邮箱修改
   const [emailForm] = Form.useForm();
@@ -239,14 +241,34 @@ const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: 500 }}>
-      <Title level={4} style={{ color: '#f1f5f9' }}>个人设置</Title>
+    <div style={{ width: '100%', maxWidth: 1180, margin: '0 auto' }}>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        gap: 16,
+        marginBottom: 20,
+        flexWrap: 'wrap',
+      }}>
+        <div>
+          <Title level={3} style={{ color: '#f1f5f9', marginBottom: 6 }}>个人设置</Title>
+          <Text style={{ color: '#94a3b8' }}>管理账号资料、邮箱验证和登录密码</Text>
+        </div>
+      </div>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 1.35fr) minmax(320px, 0.85fr)',
+        gap: 20,
+        alignItems: 'start',
+      }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
       {/* 账户信息 */}
       <Card
         title={<span style={{ color: '#f1f5f9' }}><UserOutlined /> 账户信息</span>}
         style={{
-          marginBottom: 16,
+          marginBottom: 0,
           background: 'rgba(30,41,59,0.6)',
           border: '1px solid rgba(99,102,241,0.2)',
           borderRadius: 12,
@@ -296,7 +318,7 @@ const SettingsPage: React.FC = () => {
       <Card
         title={<span style={{ color: '#f1f5f9' }}><MailOutlined /> 修改邮箱</span>}
         style={{
-          marginBottom: 16,
+          marginBottom: 0,
           background: 'rgba(30,41,59,0.6)',
           border: '1px solid rgba(99,102,241,0.2)',
           borderRadius: 12
@@ -335,7 +357,7 @@ const SettingsPage: React.FC = () => {
 
           <Form.Item name="code" label={<span style={{ color: '#cbd5e1' }}>验证码</span>} rules={[{ required: true, message: '请输入6位验证码' }, { len: 6, message: '验证码为6位数字' }]}>
             <Input prefix={<NumberOutlined style={{ color: '#22d3ee' }} />} placeholder="输入邮件中的6位验证码" maxLength={6}
-              style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', letterSpacing: 4, fontFamily: 'var(--font-mono)', fontSize: 18, textAlign: 'center' }} />
+              style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', letterSpacing: 4, fontSize: 18, textAlign: 'center' }} />
           </Form.Item>
 
           <Button type="primary" htmlType="submit" loading={emailLoading}
@@ -349,7 +371,7 @@ const SettingsPage: React.FC = () => {
       <Card
         title={<span style={{ color: '#f1f5f9' }}><LockOutlined /> 修改密码</span>}
         style={{
-          marginBottom: 16,
+          marginBottom: 0,
           background: 'rgba(30,41,59,0.6)',
           border: '1px solid rgba(99,102,241,0.2)',
           borderRadius: 12
@@ -394,32 +416,61 @@ const SettingsPage: React.FC = () => {
         </Form>
       </Card>
 
-      {/* 注销 */}
-      <Card
-        title={<span style={{ color: '#ff4d4f' }}><ExclamationCircleOutlined /> 危险操作</span>}
-        style={{
-          background: 'rgba(30,41,59,0.6)',
-          border: '1px solid rgba(255,77,79,0.2)',
-          borderRadius: 12
-        }}
-      >
-        <Text style={{ color: '#94a3b8' }}>
-          注销后账号将被禁用，您将无法登录。如需恢复请联系管理员。
-        </Text>
-        <div style={{ marginTop: 16 }}>
-          <Popconfirm
-            title="确认注销账号？注销后将无法登录。"
-            onConfirm={handleCancel}
-            okText="确认注销"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-          >
-            <Button danger loading={cancelLoading}>
-              注销账号
-            </Button>
-          </Popconfirm>
         </div>
-      </Card>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <Card
+            title={<span style={{ color: '#f1f5f9' }}><UserOutlined /> 使用概览</span>}
+            style={{
+              background: 'rgba(30,41,59,0.6)',
+              border: '1px solid rgba(99,102,241,0.2)',
+              borderRadius: 12,
+            }}
+          >
+            <Space direction="vertical" size={14} style={{ width: '100%' }}>
+              <div>
+                <Text style={{ color: '#94a3b8', display: 'block', marginBottom: 4 }}>今日 Token 使用</Text>
+                <Text style={{ color: '#f1f5f9', fontSize: 24, fontWeight: 700 }}>{user?.dailyTokensUsed ?? 0}</Text>
+              </div>
+              <div>
+                <Text style={{ color: '#94a3b8', display: 'block', marginBottom: 4 }}>每日额度</Text>
+                <Text style={{ color: '#f1f5f9' }}>{user?.group?.tokenLimitPerDay?.toLocaleString?.() || user?.group?.tokenLimitPerDay || '-'}</Text>
+              </div>
+              <div>
+                <Text style={{ color: '#94a3b8', display: 'block', marginBottom: 4 }}>可创建小说数</Text>
+                <Text style={{ color: '#f1f5f9' }}>{user?.group?.maxNovels ?? '-'}</Text>
+              </div>
+            </Space>
+          </Card>
+
+          {/* 注销 */}
+          <Card
+            title={<span style={{ color: '#ff4d4f' }}><ExclamationCircleOutlined /> 危险操作</span>}
+            style={{
+              background: 'rgba(30,41,59,0.6)',
+              border: '1px solid rgba(255,77,79,0.2)',
+              borderRadius: 12
+            }}
+          >
+            <Text style={{ color: '#94a3b8' }}>
+              注销后账号将被禁用，您将无法登录。如需恢复请联系管理员。
+            </Text>
+            <div style={{ marginTop: 16 }}>
+              <Popconfirm
+                title="确认注销账号？注销后将无法登录。"
+                onConfirm={handleCancel}
+                okText="确认注销"
+                cancelText="取消"
+                okButtonProps={{ danger: true }}
+              >
+                <Button danger loading={cancelLoading}>
+                  注销账号
+                </Button>
+              </Popconfirm>
+            </div>
+          </Card>
+        </div>
+      </div>
 
       {/* 忘记密码弹窗 */}
       <Modal
@@ -475,7 +526,7 @@ const SettingsPage: React.FC = () => {
 
           <Form.Item name="code" label={<span style={{ color: '#cbd5e1' }}>验证码</span>} rules={[{ required: true, message: '请输入6位验证码' }, { len: 6, message: '验证码为6位数字' }]}>
             <Input prefix={<NumberOutlined style={{ color: '#f59e0b' }} />} placeholder="输入邮件中的6位验证码" maxLength={6}
-              style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', letterSpacing: 4, fontFamily: 'var(--font-mono)', fontSize: 18, textAlign: 'center' }} />
+              style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9', letterSpacing: 4, fontSize: 18, textAlign: 'center' }} />
           </Form.Item>
           <Form.Item name="newPassword" label={<span style={{ color: '#cbd5e1' }}>新密码</span>} rules={[{ required: true, min: 6, message: '密码至少6个字符' }]}>
             <Input.Password placeholder="输入新密码" style={{ background: 'rgba(15,23,42,0.5)', borderColor: 'rgba(99,102,241,0.3)', color: '#f1f5f9' }} />

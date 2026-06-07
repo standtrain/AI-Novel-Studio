@@ -276,7 +276,7 @@ const RegisterPage: React.FC = () => {
                     <Input prefix={<NumberOutlined style={{ color: '#22d3ee', fontSize: 18 }} />}
                       placeholder="6位验证码" maxLength={6}
                       onFocus={() => setFocusedInput('code')} onBlur={() => setFocusedInput(null)}
-                      style={{ ...getInputStyle('code'), letterSpacing: 4, fontFamily: 'var(--font-mono)', fontSize: 20, textAlign: 'center' }} />
+                      style={{ ...getInputStyle('code'), letterSpacing: 4, fontSize: 20, textAlign: 'center' }} />
                   </Form.Item>
                 </>
               ) : (

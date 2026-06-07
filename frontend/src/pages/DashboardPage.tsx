@@ -815,7 +815,7 @@ const DashboardPage: React.FC = () => {
 
       <div style={{
         display: 'grid',
-        gridTemplateColumns: isMobile ? '1fr' : 'minmax(240px, 360px) 1fr auto',
+        gridTemplateColumns: isMobile ? '1fr' : 'minmax(240px, 360px) 1fr',
         gap: 12,
         alignItems: 'center',
         marginBottom: 20,
@@ -860,14 +860,6 @@ const DashboardPage: React.FC = () => {
             </Button>
           ))}
         </Space>
-        <Space wrap style={{ justifyContent: isMobile ? 'flex-start' : 'flex-end' }}>
-          <Button icon={<ShopOutlined />} onClick={() => openCreateModal('template')}>
-            模板创建
-          </Button>
-          <Button icon={<ThunderboltOutlined />} onClick={() => openCreateModal('smart')}>
-            智能导入
-          </Button>
-        </Space>
       </div>
 
       {novels.length === 0 ? (
@@ -894,20 +886,6 @@ const DashboardPage: React.FC = () => {
           <Text style={{ color: '#64748b', display: 'block', marginBottom: 24 }}>
             点击上方按钮开始你的第一部 AI 创作
           </Text>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => openCreateModal('plan')}
-            style={{
-              height: 44,
-              background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-              border: 'none',
-              borderRadius: 12,
-              fontWeight: 600,
-            }}
-          >
-            创建新小说
-          </Button>
         </div>
       ) : filteredNovels.length === 0 ? (
         <div style={{

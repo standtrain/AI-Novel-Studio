@@ -1486,12 +1486,36 @@ const InlineDirectEditor: React.FC<{
     return matches;
   };
 
+  const scrollFieldToMatch = (match: { el: HTMLInputElement | HTMLTextAreaElement; start: number; length: number }) => {
+    const { el, start } = match;
+    if (el.tagName.toLowerCase() === 'textarea') {
+      const textBeforeMatch = el.value.slice(0, start);
+      const lineIndex = textBeforeMatch.split(/\r?\n/).length - 1;
+      const computed = window.getComputedStyle(el);
+      const parsedLineHeight = Number.parseFloat(computed.lineHeight);
+      const fontSize = Number.parseFloat(computed.fontSize) || 15;
+      const lineHeight = Number.isFinite(parsedLineHeight) ? parsedLineHeight : fontSize * 1.6;
+      el.scrollTop = Math.max(0, lineIndex * lineHeight - el.clientHeight / 2);
+      return;
+    }
+
+    const computed = window.getComputedStyle(el);
+    const fontSize = Number.parseFloat(computed.fontSize) || 14;
+    const approxCharWidth = fontSize * 0.56;
+    el.scrollLeft = Math.max(0, start * approxCharWidth - el.clientWidth / 2);
+  };
+
   const focusEditorMatch = (match: { el: HTMLInputElement | HTMLTextAreaElement; start: number; length: number }) => {
-    match.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    match.el.focus();
+    scrollFieldToMatch(match);
+    match.el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    match.el.focus({ preventScroll: true });
     try {
       match.el.setSelectionRange(match.start, match.start + match.length);
     } catch { /* Some input implementations may not support text selection. */ }
+    window.setTimeout(() => {
+      scrollFieldToMatch(match);
+      match.el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    }, 30);
   };
 
   const runSearch = (nextIndex = 0) => {

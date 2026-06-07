@@ -536,7 +536,7 @@ const TicketManager: React.FC = () => {
                     ) : (
                       <Tag color={isGeneralTicketAiManual || isGeneralTicketAutoReply ? 'purple' : 'default'}>
                         {isGeneralTicketAiManual
-                          ? 'AI+手动已开启：用户新消息会先由AI正式回复，再按判断转人工'
+                          ? 'AI+手动已开启：用户新消息会先由AI正式回复，只有用户明确要求人工时才转人工'
                           : (isGeneralTicketAutoReply ? '普通工单AI自动回复已开启' : '当前为手动回复模式')}
                       </Tag>
                     )}

@@ -50,6 +50,22 @@ function normalizeQuery(value) {
   return normalizeText(String(value), '搜索关键词', { min: 1, max: 80 });
 }
 
+function getLatestUserMessage(ticket, replies) {
+  const latestUserReply = [...replies].reverse().find(reply => reply.sender_type === 'user');
+  return String(latestUserReply?.content || ticket.content || '');
+}
+
+function hasExplicitHumanRequest(text) {
+  const normalized = String(text || '').replace(/\s+/g, '');
+  if (!normalized) return false;
+
+  const negatedHumanRequest = /(不|无需|不用|别|不要|暂不|先不).{0,8}(转人工|人工客服|人工处理|人工回复|人工介入|联系人工|找人工|客服介入|管理员处理|人工跟进|人工复核)/;
+  if (negatedHumanRequest.test(normalized)) return false;
+
+  const explicitHumanRequest = /(转人工|人工客服|人工处理|人工回复|人工介入|联系人工|找人工|真人客服|人工服务|客服介入|管理员处理|请管理员|找管理员|投诉|升级工单|升级处理|人工跟进|人工复核)/;
+  return explicitHumanRequest.test(normalized);
+}
+
 function decorateTicket(ticket) {
   if (!ticket) return ticket;
   const aiResult = parseJsonMaybe(ticket.ai_result);
@@ -179,18 +195,21 @@ async function generateAiReplyDecision(ticket, replies) {
     const name = reply.sender_type === 'user' ? '用户' : (reply.sender_type === 'admin' ? '管理员' : 'AI/系统');
     return `${name}：${reply.content}`;
   }).join('\n\n');
+  const latestUserMessage = getLatestUserMessage(ticket, replies);
+  const userExplicitlyRequestedHuman = hasExplicitHumanRequest(latestUserMessage);
   const prompt = `请作为平台工单客服，先给用户一段可以直接发送的中文回复，并判断该工单是否还需要人工客服继续处理。
 
-判断需要人工的常见情况：
-1. 涉及退款、账号、封禁、权限、隐私、安全、计费、数据恢复等需要人工确认的事项。
-2. 用户信息不足，必须由人工进一步核验或追问。
-3. AI无法确认系统状态，不能直接给出确定结论。
-4. 用户情绪强烈、紧急度较高，或问题影响核心功能。
+转人工判断必须严格遵守：
+1. 只有用户在最新一条用户消息中明确表达“转人工、人工客服、联系人工、客服介入、管理员处理、投诉、升级处理”等意图时，needsHuman 才能为 true。
+2. 仅因为涉及退款、账号、封禁、权限、隐私、安全、计费、数据恢复、系统状态不明、用户信息不足、用户情绪强烈或紧急度较高，都不能自动转人工。
+3. 信息不足时，先在 reply 中礼貌追问需要补充的具体信息，并将 needsHuman 设为 false。
+4. 无法确认后台状态时，不要编造结论，说明会根据用户补充的信息继续协助，并将 needsHuman 设为 false。
+5. 当前服务端对最新用户消息的预判为：${userExplicitlyRequestedHuman ? '用户已明确要求人工，可以设为 true' : '用户未明确要求人工，必须设为 false'}。
 
 请只输出JSON，格式如下：
 {
   "reply": "发送给用户的中文回复正文",
-  "needsHuman": true,
+  "needsHuman": ${userExplicitlyRequestedHuman ? 'true' : 'false'},
   "reason": "需要或不需要人工的中文原因，50字以内"
 }
 
@@ -216,16 +235,17 @@ ${conversation || ticket.content}`;
     const match = raw.match(/\{[\s\S]*\}/);
     const parsed = JSON.parse(match ? match[0] : raw);
     const reply = normalizeText(String(parsed.reply || ''), 'AI回复内容', { min: 1, max: 5000 });
+    const needsHuman = userExplicitlyRequestedHuman && Boolean(parsed.needsHuman);
     return {
       reply,
-      needsHuman: Boolean(parsed.needsHuman),
-      reason: String(parsed.reason || '').trim().slice(0, 120),
+      needsHuman,
+      reason: needsHuman ? String(parsed.reason || '').trim().slice(0, 120) : '用户未明确要求人工，AI继续自动协助',
     };
   } catch {
     return {
       reply: raw.slice(0, 5000),
-      needsHuman: true,
-      reason: 'AI判断结果解析失败，转人工复核',
+      needsHuman: false,
+      reason: 'AI判断结果解析失败，保留为AI自动协助',
     };
   }
 }
@@ -395,7 +415,7 @@ const ticketService = {
       mode,
       modes: [
         { value: TICKET_AI_REPLY_MODES.MANUAL, label: '手动回复', desc: '普通工单由管理员手动处理，可按需输入回复' },
-        { value: TICKET_AI_REPLY_MODES.AI_MANUAL, label: 'AI+手动', desc: 'AI先回复用户并判断是否需要人工，需要人工时保留为待处理' },
+        { value: TICKET_AI_REPLY_MODES.AI_MANUAL, label: 'AI+手动', desc: 'AI先回复用户，只有用户明确要求人工时才保留为待处理' },
         { value: TICKET_AI_REPLY_MODES.AI_AUTO, label: 'AI自动回复', desc: '用户提交普通工单或继续追问后，AI自动回复并发送站内信' },
       ],
     };

@@ -54,6 +54,14 @@ async function validateDefaultGroupConfig(value) {
 }
 
 function normalizeConfigValue(key, value) {
+  if (key === 'agent_max_concurrent_tasks') {
+    const parsed = parseInt(value, 10);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 1000) {
+      throw { status: 400, message: 'AI任务并发上限必须是0-1000之间的整数，0表示不限制' };
+    }
+    return String(parsed);
+  }
+
   const legalKeys = Object.values(LEGAL_DOCUMENTS).map(doc => doc.key);
   if (!legalKeys.includes(key)) return value;
 
@@ -345,6 +353,10 @@ router.put('/config/:key', async (req, res) => {
       await validateDefaultGroupConfig(value);
     }
     const result = await configService.set(key, value);
+    if (key === 'agent_max_concurrent_tasks') {
+      const queueManager = require('../services/queueManager');
+      await queueManager.refreshConcurrencyConfig(true);
+    }
 
     // 如果修改的是 openai_providers，同步到 Agent 缓存
     if (key === 'openai_providers' && value) {
@@ -419,6 +431,11 @@ router.put('/providers', async (req, res) => {
       if (!p.name || !p.baseUrl || !p.apiKey || !Array.isArray(p.models)) {
         return res.status(400).json({ error: `Provider "${p.name || '?'}" 缺少必填字段` });
       }
+      const maxConcurrency = parseInt(p.maxConcurrency ?? 0, 10);
+      if (!Number.isInteger(maxConcurrency) || maxConcurrency < 0 || maxConcurrency > 1000) {
+        return res.status(400).json({ error: `Provider "${p.name}" 的并发上限必须是0-1000之间的整数` });
+      }
+      p.maxConcurrency = maxConcurrency;
       for (const m of p.models) {
         if (!m.name || !Array.isArray(m.phases)) {
           return res.status(400).json({ error: `Provider "${p.name}" 的模型 "${m.name || '?'}" 缺少必填字段` });

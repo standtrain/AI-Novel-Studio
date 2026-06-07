@@ -1,6 +1,11 @@
 // Agent 基类 — 统一 LLM 调用、重试、模型解析、技能/MCP 注入
 const OpenAI = require('openai');
-const { pickModel } = require('../../config/openai');
+const {
+  pickModel,
+  acquireProviderSlot,
+  markProviderUnavailable,
+  isRetryableProviderError,
+} = require('../../config/openai');
 const { createLogger } = require('../../utils/logger');
 const { resolveTemperature, shouldApplyUserTemperature } = require('../../utils/temperaturePreset');
 
@@ -63,7 +68,54 @@ class BaseAgent {
       preferredProviderName: this.preferredProvider,
       checkLimitFn: this.checkLimitFn,
       requireVision: options.requireVision === true,
+      excludeProviders: options.excludeProviders,
     });
+  }
+
+  async _withProviderRetry(phase, options = {}, runner) {
+    const maxProviderAttempts = options.maxProviderAttempts || 20;
+    const excludedProviders = new Set(options.excludeProviders || []);
+    let lastError = null;
+    let allSkipReasons = [];
+
+    for (let attempt = 0; attempt < maxProviderAttempts; attempt++) {
+      const resolved = await this._resolve(phase, {
+        requireVision: options.requireVision === true,
+        excludeProviders: [...excludedProviders],
+      });
+      const { provider, model, skipReasons = [] } = resolved;
+      allSkipReasons = allSkipReasons.concat(skipReasons);
+
+      const releaseProviderSlot = acquireProviderSlot(provider);
+      if (!releaseProviderSlot) {
+        excludedProviders.add(provider.name);
+        allSkipReasons.push(`API ${provider.name} 当前并发已满，已自动切换`);
+        continue;
+      }
+
+      try {
+        const result = await runner({ provider, model, skipReasons: allSkipReasons });
+        return {
+          ...result,
+          model: result.model || model,
+          provider: result.provider || provider.name,
+          skipReasons: result.skipReasons || allSkipReasons,
+        };
+      } catch (err) {
+        lastError = err;
+        if (err._hasPartialOutput || !isRetryableProviderError(err)) {
+          throw err;
+        }
+        markProviderUnavailable(provider.name, err.status || err.code || 'retryable_error');
+        excludedProviders.add(provider.name);
+        allSkipReasons.push(`API ${provider.name} 请求受限或暂不可用，已自动切换`);
+        logger.warn({ provider: provider.name, model, attempt: attempt + 1 }, 'LLM Provider 不可用，尝试切换');
+      } finally {
+        releaseProviderSlot();
+      }
+    }
+
+    throw lastError || { status: 429, message: '当前所有可用 API 均不可用或并发已满，请稍后重试' };
   }
 
   // 创作类阶段使用用户温度偏好；审查、摘要、数据抽取等低温任务保持原始稳定设置
@@ -158,29 +210,30 @@ class BaseAgent {
 
   // 非流式 LLM 调用
   async callLLM(systemPrompt, userPrompt, temperature = 0.7, phase = 'writing', signal) {
-    const { provider, model, skipReasons } = await this._resolve(phase);
-    const client = this._getClient(provider);
     const abortSignal = signal || this._abortSignal;
     const effectiveTemperature = this._resolveTemperature(phase, temperature);
     const enrichedSystemPrompt = this._enrichSystemPrompt(systemPrompt, phase);
 
-    const response = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: 'system', content: enrichedSystemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: effectiveTemperature,
-      max_tokens: this.maxTokens,
-    }, { signal: abortSignal });
+    return this._withProviderRetry(phase, {}, async ({ provider, model, skipReasons }) => {
+      const client = this._getClient(provider);
+      const response = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: enrichedSystemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: effectiveTemperature,
+        max_tokens: this.maxTokens,
+      }, { signal: abortSignal });
 
-    return {
-      content: response.choices[0].message.content,
-      usage: response.usage,
-      model,
-      provider: provider.name,
-      skipReasons,
-    };
+      return {
+        content: response.choices[0].message.content,
+        usage: response.usage,
+        model,
+        provider: provider.name,
+        skipReasons,
+      };
+    });
   }
 
   // 流式 LLM 调用（支持 AbortSignal 和自动重试）
@@ -196,43 +249,51 @@ class BaseAgent {
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        const { provider, model, skipReasons: reasons } = await this._resolve(phase, {
+        return await this._withProviderRetry(phase, {
           requireVision: options.requireVision === true,
+        }, async ({ provider, model, skipReasons: reasons }) => {
+          skipReasons = reasons || [];
+          const client = this._getClient(provider);
+          const abortSignal = signal || this._abortSignal;
+          let hasOutput = false;
+
+          try {
+            const stream = await client.chat.completions.create({
+              model,
+              messages: options.messages
+                ? [{ role: 'system', content: enrichedSystemPrompt }, ...options.messages]
+                : [
+                    { role: 'system', content: enrichedSystemPrompt },
+                    { role: 'user', content: userPrompt },
+                  ],
+              temperature: effectiveTemperature,
+              max_tokens: maxTokens,
+              stream: true,
+              stream_options: { include_usage: true },
+            }, { signal: abortSignal });
+
+            let fullContent = '';
+            let usage = null;
+
+            for await (const chunk of stream) {
+              if (abortSignal?.aborted) break;
+              if (chunk.usage) {
+                usage = chunk.usage;
+              }
+              const delta = chunk.choices?.[0]?.delta?.content || '';
+              if (delta) {
+                fullContent += delta;
+                hasOutput = true;
+                if (onChunk) onChunk(delta);
+              }
+            }
+
+            return { content: fullContent, usage, model, provider: provider.name, skipReasons };
+          } catch (err) {
+            if (hasOutput) err._hasPartialOutput = true;
+            throw err;
+          }
         });
-        skipReasons = reasons || [];
-        const client = this._getClient(provider);
-        const abortSignal = signal || this._abortSignal;
-
-        const stream = await client.chat.completions.create({
-          model,
-          messages: options.messages
-            ? [{ role: 'system', content: enrichedSystemPrompt }, ...options.messages]
-            : [
-                { role: 'system', content: enrichedSystemPrompt },
-                { role: 'user', content: userPrompt },
-              ],
-          temperature: effectiveTemperature,
-          max_tokens: maxTokens,
-          stream: true,
-          stream_options: { include_usage: true },
-        }, { signal: abortSignal });
-
-        let fullContent = '';
-        let usage = null;
-
-        for await (const chunk of stream) {
-          if (abortSignal?.aborted) break;
-          if (chunk.usage) {
-            usage = chunk.usage;
-          }
-          const delta = chunk.choices?.[0]?.delta?.content || '';
-          if (delta) {
-            fullContent += delta;
-            if (onChunk) onChunk(delta);
-          }
-        }
-
-        return { content: fullContent, usage, model, provider: provider.name, skipReasons };
 
       } catch (err) {
         lastError = err;

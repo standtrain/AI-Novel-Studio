@@ -13,8 +13,10 @@ const FORCE_INTERRUPT_THRESHOLD = 90;
 // 普通等待任务每等待 60 秒增加 1 点临时调度分，避免低优先级任务长期饥饿。
 const AGING_INTERVAL_MS = 60 * 1000;
 const MAX_AGING_BONUS = 30;
-// 当前实现保持单任务执行，避免多个大模型流式请求同时压垮 provider。
-const MAX_RUNNING_TASKS = 1;
+// AI 任务全局并发上限：默认 5；site_config.agent_max_concurrent_tasks = 0 表示不限制。
+const DEFAULT_MAX_RUNNING_TASKS = 5;
+const CONCURRENCY_CONFIG_KEY = 'agent_max_concurrent_tasks';
+const CONCURRENCY_CONFIG_TTL_MS = 10 * 1000;
 const RESERVATION_TIMEOUT_MS = 30 * 1000;
 
 const STATUS = {
@@ -31,6 +33,9 @@ const waitingQueue = [];
 const reservedTasks = new Map();
 let sequence = 0;
 let processing = false;
+let maxRunningTasks = DEFAULT_MAX_RUNNING_TASKS;
+let maxRunningTasksLoadedAt = 0;
+let maxRunningTasksLoading = null;
 
 function buildTaskKey(userId, novelId, phase) {
   return `${userId}:${novelId || 0}:${phase}`;
@@ -40,6 +45,44 @@ function normalizePriority(value) {
   const priority = parseInt(value, 10);
   if (!Number.isFinite(priority)) return 10;
   return Math.max(1, Math.min(priority, 100));
+}
+
+function normalizeConcurrency(value) {
+  const parsed = parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_MAX_RUNNING_TASKS;
+  return parsed;
+}
+
+async function refreshConcurrencyConfig(force = false) {
+  const now = Date.now();
+  if (!force && now - maxRunningTasksLoadedAt < CONCURRENCY_CONFIG_TTL_MS) {
+    return maxRunningTasks;
+  }
+  if (maxRunningTasksLoading) return maxRunningTasksLoading;
+
+  maxRunningTasksLoading = (async () => {
+    try {
+      const row = await db('site_config')
+        .select('config_value')
+        .where('config_key', CONCURRENCY_CONFIG_KEY)
+        .first();
+      maxRunningTasks = normalizeConcurrency(row?.config_value);
+      maxRunningTasksLoadedAt = Date.now();
+    } catch (err) {
+      logger.warn(`读取 AI 任务并发配置失败: ${err.message}`);
+      maxRunningTasksLoadedAt = Date.now();
+    } finally {
+      maxRunningTasksLoading = null;
+    }
+    return maxRunningTasks;
+  })();
+
+  return maxRunningTasksLoading;
+}
+
+function getMaxRunningTasks() {
+  refreshConcurrencyConfig().catch(() => {});
+  return maxRunningTasks;
 }
 
 function getAgingBonus(task, now = Date.now()) {
@@ -191,7 +234,8 @@ async function forceInterruptForHighPriority(userId, userPriority) {
 
 function hasCapacity() {
   cleanupStaleQueuedTasks();
-  return runningTasks.size + reservedTasks.size < MAX_RUNNING_TASKS;
+  const limit = getMaxRunningTasks();
+  return limit === 0 || runningTasks.size + reservedTasks.size < limit;
 }
 
 function checkNeedWait() {
@@ -205,6 +249,7 @@ function getNextExecutableTask() {
 }
 
 async function enqueue(userId, novelId, phase, groupPriority, res) {
+  await refreshConcurrencyConfig();
   const priority = normalizePriority(groupPriority);
   const existing = findQueuedTask(userId, novelId, phase);
   if (existing) {
@@ -272,6 +317,7 @@ async function enqueue(userId, novelId, phase, groupPriority, res) {
 }
 
 async function processQueue() {
+  await refreshConcurrencyConfig();
   if (processing || !hasCapacity()) return;
   processing = true;
 
@@ -291,7 +337,6 @@ async function processQueue() {
       next.reservedAt = Date.now();
       reservedTasks.set(next.key, next);
       next.resolve(next);
-      break;
     }
   } finally {
     processing = false;
@@ -351,6 +396,7 @@ function cancelWaitingByResponse(res, reason = '客户端断开连接，排队�
 function getQueueStatus() {
   cleanupStaleQueuedTasks();
   const now = Date.now();
+  const limit = getMaxRunningTasks();
   const running = [];
   for (const [key, task] of runningTasks) {
     running.push({
@@ -367,7 +413,8 @@ function getQueueStatus() {
 
   sortWaitingQueue();
   return {
-    maxRunningTasks: MAX_RUNNING_TASKS,
+    maxRunningTasks: limit,
+    unlimited: limit === 0,
     runningCount: runningTasks.size,
     runningTasks: running,
     waitingCount: waitingQueue.length,
@@ -421,9 +468,10 @@ module.exports = {
   removeFromQueue,
   getQueueStatus,
   forceInterruptForHighPriority,
+  refreshConcurrencyConfig,
   createQueueTask,
   updateQueueTaskStatus,
   STATUS,
   FORCE_INTERRUPT_THRESHOLD,
-  MAX_RUNNING_TASKS,
+  DEFAULT_MAX_RUNNING_TASKS,
 };

@@ -471,6 +471,7 @@ INSERT INTO `site_config` (`config_key`, `config_value`, `description`) VALUES
 ('max_tokens_per_request', '0', '单次请求最大token数（0=不限制）'),
 ('default_temperature', '0.7', '默认temperature参数'),
 ('chapters_per_batch', '20', '章节大纲每批生成章节数'),
+('agent_max_concurrent_tasks', '5', 'AI任务全局并发上限（0=不限制）'),
 ('allow_registration', 'true', '是否允许新用户注册（true/false）'),
 ('openai_api_key', '', '单Provider API Key'),
 ('openai_base_url', 'https://api.openai.com/v1', '单Provider API地址'),

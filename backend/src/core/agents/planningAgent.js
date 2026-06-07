@@ -121,8 +121,6 @@ class PlanningAgent extends BaseAgent {
     const searchTools = this._filterSearchTools();
     const openaiTools = searchTools.length > 0 ? searchTools : undefined;
 
-    const { provider, model, skipReasons } = await this._resolve('plan');
-    const client = this._getClient(provider);
     const researchTemperature = this._resolveTemperature('plan', 0.7);
     const planTemperature = this._resolveTemperature('plan', 0.8);
 
@@ -134,19 +132,30 @@ class PlanningAgent extends BaseAgent {
 
     let researchSummary = '';
     let totalUsage = null;
+    let usedModel = null;
+    let usedProvider = null;
+    let skipReasons = [];
 
     // 第一阶段：研究（多轮工具调用）
     onProgress('progress', { step: 'research', message: '正在分析需求，搜索最新创作趋势...' });
 
     for (let turn = 0; turn < MAX_RESEARCH_TURNS; turn++) {
       try {
-        const response = await client.chat.completions.create({
-          model,
-          messages,
-          tools: openaiTools,
-          tool_choice: openaiTools ? 'auto' : undefined,
-          temperature: researchTemperature,
-        }, { signal: this._abortSignal });
+        const researchResult = await this._withProviderRetry('plan', {}, async ({ provider, model, skipReasons: reasons }) => {
+          const client = this._getClient(provider);
+          const response = await client.chat.completions.create({
+            model,
+            messages,
+            tools: openaiTools,
+            tool_choice: openaiTools ? 'auto' : undefined,
+            temperature: researchTemperature,
+          }, { signal: this._abortSignal });
+          return { response, model, provider: provider.name, skipReasons: reasons };
+        });
+        const response = researchResult.response;
+        usedModel = researchResult.model;
+        usedProvider = researchResult.provider;
+        skipReasons = researchResult.skipReasons || skipReasons;
 
         if (response.usage) totalUsage = response.usage;
 
@@ -259,32 +268,22 @@ ${researchSummary || '（无搜索结果，请基于你的知识库进行创作�
       { role: 'user', content: `用户需求：${userInput}\n\n请生成完整的小说创作方案 JSON。` },
     ];
 
-    let fullContent = '';
-    let usage = null;
-
     try {
-      const stream = await client.chat.completions.create({
-        model,
-        messages: streamMessages,
-        temperature: planTemperature,
-        max_tokens: this.maxTokens || 16000,
-        stream: true,
-        stream_options: { include_usage: true },
-      }, { signal: this._abortSignal });
+      const streamResult = await this.callLLMStream(
+        planSystemPrompt,
+        streamMessages[1].content,
+        planTemperature,
+        (text) => onProgress('chunk', { text }),
+        'plan',
+        this._abortSignal,
+        this.maxTokens || 16000
+      );
+      const fullContent = streamResult.content;
 
-      for await (const chunk of stream) {
-        if (this._abortSignal?.aborted) break;
-        if (chunk.usage) {
-          usage = chunk.usage;
-        }
-        const delta = chunk.choices?.[0]?.delta?.content || '';
-        if (delta) {
-          fullContent += delta;
-          onProgress('chunk', { text: delta });
-        }
-      }
-
-      if (usage) totalUsage = usage;
+      if (streamResult.usage) totalUsage = streamResult.usage;
+      usedModel = streamResult.model;
+      usedProvider = streamResult.provider;
+      skipReasons = [...skipReasons, ...(streamResult.skipReasons || [])];
 
       // 解析 JSON 结果
       const plan = this.parseJSONWithSchema(fullContent, [
@@ -298,8 +297,8 @@ ${researchSummary || '（无搜索结果，请基于你的知识库进行创作�
       return {
         plan,
         usage: totalUsage,
-        model,
-        provider: provider.name,
+        model: usedModel,
+        provider: usedProvider,
         skipReasons,
         researchSummary: researchSummary || undefined,
       };
@@ -310,8 +309,6 @@ ${researchSummary || '（无搜索结果，请基于你的知识库进行创作�
 
   // 根据用户反馈修订小说方案（多轮对话修订）
   async revisePlan(currentPlan, feedback, novelId, onProgress) {
-    const { provider, model, skipReasons } = await this._resolve('plan');
-    const client = this._getClient(provider);
     const reviseTemperature = this._resolveTemperature('plan', 0.7);
 
     const currentPlanStr = JSON.stringify(currentPlan, null, 2);
@@ -378,36 +375,17 @@ ${feedback}
 
     onProgress('progress', { step: 'revise', message: '正在根据你的反馈修订方案...' });
 
-    let fullContent = '';
-    let usage = null;
-    let totalUsage = null;
-
     try {
-      const stream = await client.chat.completions.create({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: reviseTemperature,
-        max_tokens: this.maxTokens || 16000,
-        stream: true,
-        stream_options: { include_usage: true },
-      }, { signal: this._abortSignal });
-
-      for await (const chunk of stream) {
-        if (this._abortSignal?.aborted) break;
-        if (chunk.usage) {
-          usage = chunk.usage;
-        }
-        const delta = chunk.choices?.[0]?.delta?.content || '';
-        if (delta) {
-          fullContent += delta;
-          onProgress('chunk', { text: delta });
-        }
-      }
-
-      if (usage) totalUsage = usage;
+      const streamResult = await this.callLLMStream(
+        systemPrompt,
+        userPrompt,
+        reviseTemperature,
+        (text) => onProgress('chunk', { text }),
+        'plan',
+        this._abortSignal,
+        this.maxTokens || 16000
+      );
+      const fullContent = streamResult.content;
 
       const plan = this.parseJSONWithSchema(fullContent, [
         'title', 'genre', 'theme', 'mainPlot', 'characters', 'chapters',
@@ -419,10 +397,10 @@ ${feedback}
 
       return {
         plan,
-        usage: totalUsage,
-        model,
-        provider: provider.name,
-        skipReasons,
+        usage: streamResult.usage,
+        model: streamResult.model,
+        provider: streamResult.provider,
+        skipReasons: streamResult.skipReasons,
       };
     } catch (err) {
       throw err;

@@ -21,7 +21,7 @@ const PHASE_OPTIONS = [
 ];
 
 interface ModelConfig { name: string; phases: string[]; }
-interface ProviderConfig { name: string; baseUrl: string; apiKey: string; priority: number; models: ModelConfig[]; }
+interface ProviderConfig { name: string; baseUrl: string; apiKey: string; priority: number; maxConcurrency?: number; models: ModelConfig[]; }
 
 const ProviderManager: React.FC = () => {
   const { message } = App.useApp();
@@ -62,6 +62,7 @@ const ProviderManager: React.FC = () => {
             baseUrl,
             apiKey,
             priority: 10,
+            maxConcurrency: 0,
             models: [{ name: model, phases: ['outline', 'characters', 'chapters_outline', 'write_chapter'] }],
           }];
         }
@@ -85,6 +86,7 @@ const ProviderManager: React.FC = () => {
         baseUrl: p.baseUrl,
         apiKey: p.apiKey,
         priority: p.priority ?? 10,
+        maxConcurrency: p.maxConcurrency ?? 0,
         models: p.models.map(m => ({
           name: m.name,
           phases: m.phases.includes('all')
@@ -97,6 +99,7 @@ const ProviderManager: React.FC = () => {
       editForm.resetFields();
       editForm.setFieldsValue({
         priority: 10,
+        maxConcurrency: 0,
         models: [{ name: 'gpt-4o', phases: PHASE_OPTIONS.map(o => o.value) }],
       });
     }
@@ -122,6 +125,7 @@ const ProviderManager: React.FC = () => {
         baseUrl: values.baseUrl.replace(/\/$/, ''),
         apiKey: values.apiKey,
         priority: values.priority ?? 10,
+        maxConcurrency: values.maxConcurrency ?? 0,
         models,
       };
 
@@ -234,6 +238,7 @@ const ProviderManager: React.FC = () => {
               <ApiOutlined />
               <Text strong>{p.name}</Text>
               <Tag color="volcano">优先级 {p.priority ?? 10}</Tag>
+              <Tag color="purple">并发 {p.maxConcurrency ? p.maxConcurrency : '不限'}</Tag>
             </Space>
           }
           extra={
@@ -316,6 +321,9 @@ const ProviderManager: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
+          <Form.Item name="maxConcurrency" label="API 并发上限" tooltip="限制此 Provider 同时运行的请求数，0 表示不限制">
+            <InputNumber min={0} max={1000} style={{ width: '100%' }} />
+          </Form.Item>
           <Form.Item name="baseUrl" label="接口地址" rules={[{ required: true, message: '请输入接口地址' }]}>
             <Input placeholder="https://api.openai.com/v1" />
           </Form.Item>

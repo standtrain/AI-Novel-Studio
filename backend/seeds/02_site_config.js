@@ -11,6 +11,7 @@ exports.seed = async function (knex) {
     { config_key: 'max_tokens_per_request', config_value: '0', description: '单次请求最大token数（0=不限制）' },
     { config_key: 'default_temperature', config_value: '0.7', description: '默认temperature参数' },
     { config_key: 'chapters_per_batch', config_value: '20', description: '章节大纲每批生成章节数' },
+    { config_key: 'agent_max_concurrent_tasks', config_value: '5', description: 'AI任务全局并发上限（0=不限制）' },
     { config_key: 'allow_registration', config_value: 'true', description: '是否允许新用户注册（true/false）' },
     // 以下为模型相关配置，在「模型管理」页面管理
     { config_key: 'openai_api_key', config_value: '', description: '单Provider API Key' },

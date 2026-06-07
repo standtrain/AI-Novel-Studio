@@ -34,7 +34,7 @@ const CONFIG_CATEGORIES: { key: string; label: string; icon: React.ReactNode; ke
     key: 'writing',
     label: '写作参数',
     icon: <EditOutlined />,
-    keys: ['max_tokens_per_request', 'default_temperature', 'chapters_per_batch'],
+    keys: ['max_tokens_per_request', 'default_temperature', 'chapters_per_batch', 'agent_max_concurrent_tasks'],
   },
   {
     key: 'security',
@@ -235,7 +235,10 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
       );
     }
 
-    if (record.config_key === 'login_rate_limit' || record.config_key === 'smtp_port' || record.config_key === 'email_daily_limit') {
+    if (record.config_key === 'login_rate_limit' || record.config_key === 'smtp_port' || record.config_key === 'email_daily_limit' || record.config_key === 'agent_max_concurrent_tasks') {
+      if (record.config_key === 'agent_max_concurrent_tasks') {
+        return <InputNumber value={Number(currentVal) || 0} onChange={(v) => setEditingValues({ ...editingValues, [record.config_key]: String(v ?? 0) })} min={0} max={1000} style={{ width: '100%' }} />;
+      }
       if (record.config_key === 'email_daily_limit') {
         return <InputNumber value={Number(currentVal) || 0} onChange={(v) => setEditingValues({ ...editingValues, [record.config_key]: String(v ?? 0) })} min={0} max={999} style={{ width: '100%' }} />;
       }

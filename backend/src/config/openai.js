@@ -20,6 +20,10 @@ let configDao = null; // 延迟注入，避免循环依赖
 
 // Provider 优先级配置（数值越高越优先使用）
 let providerPriorityMap = {};
+const providerCooldowns = new Map();
+const providerInflight = new Map();
+const providerRoundRobin = new Map();
+const DEFAULT_PROVIDER_COOLDOWN_MS = 60 * 1000;
 
 // 注入 configDao（由 index.js 在 DB 就绪后调用）
 function setConfigDao(dao) {
@@ -96,6 +100,7 @@ function buildSingleProvider() {
     name: 'default',
     baseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
     apiKey: process.env.OPENAI_API_KEY || '',
+    maxConcurrency: 0,
     models: [{
       name: process.env.OPENAI_MODEL || 'gpt-4o',
       phases: ['outline', 'characters', 'chapters_outline', 'write_chapter', 'chat'],
@@ -112,12 +117,78 @@ function getProviders() {
 // 构建按优先级排序的 Provider 列表
 function _sortedProviders() {
   const providers = getProviders();
-  const sorted = providers.map(p => ({
+  const sorted = providers.map((p, index) => ({
     ...p,
+    _sourceIndex: index,
     effectivePriority: p.priority || providerPriorityMap[p.name] || 10,
   }));
-  sorted.sort((a, b) => b.effectivePriority - a.effectivePriority);
+  sorted.sort((a, b) => {
+    const priorityDiff = b.effectivePriority - a.effectivePriority;
+    if (priorityDiff !== 0) return priorityDiff;
+    return a._sourceIndex - b._sourceIndex;
+  });
   return sorted;
+}
+
+function _providerKey(provider) {
+  return provider?.name || 'default';
+}
+
+function _getProviderMaxConcurrency(provider) {
+  const raw = provider?.maxConcurrency ?? provider?.concurrency ?? provider?.apiConcurrency ?? 0;
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return parsed;
+}
+
+function _isProviderCooling(providerName, now = Date.now()) {
+  const until = providerCooldowns.get(providerName);
+  if (!until) return false;
+  if (until <= now) {
+    providerCooldowns.delete(providerName);
+    return false;
+  }
+  return true;
+}
+
+function _isProviderAtCapacity(provider) {
+  const maxConcurrency = _getProviderMaxConcurrency(provider);
+  if (maxConcurrency === 0) return false;
+  return (providerInflight.get(_providerKey(provider)) || 0) >= maxConcurrency;
+}
+
+function _rotateSamePriorityProviders(providers, phaseKey) {
+  const grouped = new Map();
+  providers.forEach((provider) => {
+    const key = provider.effectivePriority || 10;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(provider);
+  });
+
+  const result = [];
+  [...grouped.keys()].sort((a, b) => b - a).forEach((priority) => {
+    const group = grouped.get(priority);
+    if (group.length <= 1) {
+      result.push(...group);
+      return;
+    }
+    const cursorKey = `${phaseKey}:${priority}`;
+    const cursor = providerRoundRobin.get(cursorKey) || 0;
+    for (let i = 0; i < group.length; i++) {
+      result.push(group[(cursor + i) % group.length]);
+    }
+  });
+  return result;
+}
+
+function _advanceProviderCursor(phaseKey, provider, providers) {
+  if (!provider) return;
+  const priority = provider.effectivePriority || 10;
+  const group = providers.filter(p => (p.effectivePriority || 10) === priority);
+  if (group.length <= 1) return;
+  const index = group.findIndex(p => p.name === provider.name);
+  if (index === -1) return;
+  providerRoundRobin.set(`${phaseKey}:${priority}`, (index + 1) % group.length);
 }
 
 // 检查模型是否匹配阶段
@@ -150,14 +221,27 @@ function modelSupportsVision(model = {}) {
  */
 async function pickModel(phase, options = {}) {
   const { preferredModelName, preferredProviderName, checkLimitFn, requireVision } = options;
+  const excludedProviders = new Set(options.excludeProviders || []);
   const providers = getProviders();
   const phaseKey = phaseMap[phase] || phase;
   const skipReasons = [];
-  const sortedProviders = _sortedProviders();
+  let availabilitySkipped = false;
+  const sortedProviders = _rotateSamePriorityProviders(_sortedProviders(), phaseKey);
 
   // 辅助：在 provider 列表中查找模型并检查限额
   async function _tryFindModel(providerList, modelNameFilter) {
     for (const provider of providerList) {
+      if (excludedProviders.has(provider.name)) continue;
+      if (_isProviderCooling(provider.name)) {
+        skipReasons.push(`API ${provider.name} 正在冷却中，已自动切换`);
+        availabilitySkipped = true;
+        continue;
+      }
+      if (_isProviderAtCapacity(provider)) {
+        skipReasons.push(`API ${provider.name} 当前并发已满，已自动轮询下一个 API`);
+        availabilitySkipped = true;
+        continue;
+      }
       for (const model of provider.models) {
         if (!_modelMatchesPhase(model, phaseKey)) continue;
         if (modelNameFilter && model.name !== modelNameFilter) continue;
@@ -172,6 +256,7 @@ async function pickModel(phase, options = {}) {
             const { available, reason } = await checkLimitFn(provider.name, model.name);
             if (!available) {
               skipReasons.push(reason);
+              availabilitySkipped = true;
               continue; // 跳过此模型，尝试下一个
             }
           } catch {
@@ -179,6 +264,7 @@ async function pickModel(phase, options = {}) {
           }
         }
 
+        _advanceProviderCursor(phaseKey, provider, sortedProviders);
         return { provider, model: model.name };
       }
     }
@@ -221,10 +307,19 @@ async function pickModel(phase, options = {}) {
   if (result) return { ...result, skipReasons };
 
   // 4. 绝对兜底（跳过限额检查）
+  if (availabilitySkipped) {
+    throw { status: 429, message: '当前所有可用 API 均已超限、冷却中或并发已满，请稍后重试' };
+  }
   const fallback = providers[0];
-  const fallbackModel = fallback.models[0];
+  if (!fallback) {
+    throw { status: 500, message: '未配置可用 API Provider' };
+  }
+  const fallbackModel = fallback.models?.[0] || {};
   if (requireVision && !modelSupportsVision(fallbackModel)) {
     throw { status: 400, message: '当前可用模型不支持图片识别，请切换支持视觉能力的模型或移除图片后重试' };
+  }
+  if (!fallback || excludedProviders.has(fallback.name) || _isProviderCooling(fallback.name) || _isProviderAtCapacity(fallback)) {
+    throw { status: 429, message: '当前所有可用 API 均不可用或并发已满，请稍后重试' };
   }
   return {
     provider: fallback,
@@ -273,6 +368,55 @@ function getNextAvailableProvider(excludeProviderName) {
   return sortedProviders.length > 0 ? sortedProviders[0] : providers[0];
 }
 
+function acquireProviderSlot(provider) {
+  const key = _providerKey(provider);
+  const maxConcurrency = _getProviderMaxConcurrency(provider);
+  if (maxConcurrency > 0 && (providerInflight.get(key) || 0) >= maxConcurrency) {
+    return null;
+  }
+  providerInflight.set(key, (providerInflight.get(key) || 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const next = Math.max(0, (providerInflight.get(key) || 1) - 1);
+    if (next === 0) providerInflight.delete(key);
+    else providerInflight.set(key, next);
+  };
+}
+
+function markProviderUnavailable(providerName, reason = 'rate_limited', cooldownMs = DEFAULT_PROVIDER_COOLDOWN_MS) {
+  if (!providerName) return;
+  providerCooldowns.set(providerName, Date.now() + Math.max(1000, cooldownMs));
+  process.stderr.write(`API ${providerName} 暂时不可用（${reason}），已冷却 ${cooldownMs}ms\n`);
+}
+
+function clearProviderRuntimeState() {
+  providerCooldowns.clear();
+  providerInflight.clear();
+  providerRoundRobin.clear();
+}
+
+function isRetryableProviderError(err) {
+  const status = err?.status || err?.response?.status;
+  const code = String(err?.code || err?.error?.code || '').toLowerCase();
+  const message = String(err?.message || err?.error?.message || '').toLowerCase();
+  return status === 429 ||
+    status === 408 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    code.includes('rate_limit') ||
+    code.includes('quota') ||
+    message.includes('rate limit') ||
+    message.includes('too many requests') ||
+    message.includes('quota') ||
+    message.includes('限流') ||
+    message.includes('超限') ||
+    message.includes('额度');
+}
+
 /**
  * 更新 Provider 优先级配置
  */
@@ -294,6 +438,7 @@ async function updateProviders(providers) {
 // 清除缓存（刷新配置用）
 function clearCache() {
   cachedProviders = null;
+  clearProviderRuntimeState();
 }
 
 // 启动后异步从 DB 加载（如果 .env 未配置）
@@ -321,4 +466,8 @@ module.exports = {
   getNextAvailableProvider,
   updateProviderPriority,
   modelSupportsVision,
+  acquireProviderSlot,
+  markProviderUnavailable,
+  isRetryableProviderError,
+  clearProviderRuntimeState,
 };

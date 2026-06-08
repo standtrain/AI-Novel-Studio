@@ -107,6 +107,22 @@ const templateService = {
     return templateDao.getAllPublic();
   },
 
+  async searchPublicTemplates({ keyword, category, source, page, limit } = {}) {
+    const normalizedKeyword = typeof keyword === 'string' ? keyword.trim().slice(0, 100) : '';
+    const normalizedCategory = typeof category === 'string' ? category.trim().slice(0, 50) : '';
+    const normalizedSource = ['official', 'community'].includes(source) ? source : undefined;
+    const normalizedPage = Math.max(1, parseInt(page, 10) || 1);
+    const normalizedLimit = Math.min(100, Math.max(1, parseInt(limit, 10) || 24));
+
+    return templateDao.searchPublic({
+      keyword: normalizedKeyword || undefined,
+      category: normalizedCategory || undefined,
+      source: normalizedSource,
+      page: normalizedPage,
+      limit: normalizedLimit,
+    });
+  },
+
   async listPublicCategories() {
     return categoryDao.getNames();
   },

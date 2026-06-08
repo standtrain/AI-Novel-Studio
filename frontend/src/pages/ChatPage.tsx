@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Button, Input, Typography, App, Spin, Modal, Tooltip, Space, Tag } from 'antd';
+import { Button, Input, Typography, App, Spin, Modal, Tooltip, Space, Tag, Switch } from 'antd';
 import {
   SendOutlined, StopOutlined, RobotOutlined, DeleteOutlined,
   PlusOutlined, MessageOutlined, ExclamationCircleOutlined,
@@ -58,6 +58,7 @@ const ChatPage: React.FC = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamContent, setStreamContent] = useState('');
   const [queueNotice, setQueueNotice] = useState('');
+  const [thinkingEnabled, setThinkingEnabled] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const streamingRef = useRef(false);
@@ -404,7 +405,7 @@ const ChatPage: React.FC = () => {
           loadConversations();
           break;
       }
-    }, convId, filesToSend);
+    }, convId, filesToSend, { thinkingEnabled });
   };
 
   const handleStop = () => {
@@ -951,6 +952,28 @@ const ChatPage: React.FC = () => {
                   borderColor: 'rgba(99,102,241,0.25)',
                 }}
               />
+            </Tooltip>
+
+            <Tooltip title="开启后会向兼容模型请求思考模式；工具调用仍可用">
+              <Space
+                size={6}
+                style={{
+                  height: 40,
+                  padding: '0 8px',
+                  border: '1px solid rgba(99,102,241,0.25)',
+                  borderRadius: 6,
+                  flexShrink: 0,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ color: '#94a3b8', fontSize: 12 }}>思考</Text>
+                <Switch
+                  size="small"
+                  checked={thinkingEnabled}
+                  disabled={isStreaming}
+                  onChange={setThinkingEnabled}
+                />
+              </Space>
             </Tooltip>
 
             <TextArea

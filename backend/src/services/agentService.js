@@ -390,6 +390,26 @@ function _shouldRequireChatTools(message) {
     .test(String(message || ''));
 }
 
+function _supportsEnableThinking(modelName) {
+  return /(qwen|qwq)/i.test(String(modelName || ''));
+}
+
+function _isToolChoiceThinkingModeError(err) {
+  const message = String(err?.message || err?.error?.message || '');
+  return /tool_choice/i.test(message) && /(thinking|reasoning)/i.test(message);
+}
+
+function _buildChatRequestParams(baseParams, { toolChoice, thinkingEnabled, modelName } = {}) {
+  const params = { ...baseParams };
+  if (toolChoice !== undefined) {
+    params.tool_choice = toolChoice;
+  }
+  if (typeof thinkingEnabled === 'boolean' && _supportsEnableThinking(modelName)) {
+    params.enable_thinking = thinkingEnabled;
+  }
+  return params;
+}
+
 function _safeChatRole(role) {
   return role === 'assistant' ? 'assistant' : 'user';
 }
@@ -1283,12 +1303,13 @@ ${finalContent}
     };
   },
 
-  async chat(userId, message, conversationId = null, fileList = []) {
+  async chat(userId, message, conversationId = null, fileList = [], options = {}) {
     const normalized = String(message || '').trim();
     if (!normalized && (!Array.isArray(fileList) || fileList.length === 0)) {
       throw { status: 400, message: '请输入对话内容或上传文件' };
     }
 
+    const thinkingEnabled = options.thinkingEnabled === true;
     let convId = conversationId || null;
     const storedUserMessage = _buildStoredChatMessage(normalized, fileList);
 
@@ -1403,14 +1424,28 @@ ${finalContent}
           let shouldStreamFinal = true;
           if (openaiTools.length > 0) {
             for (let turn = 0; turn < CHAT_MAX_TOOL_TURNS; turn++) {
-              const toolResponse = await client.chat.completions.create({
+              const toolBaseParams = {
                 model,
                 messages,
                 tools: openaiTools,
-                tool_choice: requireToolCall && turn === 0 ? 'required' : 'auto',
                 temperature: agent._resolveTemperature('chat', 0.7),
                 max_tokens: agent.maxTokens,
-              }, { signal: abortController.signal });
+              };
+              const toolChoice = thinkingEnabled ? undefined : (requireToolCall && turn === 0 ? 'required' : 'auto');
+              let toolResponse;
+              try {
+                toolResponse = await client.chat.completions.create(
+                  _buildChatRequestParams(toolBaseParams, { toolChoice, thinkingEnabled, modelName: model }),
+                  { signal: abortController.signal }
+                );
+              } catch (toolErr) {
+                if (!_isToolChoiceThinkingModeError(toolErr)) throw toolErr;
+                logger.warn(`模型 ${provider.name}/${model} 不兼容 tool_choice，已自动去掉 tool_choice 重试`);
+                toolResponse = await client.chat.completions.create(
+                  _buildChatRequestParams(toolBaseParams, { thinkingEnabled, modelName: model }),
+                  { signal: abortController.signal }
+                );
+              }
 
               if (toolResponse.usage) usage = toolResponse.usage;
               const toolMessage = toolResponse.choices?.[0]?.message;
@@ -1459,14 +1494,14 @@ ${finalContent}
           }
 
           if (shouldStreamFinal) {
-            const stream = await client.chat.completions.create({
+            const stream = await client.chat.completions.create(_buildChatRequestParams({
               model,
               messages,
               temperature: agent._resolveTemperature('chat', 0.7),
               max_tokens: agent.maxTokens,
               stream: true,
               stream_options: { include_usage: true },
-            }, { signal: abortController.signal });
+            }, { thinkingEnabled, modelName: model }), { signal: abortController.signal });
 
             for await (const chunk of stream) {
               if (abortController.signal.aborted) break;

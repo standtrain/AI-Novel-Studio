@@ -147,20 +147,25 @@ router.post('/', withRateLimit, checkTokenQuota, async (req, res) => {
     // 先处理文件上传（multipart 或普通 JSON body）
     const isMultipart = req.headers['content-type'] && req.headers['content-type'].includes('multipart/form-data');
 
-    let message, conversationId;
+    let message, conversationId, thinkingEnabled;
 
     if (isMultipart) {
       const { files, body } = await parseChatUpload(req, res);
       uploadedFiles = files;
       message = body.message || '';
       conversationId = body.conversationId || null;
+      if (Object.prototype.hasOwnProperty.call(body, 'thinkingEnabled')) {
+        thinkingEnabled = body.thinkingEnabled === true || body.thinkingEnabled === 'true' || body.thinkingEnabled === '1';
+      }
     } else {
       const parsed = z.object({
         message: z.string().trim().min(1, '请输入对话内容').max(MAX_CHAT_MESSAGE_LENGTH, `对话内容不能超过${MAX_CHAT_MESSAGE_LENGTH}字`),
         conversationId: z.union([z.number(), z.string()]).optional().nullable(),
+        thinkingEnabled: z.boolean().optional(),
       }).passthrough().parse(req.body);
       message = parsed.message;
       conversationId = parsed.conversationId;
+      thinkingEnabled = typeof parsed.thinkingEnabled === 'boolean' ? parsed.thinkingEnabled : undefined;
     }
 
     // 构建文件信息列表
@@ -197,7 +202,7 @@ router.post('/', withRateLimit, checkTokenQuota, async (req, res) => {
     }
 
     const effectiveMessage = normalizedMessage || DEFAULT_FILE_PROMPT;
-    const task = await agentService.chat(req.user.id, effectiveMessage, resolvedConvId, fileList);
+    const task = await agentService.chat(req.user.id, effectiveMessage, resolvedConvId, fileList, { thinkingEnabled });
     task.execute(req, res);
   } catch (err) {
     // 出错时清理已上传文件

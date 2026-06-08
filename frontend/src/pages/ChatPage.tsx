@@ -278,17 +278,33 @@ const ChatPage: React.FC = () => {
       cancelText: '取消',
       okButtonProps: { danger: true },
       onOk: async () => {
+        let deleted = false;
         try {
           await deleteConversationApi(id);
+          deleted = true;
+        } catch (err: any) {
+          if (err?.response?.status === 404) {
+            deleted = true;
+          } else {
+            msgApi.error(err?.response?.data?.error || '删除失败');
+            return;
+          }
+        }
+
+        if (deleted) {
+          setConversations((prev) => prev.filter((conv) => conv.id !== id));
           if (activeConvId === id) {
+            abortRef.current?.abort();
             setActiveConvId(null);
+            convIdRef.current = null;
             setMessages([]);
             setStreamContent('');
+            setQueueNotice('');
+            setIsStreaming(false);
+            streamingRef.current = false;
           }
-          await loadConversations();
           msgApi.success('已删除');
-        } catch {
-          msgApi.error('删除失败');
+          loadConversations();
         }
       },
     });

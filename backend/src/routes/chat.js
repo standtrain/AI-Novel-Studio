@@ -104,10 +104,8 @@ router.get('/conversations/:id', async (req, res) => {
 router.delete('/conversations/:id', async (req, res) => {
   try {
     const convId = parsePositiveInt(req.params.id, '对话ID');
-    const conv = await chatDao.findById(convId, req.user.id);
-    if (!conv) return res.status(404).json({ error: '对话不存在' });
-    await chatDao.remove(convId, req.user.id);
-    res.json({ success: true });
+    const deleted = await chatDao.remove(convId, req.user.id);
+    res.json({ success: true, deleted: deleted > 0 });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '删除对话失败' });
   }

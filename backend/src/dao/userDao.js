@@ -117,7 +117,7 @@ const userDao = {
   async updateTemperaturePreference(userId, { preset, customTemperature }) {
     return db(TABLE).where('id', userId).update({
       temperature_preset: preset,
-      custom_temperature: customTemperature,
+      custom_temperature: preset === 'custom' ? customTemperature : null,
     });
   },
 };

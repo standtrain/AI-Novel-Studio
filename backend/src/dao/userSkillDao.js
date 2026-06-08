@@ -2,6 +2,12 @@ const { db } = require('../config/database');
 
 const TABLE = 'user_skills';
 
+function _jsonToDb(value) {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
 const userSkillDao = {
   // 获取用户的所有技能配置
   async getByUser(userId) {
@@ -19,7 +25,7 @@ const userSkillDao = {
     if (existing) {
       const updateData = {};
       if (data.enabled !== undefined) updateData.enabled = data.enabled;
-      if (data.parameters !== undefined) updateData.parameters = data.parameters;
+      if (data.parameters !== undefined) updateData.parameters = _jsonToDb(data.parameters);
       updateData.updated_at = db.fn.now();
 
       await db(TABLE).where('id', existing.id).update(updateData);
@@ -29,7 +35,7 @@ const userSkillDao = {
         user_id: userId,
         skill_id: skillId,
         enabled: data.enabled !== undefined ? data.enabled : true,
-        parameters: data.parameters || null,
+        parameters: _jsonToDb(data.parameters),
       });
       return db(TABLE).where('id', id).first();
     }

@@ -48,7 +48,6 @@ CREATE TABLE IF NOT EXISTS `users` (
   `preferred_model` varchar(255) DEFAULT NULL COMMENT '用户首选模型(null=按管理员优先级)，格式: provider_name::model_name',
   `temperature_preset` varchar(20) NOT NULL DEFAULT 'balanced' COMMENT '创作温度预设：precise/balanced/creative/wild/custom',
   `custom_temperature` decimal(3,2) DEFAULT NULL COMMENT '自定义创作温度，范围0-2，仅custom预设生效',
-  `user_writing_prompt` text DEFAULT NULL COMMENT '用户个人全局写作提示词；NULL=使用系统默认，空字符串=关闭提示词',
   `last_login_at` timestamp NULL DEFAULT NULL COMMENT '最后登录时间',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -243,18 +242,6 @@ CREATE TABLE IF NOT EXISTS `user_mcp_configs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------- 2.13 邮箱验证码表 ----------
-CREATE TABLE IF NOT EXISTS `user_temperature_configs` (
-  `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `user_id` int unsigned NOT NULL COMMENT '用户 ID',
-  `phase` varchar(50) NOT NULL COMMENT '生成阶段',
-  `temperature` decimal(3,2) NOT NULL COMMENT '用户覆盖温度，范围0-2',
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `user_temperature_configs_user_id_phase_unique` (`user_id`,`phase`),
-  CONSTRAINT `user_temperature_configs_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE IF NOT EXISTS `email_verifications` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `user_id` int unsigned DEFAULT NULL COMMENT '关联用户ID（注册验证时可能为空）',
@@ -453,7 +440,20 @@ CREATE TABLE IF NOT EXISTS `ticket_replies` (
   CONSTRAINT `ticket_replies_ticket_id_fk` FOREIGN KEY (`ticket_id`) REFERENCES `tickets` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ---------- 2.24 模板分类表 ----------
+-- ---------- 2.24 用户逐阶段温度配置表 ----------
+CREATE TABLE IF NOT EXISTS `user_temperature_config` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` int unsigned NOT NULL COMMENT '用户ID',
+  `phase` varchar(50) NOT NULL COMMENT '阶段标识',
+  `temperature` decimal(3,2) NOT NULL COMMENT '温度值，范围0-2',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_user_phase` (`user_id`, `phase`),
+  CONSTRAINT `utc_user_id_fk` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ---------- 2.25 模板分类表 ----------
 CREATE TABLE IF NOT EXISTS `template_categories` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `name` varchar(50) NOT NULL COMMENT '分类名称',
@@ -481,28 +481,27 @@ INSERT INTO `site_config` (`config_key`, `config_value`, `description`) VALUES
 ('site_description', '基于AI的小说创作平台', '网站描述'),
 
 ('max_tokens_per_request', '0', '单次请求最大token数（0=不限制）'),
-('default_temperature', '0.7', '默认temperature参数'),
-('temp_outline', '0.7', '整书大纲生成温度'),
-('temp_characters', '0.7', '角色设定生成温度'),
-('temp_chapters_outline', '0.6', '章节大纲生成温度'),
-('temp_write_chapter', '0.85', '章节正文写作温度'),
-('temp_chapter_summary', '0.3', '章节摘要生成温度'),
-('temp_plan_research', '0.7', '创作规划调研温度'),
-('temp_plan_generate', '0.8', '创作规划生成温度'),
-('temp_plan_revise', '0.7', '创作规划修订温度'),
+-- 温度参数（管理员可逐阶段覆盖默认值）
+('temp_outline', '0.7', '生成大纲温度'),
+('temp_characters', '0.7', '生成人物设定温度'),
+('temp_chapters_outline', '0.6', '生成逐章大纲温度'),
+('temp_write_chapter', '0.85', '写章节正文温度'),
+('temp_chapter_summary', '0.3', '章节摘要温度'),
+('temp_plan_research', '0.7', '规划-搜索研究温度'),
+('temp_plan_generate', '0.8', '规划-方案生成温度'),
+('temp_plan_revise', '0.7', '规划-修订方案温度'),
 ('temp_context_assembly', '0.3', '写作任务书组装温度'),
-('temp_polish', '0.5', '章节润色修复温度'),
-('temp_revise', '0.7', '正文修订温度'),
+('temp_polish', '0.5', '润色修复温度'),
+('temp_revise', '0.7', '内容修订温度'),
 ('temp_review', '0.2', '章节审查温度'),
-('temp_review_retry', '0.1', '审查结果重试解析温度'),
-('temp_data_extraction', '0.15', '结构化数据抽取温度'),
-('temp_import_title', '0.3', '导入概览分析温度'),
-('temp_import_chars', '0.3', '导入角色提取温度'),
-('temp_import_chapters', '0.2', '导入章节分析温度'),
-('temp_ban', '0.3', '封禁申诉审核温度'),
-('temp_template', '0.1', '模板审核温度'),
+('temp_review_retry', '0.1', '审查重试温度'),
+('temp_data_extraction', '0.15', '数据提取温度'),
+('temp_import_title', '0.3', '导入-提取书名温度'),
+('temp_import_chars', '0.3', '导入-提取角色温度'),
+('temp_import_chapters', '0.2', '导入-提取章节温度'),
+('temp_ban', '0.3', '内容审核温度'),
+('temp_template', '0.1', '模板生成温度'),
 ('chapters_per_batch', '20', '章节大纲每批生成章节数'),
-('agent_max_concurrent_tasks', '5', 'AI任务全局并发上限（0=不限制）'),
 ('allow_registration', 'true', '是否允许新用户注册（true/false）'),
 ('openai_api_key', '', '单Provider API Key'),
 ('openai_base_url', 'https://api.openai.com/v1', '单Provider API地址'),

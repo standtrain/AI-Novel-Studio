@@ -1,37 +1,42 @@
 const { db } = require('../config/database');
 
-const TABLE = 'user_temperature_configs';
+const TABLE = 'user_temperature_config';
 
 const userTemperatureDao = {
-  async getByUser(userId) {
-    const rows = await db(TABLE)
-      .select('phase', 'temperature')
-      .where('user_id', userId);
-    const configs = {};
-    rows.forEach(row => {
-      configs[row.phase] = Number(row.temperature);
-    });
-    return configs;
+  /** 获取用户所有阶段温度配置 */
+  async getByUserId(userId) {
+    const rows = await db(TABLE).where('user_id', userId).select('phase', 'temperature');
+    const config = {};
+    for (const row of rows) {
+      config[row.phase] = row.temperature;
+    }
+    return config;
   },
 
-  async replaceForUser(userId, configs) {
-    await db.transaction(async trx => {
-      await trx(TABLE).where('user_id', userId).del();
-      const rows = Object.entries(configs)
-        .filter(([, temperature]) => temperature !== null && temperature !== undefined)
-        .map(([phase, temperature]) => ({
-          user_id: userId,
-          phase,
-          temperature,
-        }));
-      if (rows.length > 0) {
-        await trx(TABLE).insert(rows);
+  /** 批量保存用户阶段温度配置（UPSERT） */
+  async saveBatch(userId, configs) {
+    const trx = await db.transaction();
+    try {
+      for (const [phase, temperature] of Object.entries(configs)) {
+        if (temperature === null || temperature === undefined) {
+          // null/undefined = 删除覆盖，使用系统默认
+          await trx(TABLE).where({ user_id: userId, phase }).del();
+        } else {
+          await trx(TABLE)
+            .insert({ user_id: userId, phase, temperature })
+            .onConflict(['user_id', 'phase'])
+            .merge(['temperature']);
+        }
       }
-    });
-    return this.getByUser(userId);
+      await trx.commit();
+    } catch (err) {
+      await trx.rollback();
+      throw err;
+    }
   },
 
-  async deleteAllForUser(userId) {
+  /** 删除用户所有温度配置 */
+  async deleteByUserId(userId) {
     return db(TABLE).where('user_id', userId).del();
   },
 };

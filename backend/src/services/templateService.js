@@ -4,7 +4,6 @@ const configDao = require('../dao/configDao');
 const categoryDao = require('../dao/categoryDao');
 const { db } = require('../config/database');
 const OpenAI = require('openai');
-const { DEFAULT_TEMPERATURE_CONFIGS, normalizeConfigTemperature } = require('../utils/temperaturePreset');
 
 // 审核模式常量
 const REVIEW_MODES = {
@@ -31,11 +30,6 @@ async function getAiReviewConfig() {
   };
 }
 
-async function getConfiguredTemperature(key) {
-  const value = await configDao.get(key);
-  return normalizeConfigTemperature(value, DEFAULT_TEMPERATURE_CONFIGS[key]?.value || 0.7);
-}
-
 // AI 审核模板内容
 async function aiReviewTemplate(template) {
   // 读取配置的 AI 审核 Provider/Model
@@ -48,7 +42,7 @@ async function aiReviewTemplate(template) {
   })();
 
   let baseURL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-  let apiKey = process.env.OPENAI_API_KEY || '';
+  let apiKey = process.env.OPENAI_API_KEY || 'sk-placeholder';
   let model = process.env.OPENAI_MODEL || 'gpt-4o';
 
   // 如果配置了特定的 Provider/Model，查找对应的配置
@@ -61,12 +55,7 @@ async function aiReviewTemplate(template) {
     }
   }
 
-  if (!apiKey || !String(apiKey).trim()) {
-    throw { status: 500, message: 'AI 模板审核未配置 API Key，请先配置 Provider 或 OPENAI_API_KEY' };
-  }
-
   const openai = new OpenAI({ baseURL, apiKey });
-  const temperature = await getConfiguredTemperature('temp_template');
 
   const prompt = `请审核以下小说创作模板内容，判断是否适合公开发布。
 
@@ -98,7 +87,7 @@ async function aiReviewTemplate(template) {
       { role: 'system', content: '你是一个内容审核助手，请严格按照审核标准输出JSON格式结果。' },
       { role: 'user', content: prompt },
     ],
-    temperature,
+    temperature: await require('./temperatureConfig').getPhaseTemperature('template'),
     max_tokens: 500,
   });
 
@@ -116,22 +105,6 @@ const templateService = {
   // ---- 模板商店公开列表 ----
   async listPublicTemplates() {
     return templateDao.getAllPublic();
-  },
-
-  // 带搜索/筛选/分页的公开模板查询
-  async searchPublicTemplates({ keyword, category, source, page, limit } = {}) {
-    const safePage = Math.max(1, parseInt(page, 10) || 1);
-    const safeLimit = Math.min(48, Math.max(1, parseInt(limit, 10) || 24));
-    const safeKeyword = String(keyword || '').trim().slice(0, 80);
-    const safeCategory = String(category || '').trim().slice(0, 60);
-    const safeSource = ['official', 'community'].includes(source) ? source : '';
-    return templateDao.searchPublic({
-      keyword: safeKeyword,
-      category: safeCategory,
-      source: safeSource,
-      page: safePage,
-      limit: safeLimit,
-    });
   },
 
   async listPublicCategories() {

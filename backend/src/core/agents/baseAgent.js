@@ -1,54 +1,6 @@
 // Agent 基类 — 统一 LLM 调用、重试、模型解析、技能/MCP 注入
 const OpenAI = require('openai');
-const {
-  pickModel,
-  acquireProviderSlot,
-  markProviderUnavailable,
-  isRetryableProviderError,
-} = require('../../config/openai');
-const { createLogger } = require('../../utils/logger');
-const {
-  resolveConfiguredTemperature,
-  resolveTemperature,
-  resolveUserTemperatureOverride,
-  shouldApplyUserTemperature,
-} = require('../../utils/temperaturePreset');
-const { parseToolCallResult } = require('../mcp/mcpToolAdapter');
-const { getMcpClientManager } = require('../mcp/mcpClient');
-
-const logger = createLogger('base-agent');
-
-const PROMPT_INJECTED_MARK = '<!-- bookagent-advanced-prompt-injected -->';
-const PROMPT_PHASE_ALIASES = {
-  plan_revise: 'plan',
-  import_analysis: 'all',
-  character: 'characters',
-  chapter_outline: 'chapters_outline',
-  writing: 'write_chapter',
-  context_assembly: 'write_chapter',
-  review: 'write_chapter',
-  polish: 'write_chapter',
-  data_extraction: 'write_chapter',
-};
-
-function getPromptPhaseSet(phase) {
-  const phases = new Set(['all']);
-  if (phase) phases.add(phase);
-  const normalized = PROMPT_PHASE_ALIASES[phase];
-  if (normalized) phases.add(normalized);
-  return phases;
-}
-
-function isExactPreferredModel(value) {
-  return typeof value === 'string' && value.includes('::');
-}
-
-function isEnabledValue(value, defaultValue = true) {
-  if (value === undefined || value === null) return defaultValue;
-  if (value === true || value === 1 || value === '1' || value === 'true') return true;
-  if (value === false || value === 0 || value === '0' || value === 'false') return false;
-  return Boolean(value);
-}
+const { pickModel } = require('../../config/openai');
 
 class BaseAgent {
   constructor(contextManager, options = {}) {
@@ -57,57 +9,49 @@ class BaseAgent {
     this._abortSignal = null;
     this.skills = options.skills || [];
     this.mcpTools = options.mcpTools || [];
-    this.mcpToolServers = options.mcpToolServers || {};
     this.preferredModel = options.preferredModel || null;
     this.preferredProvider = options.preferredProvider || null;
     this.checkLimitFn = options.checkLimitFn || null;
     this.globalPrompt = options.globalPrompt || null;
-    this.temperaturePreset = options.temperaturePreset || 'balanced';
-    this.customTemperature = options.customTemperature ?? null;
-    this.temperatureConfig = options.temperatureConfig || {};
-    this.userTemperatureOverrides = options.userTemperatureOverrides || {};
     this.maxTokens = null;
+    // 温度配置
+    this.temperaturePreset = options.temperaturePreset || 'balanced';
+    this.customTemperature = options.customTemperature || null;
+    this.phaseTemperatures = options.phaseTemperatures || {};
+    this.userPhaseTemperatures = options.userPhaseTemperatures || {};
   }
 
-  _getMcpOriginalToolName(toolName) {
-    const tool = (this.mcpTools || []).find(t => t.function?.name === toolName);
-    return tool?.x_mcp_original_name || toolName;
+  // 预设温度映射
+  _getPresetTemperature(preset) {
+    const presets = {
+      precise: 0.35,
+      balanced: 0.7,
+      creative: 0.9,
+      wild: 1.1,
+    };
+    return presets[preset] || 0.7;
   }
 
-  getMcpOpenAITools(tools = this.mcpTools) {
-    return (Array.isArray(tools) ? tools : []).map(tool => ({
-      type: tool.type,
-      function: tool.function,
-    }));
-  }
-
-  _getMcpToolServer(toolName) {
-    const originalName = this._getMcpOriginalToolName(toolName);
-    return this.mcpToolServers?.[originalName] || this.mcpToolServers?.[toolName] || null;
-  }
-
-  async executeMcpTool(toolName, args) {
-    try {
-      const originalName = this._getMcpOriginalToolName(toolName);
-      const server = this._getMcpToolServer(toolName);
-      if (!server) {
-        return `工具 "${toolName}" 执行失败：当前用户未启用该工具`;
-      }
-      if (!isEnabledValue(server.enabled, true) || !isEnabledValue(server.user_enabled, true)) {
-        return `工具 "${toolName}" 执行失败：服务已禁用`;
-      }
-
-      const manager = getMcpClientManager();
-      const tools = await manager.getTools(server);
-      const found = tools.find(t => t.name === originalName);
-      if (!found) {
-        return `工具 "${toolName}" 执行失败：服务器未返回该工具`;
-      }
-      const result = await manager.callTool(server, originalName, args || {});
-      return parseToolCallResult(result);
-    } catch (err) {
-      return `工具调用错误：${err.message}`;
+  // 解析创作阶段温度：用户逐阶段覆盖 > 用户自定义 > 用户预设 > admin temp_* 配置 > 阶段硬编码默认值
+  _resolveTemperature(phase, fallback) {
+    // 1. 用户逐阶段覆盖（最高优先级）
+    if (this.userPhaseTemperatures[phase] !== undefined) {
+      return this.userPhaseTemperatures[phase];
     }
+    // 2. 用户自定义温度
+    if (this.temperaturePreset === 'custom' && this.customTemperature !== null) {
+      return this.customTemperature;
+    }
+    // 3. 用户预设
+    if (this.temperaturePreset && this.temperaturePreset !== 'balanced') {
+      return this._getPresetTemperature(this.temperaturePreset);
+    }
+    // 4. admin temp_* 配置
+    if (this.phaseTemperatures[phase] !== undefined) {
+      return this.phaseTemperatures[phase];
+    }
+    // 5. 硬编码默认值
+    return fallback;
   }
 
   // 获取或创建指定 provider 的 OpenAI 客户端
@@ -123,98 +67,29 @@ class BaseAgent {
   }
 
   // 根据阶段选择客户端和模型
-  async _resolve(phase, options = {}) {
+  async _resolve(phase) {
     return pickModel(phase, {
       preferredModelName: this.preferredModel,
       preferredProviderName: this.preferredProvider,
       checkLimitFn: this.checkLimitFn,
-      requireVision: options.requireVision === true,
-      excludeProviders: options.excludeProviders,
     });
-  }
-
-  async _withProviderRetry(phase, options = {}, runner) {
-    const maxProviderAttempts = options.maxProviderAttempts || 20;
-    const excludedProviders = new Set(options.excludeProviders || []);
-    const exactPreferredModel = isExactPreferredModel(this.preferredModel);
-    let lastError = null;
-    let allSkipReasons = [];
-
-    for (let attempt = 0; attempt < maxProviderAttempts; attempt++) {
-      const resolved = await this._resolve(phase, {
-        requireVision: options.requireVision === true,
-        excludeProviders: [...excludedProviders],
-      });
-      const { provider, model, skipReasons = [] } = resolved;
-      allSkipReasons = allSkipReasons.concat(skipReasons);
-
-      const releaseProviderSlot = acquireProviderSlot(provider);
-      if (!releaseProviderSlot) {
-        if (exactPreferredModel) {
-          throw { status: 429, message: `所选模型 ${provider.name}/${model} 当前接口并发已满，请稍后重试` };
-        }
-        excludedProviders.add(provider.name);
-        allSkipReasons.push(`API ${provider.name} 当前并发已满，已自动切换`);
-        continue;
-      }
-
-      try {
-        const result = await runner({ provider, model, skipReasons: allSkipReasons });
-        return {
-          ...result,
-          model: result.model || model,
-          provider: result.provider || provider.name,
-          skipReasons: result.skipReasons || allSkipReasons,
-        };
-      } catch (err) {
-        lastError = err;
-        if (err._hasPartialOutput || !isRetryableProviderError(err)) {
-          throw err;
-        }
-        markProviderUnavailable(provider.name, err.status || err.code || 'retryable_error');
-        if (exactPreferredModel) {
-          throw err;
-        }
-        excludedProviders.add(provider.name);
-        allSkipReasons.push(`API ${provider.name} 请求受限或暂不可用，已自动切换`);
-        logger.warn({ provider: provider.name, model, attempt: attempt + 1 }, 'LLM Provider 不可用，尝试切换');
-      } finally {
-        releaseProviderSlot();
-      }
-    }
-
-    throw lastError || { status: 429, message: '当前所有可用 API 均不可用或并发已满，请稍后重试' };
-  }
-
-  // 创作类阶段使用用户温度偏好；审查、摘要、数据抽取等低温任务保持原始稳定设置
-  _resolveTemperature(phase, requestedTemperature) {
-    const configuredTemperature = resolveConfiguredTemperature(phase, requestedTemperature, this.temperatureConfig);
-    if (!shouldApplyUserTemperature(phase, requestedTemperature)) {
-      return configuredTemperature;
-    }
-    const userOverride = resolveUserTemperatureOverride(phase, this.userTemperatureOverrides);
-    if (userOverride !== null) return userOverride;
-    return resolveTemperature(this.temperaturePreset, this.customTemperature);
   }
 
   // 将技能提示词和全局写作提示词注入系统提示词
   _enrichSystemPrompt(basePrompt, phase) {
-    if (!basePrompt || basePrompt.includes(PROMPT_INJECTED_MARK)) {
-      return basePrompt;
-    }
     let enriched = basePrompt;
 
-    // 个人全局提示词来自高级设置。这里统一注入到所有 Agent 调用，避免某些阶段漏掉。
-    if (this.globalPrompt) {
+    // 注入全局写作提示词（对写作、润色、修订阶段生效）
+    const writingPhases = ['write_chapter', 'context_assembly', 'polish', 'review', 'outline', 'characters', 'chapters_outline'];
+    if (this.globalPrompt && writingPhases.includes(phase)) {
       enriched += `\n\n【全局写作风格指令】\n${this.globalPrompt}`;
     }
 
-    // 注入阶段匹配的技能提示词。别名阶段也要命中高级设置中的主阶段，避免写作/章纲等子阶段漏注入。
-    const allowedPhases = getPromptPhaseSet(phase);
-    const phaseSkills = this.skills.filter(s => allowedPhases.has(s.phase));
-    if (phaseSkills.length === 0) return `${enriched}\n${PROMPT_INJECTED_MARK}`;
+    // 注入阶段匹配的技能提示词
+    const phaseSkills = this.skills.filter(s => s.phase === phase || s.phase === 'all');
+    if (phaseSkills.length === 0) return enriched;
     const skillTexts = phaseSkills.map(s => `\n\n【技能增强：${s.display_name}】\n${s.resolvedPrompt}`);
-    return `${enriched}${skillTexts.join('')}\n${PROMPT_INJECTED_MARK}`;
+    return enriched + skillTexts.join('');
   }
 
   // 解析 JSON，失败返回 fallback
@@ -261,7 +136,7 @@ class BaseAgent {
         const unquotedFixed = cleaned.replace(/'/g, '"');
         return JSON.parse(unquotedFixed);
       } catch (err2) {
-        logger.warn({ err: err1 }, 'JSON 解析失败，已尝试清理/修复');
+        console.warn(`JSON 解析失败: ${err1.message}（已尝试清理/修复）`);
         return fallback || { _parseError: true, _rawContent: (text || '').substring(0, 500) };
       }
     }
@@ -273,38 +148,38 @@ class BaseAgent {
     if (result._parseError) return result;
     const missing = requiredFields.filter(f => !(f in result));
     if (missing.length > 0) {
-      logger.warn({ missing }, 'JSON 缺少必需字段');
+      console.warn(`JSON 缺少必需字段: ${missing.join(', ')}`);
       return Object.assign(fallback || {}, result, { _missingFields: missing });
     }
     return result;
   }
 
   // 非流式 LLM 调用
-  async callLLM(systemPrompt, userPrompt, temperature = 0.7, phase = 'writing', signal) {
+  async callLLM(systemPrompt, userPrompt, temperature, phase = 'writing', signal) {
+    if (temperature === undefined) {
+      temperature = this._resolveTemperature(phase, 0.7);
+    }
+    const { provider, model, skipReasons } = await this._resolve(phase);
+    const client = this._getClient(provider);
     const abortSignal = signal || this._abortSignal;
-    const effectiveTemperature = this._resolveTemperature(phase, temperature);
-    const enrichedSystemPrompt = this._enrichSystemPrompt(systemPrompt, phase);
 
-    return this._withProviderRetry(phase, {}, async ({ provider, model, skipReasons }) => {
-      const client = this._getClient(provider);
-      const response = await client.chat.completions.create({
-        model,
-        messages: [
-          { role: 'system', content: enrichedSystemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: effectiveTemperature,
-        max_tokens: this.maxTokens,
-      }, { signal: abortSignal });
+    const response = await client.chat.completions.create({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature,
+      max_tokens: this.maxTokens,
+    }, { signal: abortSignal });
 
-      return {
-        content: response.choices[0].message.content,
-        usage: response.usage,
-        model,
-        provider: provider.name,
-        skipReasons,
-      };
-    });
+    return {
+      content: response.choices[0].message.content,
+      usage: response.usage,
+      model,
+      provider: provider.name,
+      skipReasons,
+    };
   }
 
   // 流式 LLM 调用（支持 AbortSignal 和自动重试）
@@ -312,65 +187,51 @@ class BaseAgent {
     const maxRetries = options.maxRetries || 3;
     const retryDelay = options.retryDelay || 5000;
     const maxTokens = maxTokensOverride || this.maxTokens;
-    const effectiveTemperature = this._resolveTemperature(phase, temperature);
-    const enrichedSystemPrompt = this._enrichSystemPrompt(systemPrompt, phase);
 
     let lastError = null;
     let skipReasons = [];
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        return await this._withProviderRetry(phase, {
-          requireVision: options.requireVision === true,
-        }, async ({ provider, model, skipReasons: reasons }) => {
-          skipReasons = reasons || [];
-          const client = this._getClient(provider);
-          const abortSignal = signal || this._abortSignal;
-          let hasOutput = false;
+        const { provider, model, skipReasons: reasons } = await this._resolve(phase);
+        skipReasons = reasons || [];
+        const client = this._getClient(provider);
+        const abortSignal = signal || this._abortSignal;
 
-          try {
-            const stream = await client.chat.completions.create({
-              model,
-              messages: options.messages
-                ? [{ role: 'system', content: enrichedSystemPrompt }, ...options.messages]
-                : [
-                    { role: 'system', content: enrichedSystemPrompt },
-                    { role: 'user', content: userPrompt },
-                  ],
-              temperature: effectiveTemperature,
-              max_tokens: maxTokens,
-              stream: true,
-              stream_options: { include_usage: true },
-            }, { signal: abortSignal });
+        const stream = await client.chat.completions.create({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature,
+          max_tokens: maxTokens,
+          stream: true,
+          stream_options: { include_usage: true },
+        }, { signal: abortSignal });
 
-            let fullContent = '';
-            let usage = null;
+        let fullContent = '';
+        let usage = null;
 
-            for await (const chunk of stream) {
-              if (abortSignal?.aborted) break;
-              if (chunk.usage) {
-                usage = chunk.usage;
-              }
-              const delta = chunk.choices?.[0]?.delta?.content || '';
-              if (delta) {
-                fullContent += delta;
-                hasOutput = true;
-                if (onChunk) onChunk(delta);
-              }
-            }
-
-            return { content: fullContent, usage, model, provider: provider.name, skipReasons };
-          } catch (err) {
-            if (hasOutput) err._hasPartialOutput = true;
-            throw err;
+        for await (const chunk of stream) {
+          if (abortSignal?.aborted) break;
+          if (chunk.usage) {
+            usage = chunk.usage;
           }
-        });
+          const delta = chunk.choices?.[0]?.delta?.content || '';
+          if (delta) {
+            fullContent += delta;
+            if (onChunk) onChunk(delta);
+          }
+        }
+
+        return { content: fullContent, usage, model, provider: provider.name, skipReasons };
 
       } catch (err) {
         lastError = err;
         // 429 限流自动重试
         if (err.status === 429 || (err.message && err.message.includes('429'))) {
-          logger.warn({ attempt: attempt + 1, maxRetries }, 'LLM 触发 429 限流，准备自动重试');
+          console.log(`[LLM] 429 限流，自动重试中（第 ${attempt + 1}/${maxRetries} 次）...`);
           if (attempt < maxRetries - 1) {
             await new Promise(resolve => setTimeout(resolve, retryDelay));
             continue;

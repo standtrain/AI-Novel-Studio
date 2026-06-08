@@ -1,7 +1,6 @@
 const banDao = require('../dao/banDao');
 const configDao = require('../dao/configDao');
 const OpenAI = require('openai');
-const { DEFAULT_TEMPERATURE_CONFIGS, normalizeConfigTemperature } = require('../utils/temperaturePreset');
 
 // 申诉审核模式常量
 const APPEAL_REVIEW_MODES = {
@@ -22,11 +21,6 @@ async function getAiReviewConfig() {
   return { providerName: providerName || null, modelName: modelName || null };
 }
 
-async function getConfiguredTemperature(key) {
-  const value = await configDao.get(key);
-  return normalizeConfigTemperature(value, DEFAULT_TEMPERATURE_CONFIGS[key]?.value || 0.7);
-}
-
 async function aiReviewAppeal(appeal, ban, user) {
   const reviewConfig = await getAiReviewConfig();
   const providers = (() => {
@@ -37,7 +31,7 @@ async function aiReviewAppeal(appeal, ban, user) {
   })();
 
   let baseURL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-  let apiKey = process.env.OPENAI_API_KEY || '';
+  let apiKey = process.env.OPENAI_API_KEY || 'sk-placeholder';
   let model = process.env.OPENAI_MODEL || 'gpt-4o';
 
   if (reviewConfig.providerName && reviewConfig.modelName) {
@@ -49,12 +43,7 @@ async function aiReviewAppeal(appeal, ban, user) {
     }
   }
 
-  if (!apiKey || !String(apiKey).trim()) {
-    throw { status: 500, message: 'AI 申诉审核未配置 API Key，请先配置 Provider 或 OPENAI_API_KEY' };
-  }
-
   const openai = new OpenAI({ baseURL, apiKey });
-  const temperature = await getConfiguredTemperature('temp_ban');
 
   const prompt = `请审核以下用户的账号申诉，判断是否应该解封该用户。
 
@@ -89,7 +78,7 @@ ${appeal.content}
       { role: 'system', content: '你是一个公正的账号申诉审核助手，请严格按照审核标准输出JSON格式结果。' },
       { role: 'user', content: prompt },
     ],
-    temperature,
+    temperature: await require('./temperatureConfig').getPhaseTemperature('ban'),
     max_tokens: 500,
   });
 
@@ -168,89 +157,39 @@ const banService = {
       content: content.trim(),
       status: 'pending',
     });
-    const ticketService = require('./ticketService');
-    await ticketService.createOrUpdateAppealTicket({
-      appealId,
-      userId,
-      content: content.trim(),
-      status: 'open',
-    });
 
     // 执行 AI 审核
     const mode = await getAppealReviewMode();
     const appeal = { id: appealId, content: content.trim() };
     let aiResult = null;
 
-    if (mode === APPEAL_REVIEW_MODES.AUTO) {
-      await banDao.liftBan(ban.id, null);
-      const reviewNote = '系统自动审核通过，账号已解封';
-      await db('user_appeals').where({ id: appealId }).update({
-        status: 'approved',
-        review_note: reviewNote,
-        reviewed_by: null,
-      });
-      await ticketService.syncAppealAutoReview({
-        appealId,
-        aiResult: null,
-        status: 'approved',
-        message: reviewNote,
-      });
-      return { appealId, status: 'approved', message: '申诉已自动通过，账号已解封' };
-    }
-
-    if (mode === APPEAL_REVIEW_MODES.AI || mode === APPEAL_REVIEW_MODES.AI_MANUAL) {
-      try {
+    try {
+      if (mode === APPEAL_REVIEW_MODES.AI || mode === APPEAL_REVIEW_MODES.AI_MANUAL) {
         aiResult = await aiReviewAppeal(appeal, ban, user);
-      } catch {
-        aiResult = null;
-      }
-
-      if (aiResult) {
         await db('user_appeals').where({ id: appealId }).update({ ai_result: JSON.stringify(aiResult) });
-        await ticketService.createOrUpdateAppealTicket({
-          appealId,
-          userId,
-          content: content.trim(),
-          aiResult,
-          status: 'open',
-        });
 
         if (mode === APPEAL_REVIEW_MODES.AI) {
           // AI 自动处理
           if (aiResult.approved && aiResult.confidence >= 70) {
-            const reviewNote = `AI自动审核通过 (置信度: ${aiResult.confidence}%)：${aiResult.reason}`;
             await banDao.liftBan(ban.id, null);
             await db('user_appeals').where({ id: appealId }).update({
               status: 'approved',
-              review_note: reviewNote,
+              review_note: `AI自动审核通过 (置信度: ${aiResult.confidence}%)：${aiResult.reason}`,
               reviewed_by: null,
-            });
-            await ticketService.syncAppealAutoReview({
-              appealId,
-              aiResult,
-              status: 'approved',
-              message: reviewNote,
             });
             return { appealId, status: 'approved', message: 'AI审核通过，账号已自动解封', aiResult };
           }
           if (!aiResult.approved && aiResult.confidence >= 70) {
-            const reviewNote = `AI自动审核拒绝 (置信度: ${aiResult.confidence}%)：${aiResult.reason}`;
             await db('user_appeals').where({ id: appealId }).update({
               status: 'rejected',
-              review_note: reviewNote,
+              review_note: `AI自动审核拒绝 (置信度: ${aiResult.confidence}%)：${aiResult.reason}`,
               reviewed_by: null,
-            });
-            await ticketService.syncAppealAutoReview({
-              appealId,
-              aiResult,
-              status: 'rejected',
-              message: reviewNote,
             });
             return { appealId, status: 'rejected', message: 'AI审核未通过', aiResult };
           }
         }
       }
-    }
+    } catch { /* AI审核失败不阻断申诉提交 */ }
 
     return { appealId, status: 'pending', message: '申诉已提交，请等待管理员审核', mode, aiResult };
   },
@@ -261,42 +200,29 @@ const banService = {
   },
 
   // 审核申诉
-  async reviewAppeal(appealId, { action, note }, reviewerId, options = {}) {
+  async reviewAppeal(appealId, { action, note }, reviewerId) {
     const appeal = await banDao.getAppealById(appealId);
     if (!appeal) throw { status: 404, message: '申诉不存在' };
     if (appeal.status !== 'pending') throw { status: 400, message: '该申诉已处理' };
-    const shouldSyncTicket = options.syncTicket !== false;
 
     if (action === 'approve') {
       // 通过申诉 → 解封
       const ban = await banDao.getActiveBan(appeal.user_id);
       if (ban) await banDao.liftBan(ban.id, reviewerId);
-      const reviewNote = note || '管理员审核通过，账号已解封';
       await banDao.reviewAppeal(appealId, {
         status: 'approved',
-        note: reviewNote,
+        note: note || '管理员审核通过，账号已解封',
         reviewerId,
       });
-      const result = { status: 'approved', message: '申诉已通过，用户已解封' };
-      if (shouldSyncTicket) {
-        const ticketService = require('./ticketService');
-        await ticketService.syncAppealReviewResult({ appealId, reviewResult: result, reviewerId, note: reviewNote });
-      }
-      return result;
+      return { status: 'approved', message: '申诉已通过，用户已解封' };
     }
     if (action === 'reject') {
-      const reviewNote = note || '管理员审核未通过';
       await banDao.reviewAppeal(appealId, {
         status: 'rejected',
-        note: reviewNote,
+        note: note || '管理员审核未通过',
         reviewerId,
       });
-      const result = { status: 'rejected', message: '申诉已拒绝' };
-      if (shouldSyncTicket) {
-        const ticketService = require('./ticketService');
-        await ticketService.syncAppealReviewResult({ appealId, reviewResult: result, reviewerId, note: reviewNote });
-      }
-      return result;
+      return { status: 'rejected', message: '申诉已拒绝' };
     }
     throw { status: 400, message: '无效的审核操作' };
   },

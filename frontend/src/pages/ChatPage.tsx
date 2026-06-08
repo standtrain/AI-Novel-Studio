@@ -72,6 +72,7 @@ const ChatPage: React.FC = () => {
 
   // 智能导入状态
   const [importingMsgIdx, setImportingMsgIdx] = useState<number | null>(null);
+  const [importQueueNotice, setImportQueueNotice] = useState('');
   const importAbortRef = useRef<AbortController | null>(null);
 
   // 文件上传状态
@@ -110,6 +111,7 @@ const ChatPage: React.FC = () => {
         }
       },
       onCancel: () => {
+        setImportQueueNotice('');
         setImportingMsgIdx(null);
       },
     });
@@ -124,20 +126,32 @@ const ChatPage: React.FC = () => {
     }
 
     setImportingMsgIdx(msgIdx);
+    setImportQueueNotice('');
 
     importAbortRef.current = startImportAnalysisStream(content, '', (event, data) => {
       switch (event) {
+        case 'queue':
+          if (data.status === 'waiting') {
+            setImportQueueNotice(formatQueueNotice(data));
+          } else {
+            setImportQueueNotice('');
+          }
+          break;
         case 'progress':
+          setImportQueueNotice('');
           // 静默等待分析完成
           break;
         case 'import_payload':
+          setImportQueueNotice('');
           showImportConfirm(data);
           break;
         case 'error':
           msgApi.error(data.message || '分析失败');
+          setImportQueueNotice('');
           setImportingMsgIdx(null);
           break;
         case 'abort':
+          setImportQueueNotice('');
           setImportingMsgIdx(null);
           break;
       }
@@ -335,7 +349,7 @@ const ChatPage: React.FC = () => {
           }
           break;
         case 'queue':
-          setQueueNotice(formatQueueNotice(data));
+          setQueueNotice(data.status === 'waiting' ? formatQueueNotice(data) : '');
           break;
         case 'chunk':
           setQueueNotice('');
@@ -786,16 +800,23 @@ const ChatPage: React.FC = () => {
                           />
                         </Tooltip>
                         {msg.content.length >= 100 && (
-                          <Button
-                            type="link"
-                            size="small"
-                            icon={importingMsgIdx === i ? <LoadingOutlined /> : <FileAddOutlined />}
-                            onClick={() => handleImportAsNovel(i, msg.content)}
-                            disabled={importingMsgIdx !== null}
-                            style={{ color: '#818cf8', padding: 0, fontSize: 12 }}
-                          >
-                            {importingMsgIdx === i ? '正在导入…' : '导入为小说'}
-                          </Button>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                            <Button
+                              type="link"
+                              size="small"
+                              icon={importingMsgIdx === i ? <LoadingOutlined /> : <FileAddOutlined />}
+                              onClick={() => handleImportAsNovel(i, msg.content)}
+                              disabled={importingMsgIdx !== null}
+                              style={{ color: '#818cf8', padding: 0, fontSize: 12 }}
+                            >
+                              {importingMsgIdx === i ? '正在导入…' : '导入为小说'}
+                            </Button>
+                            {importingMsgIdx === i && importQueueNotice && (
+                              <Text style={{ color: '#94a3b8', fontSize: 12, whiteSpace: 'pre-wrap', marginTop: 2 }}>
+                                {importQueueNotice}
+                              </Text>
+                            )}
+                          </div>
                         )}
                       </Space>
                     )}

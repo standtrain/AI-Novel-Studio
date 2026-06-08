@@ -392,10 +392,6 @@ async function enqueue(userId, novelId, phase, groupPriority, res, options = {})
   if (capacityStatus.canRun) {
     task.reservedAt = Date.now();
     reservedTasks.set(task.key, task);
-    sendQueueNotice(task, 'running', {
-      ...capacityStatus,
-      message: '已获得执行权，开始执行任务',
-    });
     logger.info(`任务直接执行: id=${taskId}, userId=${userId}, novelId=${novelId || 0}, phase=${phase}, priority=${priority}`);
     task.resolve(task);
     return waitPromise;

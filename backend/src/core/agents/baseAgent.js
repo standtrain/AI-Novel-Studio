@@ -10,6 +10,7 @@ const { createLogger } = require('../../utils/logger');
 const {
   resolveConfiguredTemperature,
   resolveTemperature,
+  resolveUserTemperatureOverride,
   shouldApplyUserTemperature,
 } = require('../../utils/temperaturePreset');
 const { parseToolCallResult } = require('../mcp/mcpToolAdapter');
@@ -64,6 +65,7 @@ class BaseAgent {
     this.temperaturePreset = options.temperaturePreset || 'balanced';
     this.customTemperature = options.customTemperature ?? null;
     this.temperatureConfig = options.temperatureConfig || {};
+    this.userTemperatureOverrides = options.userTemperatureOverrides || {};
     this.maxTokens = null;
   }
 
@@ -190,6 +192,8 @@ class BaseAgent {
     if (!shouldApplyUserTemperature(phase, requestedTemperature)) {
       return configuredTemperature;
     }
+    const userOverride = resolveUserTemperatureOverride(phase, this.userTemperatureOverrides);
+    if (userOverride !== null) return userOverride;
     return resolveTemperature(this.temperaturePreset, this.customTemperature);
   }
 

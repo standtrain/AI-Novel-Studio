@@ -9,7 +9,14 @@ const userDao = require('../dao/userDao');
 const userGroupDao = require('../dao/userGroupDao');
 const usageService = require('../services/usageService');
 const { parsePositiveInt } = require('../utils/requestParser');
-const { normalizeTemperaturePreference } = require('../utils/temperaturePreset');
+const {
+  USER_TEMPERATURE_PHASES,
+  normalizeTemperatureConfigMap,
+  normalizeTemperaturePreference,
+  normalizeUserTemperatureOverrides,
+} = require('../utils/temperaturePreset');
+const configDao = require('../dao/configDao');
+const userTemperatureDao = require('../dao/userTemperatureDao');
 
 const router = Router();
 
@@ -375,6 +382,57 @@ router.put('/me/temperature-preference', authenticate, async (req, res) => {
     res.json({ user: await sanitizeUserWithDailyUsage(updatedUser) });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || '更新创作温度失败' });
+  }
+});
+
+router.get('/me/temperature-config', authenticate, async (req, res) => {
+  try {
+    const siteRows = await Promise.all(
+      USER_TEMPERATURE_PHASES.map(async item => [item.configKey, await configDao.get(item.configKey)])
+    );
+    const siteConfig = normalizeTemperatureConfigMap(Object.fromEntries(siteRows));
+    const overrides = await userTemperatureDao.getByUser(req.user.id);
+    const phases = USER_TEMPERATURE_PHASES.map(item => ({
+      phase: item.phase,
+      configKey: item.configKey,
+      label: item.label,
+      defaultValue: siteConfig[item.configKey],
+    }));
+    res.json({ phases, overrides });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || '获取温度配置失败' });
+  }
+});
+
+router.put('/me/temperature-config', authenticate, async (req, res) => {
+  try {
+    const configs = req.body?.configs;
+    if (!configs || typeof configs !== 'object' || Array.isArray(configs)) {
+      return res.status(400).json({ error: '温度配置必须是对象' });
+    }
+
+    const allowed = new Set(USER_TEMPERATURE_PHASES.map(item => item.phase));
+    for (const [phase, value] of Object.entries(configs)) {
+      if (!allowed.has(phase)) {
+        return res.status(400).json({ error: `不支持的温度阶段：${phase}` });
+      }
+      if (value !== null && value !== undefined && value !== '') {
+        const n = Number(value);
+        if (!Number.isFinite(n) || n < 0 || n > 2) {
+          return res.status(400).json({ error: '温度参数必须是 0-2 之间的数字' });
+        }
+      }
+    }
+
+    const normalized = normalizeUserTemperatureOverrides(configs);
+    const overrides = await userTemperatureDao.replaceForUser(req.user.id, normalized);
+
+    const agentService = require('../services/agentService');
+    agentService.clearUserCache(req.user.id);
+
+    res.json({ overrides });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || '保存温度配置失败' });
   }
 });
 

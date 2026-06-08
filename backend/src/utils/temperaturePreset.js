@@ -138,6 +138,19 @@ const PHASE_TEMPERATURE_KEYS = {
   template: 'temp_template',
 };
 
+const USER_TEMPERATURE_PHASES = Object.freeze([
+  { phase: 'plan_generate', configKey: 'temp_plan_generate', label: '创作规划' },
+  { phase: 'plan_revise', configKey: 'temp_plan_revise', label: '规划修订' },
+  { phase: 'outline', configKey: 'temp_outline', label: '整书大纲' },
+  { phase: 'characters', configKey: 'temp_characters', label: '角色设定' },
+  { phase: 'chapters_outline', configKey: 'temp_chapters_outline', label: '章节大纲' },
+  { phase: 'write_chapter', configKey: 'temp_write_chapter', label: '章节正文' },
+  { phase: 'polish', configKey: 'temp_polish', label: '润色修复' },
+  { phase: 'revise', configKey: 'temp_revise', label: '正文修订' },
+]);
+
+const USER_TEMPERATURE_PHASE_SET = new Set(USER_TEMPERATURE_PHASES.map(item => item.phase));
+
 // 这些阶段更偏创作表达，适合让用户温度偏好生效
 const CREATIVE_PHASES = new Set([
   'plan',
@@ -192,6 +205,33 @@ function resolveConfiguredTemperature(phase, requestedTemperature, config = {}) 
   return requested === null ? normalizedConfig.default_temperature : requested;
 }
 
+function normalizeUserTemperatureOverrides(configs = {}) {
+  const normalized = {};
+  if (!configs || typeof configs !== 'object') return normalized;
+  for (const [phase, value] of Object.entries(configs)) {
+    if (!USER_TEMPERATURE_PHASE_SET.has(phase)) continue;
+    if (value === null || value === undefined || value === '') continue;
+    const temperature = clampTemperature(value);
+    if (temperature !== null) normalized[phase] = temperature;
+  }
+  return normalized;
+}
+
+function resolveUserTemperatureOverride(phase, overrides = {}) {
+  if (!phase || !overrides || typeof overrides !== 'object') return null;
+  const aliases = [phase];
+  if (phase === 'character') aliases.push('characters');
+  if (phase === 'chapter_outline') aliases.push('chapters_outline');
+  if (phase === 'writing') aliases.push('write_chapter');
+  if (phase === 'plan') aliases.push('plan_generate');
+  for (const key of aliases) {
+    if (Object.prototype.hasOwnProperty.call(overrides, key)) {
+      return clampTemperature(overrides[key]);
+    }
+  }
+  return null;
+}
+
 function normalizeTemperaturePreference(preset, customTemperature) {
   const normalizedPreset = TEMPERATURE_PRESETS[preset] ? preset : 'balanced';
   const normalizedCustom = clampTemperature(customTemperature);
@@ -221,12 +261,16 @@ module.exports = {
   DEFAULT_TEMPERATURE_CONFIGS,
   TEMPERATURE_CONFIG_KEYS,
   PHASE_TEMPERATURE_KEYS,
+  USER_TEMPERATURE_PHASES,
+  USER_TEMPERATURE_PHASE_SET,
   clampTemperature,
   normalizeConfigTemperature,
   normalizeTemperatureConfigMap,
+  normalizeUserTemperatureOverrides,
   normalizeTemperaturePreference,
   getTemperatureConfigKey,
   resolveConfiguredTemperature,
+  resolveUserTemperatureOverride,
   resolveTemperature,
   shouldApplyUserTemperature,
 };

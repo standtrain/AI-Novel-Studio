@@ -15,6 +15,15 @@ export interface UserInfo {
 
 export type TemperaturePreset = 'precise' | 'balanced' | 'creative' | 'wild' | 'custom';
 
+// 用户逐阶段温度配置
+export interface UserPhaseTemperature {
+  phase: string;
+  configKey: string;
+  defaultValue: number;
+  label: string;
+  currentValue?: number | null; // null = 使用系统默认
+}
+
 // 用户分组
 export interface UserGroup {
   id: number;

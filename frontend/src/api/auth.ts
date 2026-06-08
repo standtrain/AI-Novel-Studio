@@ -51,6 +51,23 @@ export async function updateTemperaturePreferenceApi(
   return data;
 }
 
+// 获取用户逐阶段温度配置
+export async function getUserTemperatureConfigApi(): Promise<{
+  phases: Array<{ phase: string; configKey: string; defaultValue: number; label: string }>;
+  overrides: Record<string, number>;
+}> {
+  const { data } = await client.get('/auth/me/temperature-config');
+  return data;
+}
+
+// 保存用户逐阶段温度配置
+export async function saveUserTemperatureConfigApi(
+  configs: Record<string, number | null>
+): Promise<{ overrides: Record<string, number> }> {
+  const { data } = await client.put('/auth/me/temperature-config', { configs });
+  return data;
+}
+
 // 获取可选模型列表
 export async function getAvailableModelsApi(): Promise<{ models: any[]; canChoose: boolean }> {
   const { data } = await client.get('/auth/available-models');

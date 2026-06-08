@@ -77,7 +77,9 @@ async function _loadAgentBaseConfig() {
 
 async function _loadUserConfig(userId) {
   const userDao = require('../dao/userDao');
+  const userTemperatureDao = require('../dao/userTemperatureDao');
   const user = await userDao.findById(userId);
+  const userTemperatureOverrides = await userTemperatureDao.getByUser(userId);
   const modelTokenService = require('./modelTokenService');
   return {
     user,
@@ -85,6 +87,7 @@ async function _loadUserConfig(userId) {
     preferredModel: (user && user.preferred_model && user.can_choose_model) ? user.preferred_model : null,
     temperaturePreset: user?.temperature_preset || 'balanced',
     customTemperature: user?.custom_temperature ?? null,
+    userTemperatureOverrides,
     checkLimitFn: (providerName, modelName) => modelTokenService.checkModelAvailability(providerName, modelName),
   };
 }
@@ -131,6 +134,7 @@ async function _createAgent(ctx, userId, phase, AgentClass = NovelWritingAgent) 
   if (cached.temperaturePreset) agentOptions.temperaturePreset = cached.temperaturePreset;
   if (cached.customTemperature !== undefined) agentOptions.customTemperature = cached.customTemperature;
   if (cached.temperatureConfig) agentOptions.temperatureConfig = cached.temperatureConfig;
+  if (cached.userTemperatureOverrides) agentOptions.userTemperatureOverrides = cached.userTemperatureOverrides;
   if (cached.checkLimitFn) agentOptions.checkLimitFn = cached.checkLimitFn;
 
   const agent = new AgentClass(ctx, agentOptions);

@@ -243,6 +243,18 @@ CREATE TABLE IF NOT EXISTS `user_mcp_configs` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---------- 2.13 邮箱验证码表 ----------
+CREATE TABLE IF NOT EXISTS `user_temperature_configs` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` int unsigned NOT NULL COMMENT '用户 ID',
+  `phase` varchar(50) NOT NULL COMMENT '生成阶段',
+  `temperature` decimal(3,2) NOT NULL COMMENT '用户覆盖温度，范围0-2',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `user_temperature_configs_user_id_phase_unique` (`user_id`,`phase`),
+  CONSTRAINT `user_temperature_configs_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `email_verifications` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `user_id` int unsigned DEFAULT NULL COMMENT '关联用户ID（注册验证时可能为空）',

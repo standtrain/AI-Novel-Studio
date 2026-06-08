@@ -29,7 +29,16 @@ const configDao = {
 
   async getInt(key, defaultValue = 0) {
     const val = await this.get(key);
-    return val !== null ? parseInt(val, 10) : defaultValue;
+    if (val === null || val === undefined || val === '') return defaultValue;
+    const parsed = parseInt(val, 10);
+    return Number.isFinite(parsed) ? parsed : defaultValue;
+  },
+
+  async getFloat(key, defaultValue = 0) {
+    const val = await this.get(key);
+    if (val === null || val === undefined || val === '') return defaultValue;
+    const parsed = parseFloat(val);
+    return Number.isFinite(parsed) ? parsed : defaultValue;
   },
 };
 

@@ -3,27 +3,65 @@ const { db } = require('../config/database');
 const SERVERS_TABLE = 'mcp_servers';
 const USER_CONFIG_TABLE = 'user_mcp_configs';
 
+function _jsonToDb(value) {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+function _jsonFromDb(value) {
+  if (!value || typeof value !== 'string') return value;
+  try { return JSON.parse(value); } catch { return value; }
+}
+
+function _normalizeServer(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    args: _jsonFromDb(row.args),
+    headers: _jsonFromDb(row.headers),
+  };
+}
+
+function _normalizeUserConfig(row) {
+  if (!row) return row;
+  return {
+    ...row,
+    extra_config: _jsonFromDb(row.extra_config),
+  };
+}
+
+function _normalizeUserServer(row) {
+  if (!row) return row;
+  return {
+    ..._normalizeServer(row),
+    user_extra_config: _jsonFromDb(row.user_extra_config),
+  };
+}
+
 const mcpDao = {
   // ========== 全局服务器管理 ==========
 
   // 获取所有 MCP 服务器
   async getAllServers() {
-    return db(SERVERS_TABLE).select('*').orderBy('name', 'asc');
+    const rows = await db(SERVERS_TABLE).select('*').orderBy('name', 'asc');
+    return rows.map(_normalizeServer);
   },
 
   // 获取已启用的 MCP 服务器
   async getEnabledServers() {
-    return db(SERVERS_TABLE).where('enabled', true).orderBy('name', 'asc');
+    const rows = await db(SERVERS_TABLE).where('enabled', true).orderBy('name', 'asc');
+    return rows.map(_normalizeServer);
   },
 
   // 根据 ID 获取服务器
   async getServerById(id) {
-    return db(SERVERS_TABLE).where('id', id).first();
+    return _normalizeServer(await db(SERVERS_TABLE).where('id', id).first());
   },
 
   // 根据名称获取服务器
   async getServerByName(name) {
-    return db(SERVERS_TABLE).where('name', name).first();
+    return _normalizeServer(await db(SERVERS_TABLE).where('name', name).first());
   },
 
   // 创建 MCP 服务器
@@ -32,9 +70,9 @@ const mcpDao = {
       name: data.name,
       transport: data.transport || 'http',
       command: data.command || null,
-      args: data.args || null,
+      args: _jsonToDb(data.args),
       url: data.url || null,
-      headers: data.headers || null,
+      headers: _jsonToDb(data.headers),
       enabled: data.enabled !== undefined ? data.enabled : true,
       description: data.description || null,
     });
@@ -51,6 +89,8 @@ const mcpDao = {
     allowedFields.forEach(f => {
       if (data[f] !== undefined) updateData[f] = data[f];
     });
+    if (updateData.args !== undefined) updateData.args = _jsonToDb(updateData.args);
+    if (updateData.headers !== undefined) updateData.headers = _jsonToDb(updateData.headers);
     updateData.updated_at = db.fn.now();
 
     await db(SERVERS_TABLE).where('id', id).update(updateData);
@@ -66,7 +106,7 @@ const mcpDao = {
 
   // 获取用户的所有 MCP 配置（含服务器信息）
   async getUserConfigs(userId) {
-    return db(USER_CONFIG_TABLE)
+    const rows = await db(USER_CONFIG_TABLE)
       .join(SERVERS_TABLE, `${USER_CONFIG_TABLE}.server_id`, `${SERVERS_TABLE}.id`)
       .where(`${USER_CONFIG_TABLE}.user_id`, userId)
       .select(
@@ -76,14 +116,15 @@ const mcpDao = {
         `${USER_CONFIG_TABLE}.api_key as user_api_key`,
         `${USER_CONFIG_TABLE}.extra_config as user_extra_config`
       );
+    return rows.map(_normalizeUserServer);
   },
 
   // 获取用户特定服务器的配置
   async getUserConfig(userId, serverId) {
-    return db(USER_CONFIG_TABLE)
+    return _normalizeUserConfig(await db(USER_CONFIG_TABLE)
       .where('user_id', userId)
       .andWhere('server_id', serverId)
-      .first();
+      .first());
   },
 
   // 插入或更新用户 MCP 配置
@@ -93,7 +134,7 @@ const mcpDao = {
       const updateData = {};
       if (data.enabled !== undefined) updateData.enabled = data.enabled;
       if (data.api_key !== undefined) updateData.api_key = data.api_key;
-      if (data.extra_config !== undefined) updateData.extra_config = data.extra_config;
+      if (data.extra_config !== undefined) updateData.extra_config = _jsonToDb(data.extra_config);
       updateData.updated_at = db.fn.now();
 
       await db(USER_CONFIG_TABLE).where('id', existing.id).update(updateData);
@@ -104,9 +145,9 @@ const mcpDao = {
         server_id: serverId,
         enabled: data.enabled !== undefined ? data.enabled : true,
         api_key: data.api_key || null,
-        extra_config: data.extra_config || null,
+        extra_config: _jsonToDb(data.extra_config),
       });
-      return db(USER_CONFIG_TABLE).where('id', id).first();
+      return _normalizeUserConfig(await db(USER_CONFIG_TABLE).where('id', id).first());
     }
   },
 

@@ -530,6 +530,54 @@ router.post('/providers/test', async (req, res) => {
   }
 });
 
+// 拉取 Provider 可用模型列表
+router.post('/providers/models', async (req, res) => {
+  try {
+    let { provider } = req.body || {};
+
+    if (provider && !provider.apiKey) {
+      provider = {
+        baseUrl: provider.baseUrl || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+        apiKey: process.env.OPENAI_API_KEY || '',
+      };
+    }
+
+    if (!provider || !provider.baseUrl) {
+      return res.status(400).json({ error: '缺少接口地址' });
+    }
+    if (!provider.apiKey) {
+      return res.status(400).json({ error: '缺少 API Key，请先填写 Provider API Key' });
+    }
+    const baseUrl = String(provider.baseUrl).trim().replace(/\/$/, '');
+    const apiKey = String(provider.apiKey).trim();
+    if (baseUrl.length > 300 || apiKey.length > 500) {
+      return res.status(400).json({ error: 'Provider 参数长度超出限制' });
+    }
+    try {
+      // 仅校验 URL 结构，不发起额外请求。
+      new URL(baseUrl);
+    } catch {
+      return res.status(400).json({ error: '接口地址格式不正确' });
+    }
+
+    const client = new OpenAI({
+      apiKey,
+      baseURL: baseUrl,
+    });
+
+    const result = await client.models.list();
+    const models = Array.from(new Set((result.data || [])
+      .map((model) => model.id || model.name)
+      .filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b));
+
+    res.json({ models });
+  } catch (err) {
+    logger.warn({ err }, '拉取 Provider 模型列表失败');
+    res.status(500).json({ error: '拉取模型列表失败，请检查接口地址和 API Key' });
+  }
+});
+
 // ==================== 小说管理 ====================
 
 // 所有小说列表

@@ -1,17 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Card, Button, Modal, Form, Input, InputNumber, Space, Typography,
-  App, Popconfirm, Row, Col, Divider, Alert, Tag, Checkbox,
+  Alert, App, AutoComplete, Button, Card, Checkbox, Col, Divider, Form, Input,
+  InputNumber, Modal, Popconfirm, Row, Space, Tag, Tooltip, Typography,
 } from 'antd';
 import {
-  PlusOutlined, DeleteOutlined, EditOutlined, ApiOutlined,
-  SaveOutlined, ThunderboltOutlined,
+  ApiOutlined, ArrowDownOutlined, ArrowUpOutlined, CloudDownloadOutlined,
+  DeleteOutlined, EditOutlined, PlusOutlined, SaveOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
-import { getProvidersApi, saveProvidersApi, testProviderApi } from '../../api/admin';
+import {
+  fetchProviderModelsApi,
+  getProvidersApi,
+  saveProvidersApi,
+  testProviderApi,
+} from '../../api/admin';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 
-// 写作阶段选项
 const PHASE_OPTIONS = [
   { label: '全书大纲', value: 'outline' },
   { label: '人物设定', value: 'characters' },
@@ -20,28 +24,57 @@ const PHASE_OPTIONS = [
   { label: 'AI审核', value: 'review' },
 ];
 
-interface ModelConfig { name: string; phases: string[]; }
-interface ProviderConfig { name: string; baseUrl: string; apiKey: string; priority: number; maxConcurrency?: number; models: ModelConfig[]; }
+interface ModelConfig {
+  name: string;
+  phases: string[];
+}
+
+interface ProviderConfig {
+  name: string;
+  baseUrl: string;
+  apiKey: string;
+  priority: number;
+  maxConcurrency?: number;
+  models: ModelConfig[];
+}
+
+const allPhaseValues = PHASE_OPTIONS.map(option => option.value);
+
+function normalizeModelName(name?: string) {
+  return String(name || '').trim();
+}
+
+function uniqueModelNames(names: string[]) {
+  const seen = new Set<string>();
+  return names
+    .map(normalizeModelName)
+    .filter((name) => {
+      if (!name) return false;
+      const key = name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
 
 const ProviderManager: React.FC = () => {
   const { message } = App.useApp();
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
 
-  // 编辑弹窗
   const [editModal, setEditModal] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number>(-1);
   const [editForm] = Form.useForm();
 
-  // 测试
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
   const [testProviderName, setTestProviderName] = useState<string>('');
 
   useEffect(() => { loadProviders(); }, []);
 
-  // 从后端加载 Provider 配置
   const loadProviders = async () => {
     setLoading(true);
     try {
@@ -49,10 +82,9 @@ const ProviderManager: React.FC = () => {
       const [provData, configData] = await Promise.all([getProvidersApi(), getConfigsApi()]);
       let pList: ProviderConfig[] = provData.providers || [];
 
-      // 如果没有 Provider，从旧版 site_config 构建默认 Provider
       if (pList.length === 0) {
         const configs: any = {};
-        (configData.configs || []).forEach((c: any) => { configs[c.config_key] = c.config_value; });
+        (configData.configs || []).forEach((config: any) => { configs[config.config_key] = config.config_value; });
         const apiKey = configs.openai_api_key || '';
         const baseUrl = configs.openai_base_url || 'https://api.openai.com/v1';
         const model = configs.default_model || 'gpt-4o';
@@ -76,54 +108,118 @@ const ProviderManager: React.FC = () => {
     }
   };
 
-  // 打开编辑弹窗（p 为 null 表示新增）
   const openEdit = (index?: number) => {
+    editForm.resetFields();
     if (index !== undefined && index >= 0) {
-      const p = providers[index];
+      const provider = providers[index];
+      const models = provider.models.map(model => ({
+        name: model.name,
+        phases: model.phases.includes('all') ? allPhaseValues : model.phases,
+      }));
+
       setEditingIndex(index);
+      setModelOptions(uniqueModelNames(models.map(model => model.name)));
       editForm.setFieldsValue({
-        name: p.name,
-        baseUrl: p.baseUrl,
-        apiKey: p.apiKey,
-        priority: p.priority ?? 10,
-        maxConcurrency: p.maxConcurrency ?? 0,
-        models: p.models.map(m => ({
-          name: m.name,
-          phases: m.phases.includes('all')
-            ? PHASE_OPTIONS.map(o => o.value)
-            : m.phases,
-        })),
+        name: provider.name,
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        priority: provider.priority ?? 10,
+        maxConcurrency: provider.maxConcurrency ?? 0,
+        models,
       });
     } else {
+      const defaultModels = [{ name: 'gpt-4o', phases: allPhaseValues }];
       setEditingIndex(-1);
-      editForm.resetFields();
+      setModelOptions(['gpt-4o']);
       editForm.setFieldsValue({
         priority: 10,
         maxConcurrency: 0,
-        models: [{ name: 'gpt-4o', phases: PHASE_OPTIONS.map(o => o.value) }],
+        models: defaultModels,
       });
     }
     setEditModal(true);
   };
 
-  // 保存编辑
+  const handleFetchModels = async () => {
+    const { baseUrl, apiKey } = editForm.getFieldsValue(['baseUrl', 'apiKey']);
+    const normalizedBaseUrl = String(baseUrl || '').trim().replace(/\/$/, '');
+    const normalizedApiKey = String(apiKey || '').trim();
+
+    if (!normalizedBaseUrl) {
+      message.warning('请先填写接口地址');
+      return;
+    }
+    if (!normalizedApiKey) {
+      message.warning('请先填写 Provider API Key');
+      return;
+    }
+
+    setFetchingModels(true);
+    try {
+      const result = await fetchProviderModelsApi({
+        baseUrl: normalizedBaseUrl,
+        apiKey: normalizedApiKey,
+      });
+      const fetchedNames = uniqueModelNames(result.models || []);
+      if (fetchedNames.length === 0) {
+        message.warning('未从 Provider 返回可用模型');
+        return;
+      }
+
+      const currentModels: ModelConfig[] = editForm.getFieldValue('models') || [];
+      const currentNames = uniqueModelNames(currentModels.map(model => model.name));
+      const mergedOptions = uniqueModelNames([...currentNames, ...fetchedNames]);
+      const existingKeys = new Set(currentNames.map(name => name.toLowerCase()));
+      const mergedModels = [
+        ...currentModels.map(model => ({
+          name: normalizeModelName(model.name),
+          phases: Array.isArray(model.phases) && model.phases.length > 0 ? model.phases : allPhaseValues,
+        })).filter(model => model.name),
+        ...fetchedNames
+          .filter(name => !existingKeys.has(name.toLowerCase()))
+          .map(name => ({ name, phases: allPhaseValues })),
+      ];
+
+      setModelOptions(mergedOptions);
+      editForm.setFieldsValue({ baseUrl: normalizedBaseUrl, apiKey: normalizedApiKey, models: mergedModels });
+      message.success(`已拉取 ${fetchedNames.length} 个模型`);
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '拉取模型列表失败');
+    } finally {
+      setFetchingModels(false);
+    }
+  };
+
   const handleEditSave = async () => {
     try {
       const values = await editForm.validateFields();
-      // 构建模型配置：如果全选了所有阶段，标记为 'all'
-      const models: ModelConfig[] = (values.models || []).map((m: any) => {
-        const allPhases = PHASE_OPTIONS.map(o => o.value);
-        const isAll = allPhases.every((p: string) => (m.phases || []).includes(p));
-        return {
-          name: m.name.trim(),
-          phases: isAll ? ['all'] : (m.phases || []),
-        };
-      });
+      const seenModels = new Set<string>();
+      const models: ModelConfig[] = (values.models || [])
+        .map((model: any) => {
+          const name = normalizeModelName(model.name);
+          const phases = Array.isArray(model.phases) ? model.phases : [];
+          const isAll = allPhaseValues.every(phase => phases.includes(phase));
+          return {
+            name,
+            phases: isAll ? ['all'] : phases,
+          };
+        })
+        .filter((model: ModelConfig) => {
+          const key = model.name.toLowerCase();
+          if (!model.name || seenModels.has(key)) return false;
+          seenModels.add(key);
+          return true;
+        });
+
+      if (models.length === 0) {
+        message.warning('请至少配置一个模型');
+        return;
+      }
 
       const provider: ProviderConfig = {
-        name: values.name.trim(),
-        baseUrl: values.baseUrl.replace(/\/$/, ''),
-        apiKey: values.apiKey,
+        name: String(values.name || '').trim(),
+        baseUrl: String(values.baseUrl || '').trim().replace(/\/$/, ''),
+        apiKey: String(values.apiKey || '').trim(),
         priority: values.priority ?? 10,
         maxConcurrency: values.maxConcurrency ?? 0,
         models,
@@ -137,19 +233,19 @@ const ProviderManager: React.FC = () => {
       }
       setProviders(newList);
       setEditModal(false);
-    } catch { /* 表单校验失败 */ }
+    } catch {
+      // 表单校验失败时由 antd 展示字段错误。
+    }
   };
 
   const handleDelete = (idx: number) => {
     setProviders(providers.filter((_, i) => i !== idx));
   };
 
-  // 保存全部到后端
   const handleSaveAll = async () => {
     setSaving(true);
     try {
       await saveProvidersApi(providers);
-      // 同步更新旧版 site_config（兼容）
       const { updateConfigApi } = await import('../../api/admin');
       await updateConfigApi('provider_mode', providers.length > 1 ? 'multi' : 'single');
       message.success('配置已保存，立即生效');
@@ -160,7 +256,6 @@ const ProviderManager: React.FC = () => {
     }
   };
 
-  // 测试连接
   const handleTest = async (provider: ProviderConfig) => {
     if (!provider.models.length) return;
     setTesting(true);
@@ -174,13 +269,12 @@ const ProviderManager: React.FC = () => {
       });
       setTestResult(result);
     } catch (err: any) {
-      setTestResult({ success: false, message: err.message });
+      setTestResult({ success: false, message: err.response?.data?.error || err.message });
     } finally {
       setTesting(false);
     }
   };
 
-  // 上移/下移调整优先级
   const moveProvider = (index: number, direction: 'up' | 'down') => {
     const newList = [...providers];
     const target = direction === 'up' ? index - 1 : index + 1;
@@ -189,24 +283,28 @@ const ProviderManager: React.FC = () => {
     setProviders(newList);
   };
 
-  // 渲染阶段标签
   const renderPhaseTags = (phases: string[]) => {
     if (phases.includes('all')) {
       return <Tag color="green">全部阶段</Tag>;
     }
     const labels: Record<string, string> = {
-      outline: '大纲', characters: '人物', chapters_outline: '章纲', write_chapter: '写作', review: 'AI审核',
+      outline: '大纲',
+      characters: '人物',
+      chapters_outline: '章纲',
+      write_chapter: '写作',
+      review: 'AI审核',
     };
-    return phases.map(p => <Tag key={p} color="blue">{labels[p] || p}</Tag>);
+    return phases.map(phase => <Tag key={phase} color="blue">{labels[phase] || phase}</Tag>);
   };
+
+  const autoCompleteOptions = modelOptions.map(value => ({ value }));
 
   return (
     <div>
-      {/* 顶部操作栏 */}
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Space>
           <Text strong style={{ fontSize: 16 }}>Provider 列表</Text>
-          <Text type="secondary">（{providers.length} 个）</Text>
+          <Text type="secondary">({providers.length} 个)</Text>
         </Space>
         <Space>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => openEdit()}>
@@ -222,33 +320,47 @@ const ProviderManager: React.FC = () => {
         <Alert
           type="warning"
           message="尚未配置任何 Provider"
-          description="点击「添加 Provider」配置大模型接口。至少需要一个 Provider 才能使用 AI 写作功能。"
+          description="点击添加 Provider 配置大模型接口。至少需要一个 Provider 才能使用 AI 写作功能。"
           style={{ marginBottom: 16 }}
         />
       )}
 
-      {/* Provider 卡片列表 */}
-      {providers.map((p, idx) => (
+      {providers.map((provider, idx) => (
         <Card
-          key={idx}
+          key={`${provider.name}-${idx}`}
           size="small"
           style={{ marginBottom: 12 }}
-          title={
+          title={(
             <Space>
               <ApiOutlined />
-              <Text strong>{p.name}</Text>
-              <Tag color="volcano">优先级 {p.priority ?? 10}</Tag>
-              <Tag color="purple">并发 {p.maxConcurrency ? p.maxConcurrency : '不限'}</Tag>
+              <Text strong>{provider.name}</Text>
+              <Tag color="volcano">优先级 {provider.priority ?? 10}</Tag>
+              <Tag color="purple">并发 {provider.maxConcurrency ? provider.maxConcurrency : '不限'}</Tag>
             </Space>
-          }
-          extra={
+          )}
+          extra={(
             <Space>
-              <Button size="small" onClick={() => moveProvider(idx, 'up')} disabled={idx === 0}>↑</Button>
-              <Button size="small" onClick={() => moveProvider(idx, 'down')} disabled={idx === providers.length - 1}>↓</Button>
+              <Tooltip title="上移 Provider">
+                <Button
+                  size="small"
+                  icon={<ArrowUpOutlined />}
+                  onClick={() => moveProvider(idx, 'up')}
+                  disabled={idx === 0}
+                />
+              </Tooltip>
+              <Tooltip title="下移 Provider">
+                <Button
+                  size="small"
+                  icon={<ArrowDownOutlined />}
+                  onClick={() => moveProvider(idx, 'down')}
+                  disabled={idx === providers.length - 1}
+                />
+              </Tooltip>
               <Button
-                size="small" icon={<ThunderboltOutlined />}
-                loading={testing && testProviderName === p.name}
-                onClick={() => handleTest(p)}
+                size="small"
+                icon={<ThunderboltOutlined />}
+                loading={testing && testProviderName === provider.name}
+                onClick={() => handleTest(provider)}
               >
                 测试
               </Button>
@@ -257,66 +369,66 @@ const ProviderManager: React.FC = () => {
                 <Button size="small" danger icon={<DeleteOutlined />} />
               </Popconfirm>
             </Space>
-          }
+          )}
         >
           <Row gutter={[24, 8]}>
             <Col span={8}>
               <Text type="secondary">接口地址：</Text>
-              <Text code>{p.baseUrl}</Text>
+              <Text code>{provider.baseUrl}</Text>
             </Col>
             <Col span={4}>
               <Text type="secondary">API Key：</Text>
-              <Text>{p.apiKey ? '••••' + p.apiKey.slice(-4) : '未设置'}</Text>
+              <Text>{provider.apiKey ? `****${provider.apiKey.slice(-4)}` : '未设置'}</Text>
             </Col>
             <Col span={12}>
-              <Text type="secondary">模型：</Text>
-              {p.models.map((m, mi) => (
-                <Tag key={mi} color="blue" style={{ marginRight: 4 }}>
-                  {m.name}
+              <Text type="secondary">模型顺序：</Text>
+              {provider.models.map((model, modelIdx) => (
+                <Tag key={`${model.name}-${modelIdx}`} color="blue" style={{ marginRight: 4 }}>
+                  {modelIdx + 1}. {model.name}
                 </Tag>
               ))}
             </Col>
           </Row>
           <div style={{ marginTop: 8 }}>
-            {p.models.map((m, mi) => (
-              <span key={mi} style={{ marginRight: 16 }}>
-                <Text type="secondary">{m.name}：</Text>
-                {renderPhaseTags(m.phases)}
+            {provider.models.map((model, modelIdx) => (
+              <span key={`${model.name}-${modelIdx}`} style={{ marginRight: 16 }}>
+                <Text type="secondary">{model.name}：</Text>
+                {renderPhaseTags(model.phases)}
               </span>
             ))}
           </div>
         </Card>
       ))}
 
-      {/* 测试结果 */}
       {testResult && (
         <Alert
           type={testResult.success ? 'success' : 'error'}
           message={testResult.success
-            ? `${testProviderName} 连接成功 — 延迟 ${testResult.latency}ms，模型 ${testResult.model}`
+            ? `${testProviderName} 连接成功，延迟 ${testResult.latency}ms，模型 ${testResult.model}`
             : `${testProviderName} 连接失败：${testResult.message}`}
-          style={{ marginTop: 12 }} closable onClose={() => setTestResult(null)}
+          style={{ marginTop: 12 }}
+          closable
+          onClose={() => setTestResult(null)}
         />
       )}
 
-      {/* 编辑 Provider 弹窗 */}
       <Modal
         title={editingIndex >= 0 ? `编辑 Provider：${providers[editingIndex]?.name || ''}` : '添加 Provider'}
         open={editModal}
         onOk={handleEditSave}
         onCancel={() => setEditModal(false)}
-        width={640}
+        width={720}
         forceRender
       >
         <Form form={editForm} layout="vertical">
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item name="name" label="Provider 名称" rules={[{ required: true, message: '请输入名称' }]}>
-                <Input placeholder="如 openai、deepseek、zhipu" />
+                <Input maxLength={50} placeholder="如 openai、deepseek、zhipu" />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="priority" label="优先级" tooltip="数值越高越优先使用，拖拽顺序即为优先级">
+              <Form.Item name="priority" label="优先级" tooltip="数值越高越优先使用">
                 <InputNumber min={1} max={100} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
@@ -324,21 +436,37 @@ const ProviderManager: React.FC = () => {
           <Form.Item name="maxConcurrency" label="API 并发上限" tooltip="限制此 Provider 同时运行的请求数，0 表示不限制">
             <InputNumber min={0} max={1000} style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item name="baseUrl" label="接口地址" rules={[{ required: true, message: '请输入接口地址' }]}>
-            <Input placeholder="https://api.openai.com/v1" />
+          <Form.Item
+            name="baseUrl"
+            label="接口地址"
+            rules={[{ required: true, message: '请输入接口地址' }, { type: 'url', message: '请输入有效的 URL' }]}
+          >
+            <Input maxLength={300} placeholder="https://api.openai.com/v1" />
           </Form.Item>
           <Form.Item name="apiKey" label="API Key" rules={[{ required: true, message: '请输入 API Key' }]}>
-            <Input.Password placeholder="sk-..." />
+            <Input.Password maxLength={500} placeholder="sk-..." />
           </Form.Item>
 
           <Divider style={{ margin: '12px 0' }} />
-          <Text strong style={{ display: 'block', marginBottom: 12 }}>模型配置</Text>
-          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-            每个模型可指定适用的写作阶段。若全部勾选，保存后自动标记为「全部阶段」。
-          </Text>
+          <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Space direction="vertical" size={2}>
+              <Text strong>模型配置</Text>
+              <Text type="secondary">
+                模型顺序会作为同一 Provider 内的优先顺序；拉取模型会保留已有阶段配置并追加新模型。
+              </Text>
+            </Space>
+            <Button
+              size="small"
+              icon={<CloudDownloadOutlined />}
+              loading={fetchingModels}
+              onClick={handleFetchModels}
+            >
+              拉取模型列表
+            </Button>
+          </div>
 
           <Form.List name="models">
-            {(fields, { add, remove }) => (
+            {(fields, { add, remove, move }) => (
               <>
                 {fields.map(({ key, name, ...rest }, idx) => (
                   <Card
@@ -346,21 +474,59 @@ const ProviderManager: React.FC = () => {
                     size="small"
                     type="inner"
                     style={{ marginBottom: 8 }}
-                    extra={
-                      fields.length > 1 && (
-                        <Button size="small" danger icon={<DeleteOutlined />} onClick={() => remove(name)} />
-                      )
-                    }
+                    title={<Text strong>#{idx + 1}</Text>}
+                    extra={(
+                      <Space>
+                        <Tooltip title="上移模型">
+                          <Button
+                            size="small"
+                            icon={<ArrowUpOutlined />}
+                            onClick={() => move(name, name - 1)}
+                            disabled={idx === 0}
+                          />
+                        </Tooltip>
+                        <Tooltip title="下移模型">
+                          <Button
+                            size="small"
+                            icon={<ArrowDownOutlined />}
+                            onClick={() => move(name, name + 1)}
+                            disabled={idx === fields.length - 1}
+                          />
+                        </Tooltip>
+                        {fields.length > 1 && (
+                          <Tooltip title="删除模型">
+                            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => remove(name)} />
+                          </Tooltip>
+                        )}
+                      </Space>
+                    )}
                   >
-                    <Form.Item {...rest} name={[name, 'name']} label="模型名" rules={[{ required: true }]} style={{ marginBottom: 8 }}>
-                      <Input placeholder="如 gpt-4o、gpt-4o-mini、deepseek-chat" />
+                    <Form.Item
+                      {...rest}
+                      name={[name, 'name']}
+                      label="模型名"
+                      rules={[{ required: true, whitespace: true, message: '请输入模型名' }]}
+                      style={{ marginBottom: 8 }}
+                    >
+                      <AutoComplete
+                        options={autoCompleteOptions}
+                        placeholder="如 gpt-4o、gpt-4o-mini、deepseek-chat"
+                        filterOption={(inputValue, option) => String(option?.value || '')
+                          .toLowerCase()
+                          .includes(inputValue.toLowerCase())}
+                      />
                     </Form.Item>
                     <Form.Item {...rest} name={[name, 'phases']} label="适用阶段" style={{ marginBottom: 0 }}>
                       <Checkbox.Group options={PHASE_OPTIONS} />
                     </Form.Item>
                   </Card>
                 ))}
-                <Button type="dashed" size="small" onClick={() => add({ name: 'gpt-4o', phases: PHASE_OPTIONS.map(o => o.value) })} icon={<PlusOutlined />}>
+                <Button
+                  type="dashed"
+                  size="small"
+                  onClick={() => add({ name: 'gpt-4o', phases: allPhaseValues })}
+                  icon={<PlusOutlined />}
+                >
                   添加模型
                 </Button>
               </>

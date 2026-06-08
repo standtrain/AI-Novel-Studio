@@ -73,6 +73,11 @@ export async function testProviderApi(provider: { baseUrl: string; apiKey: strin
   return data;
 }
 
+export async function fetchProviderModelsApi(provider: { baseUrl: string; apiKey: string }) {
+  const { data } = await client.post('/admin/providers/models', { provider });
+  return data as { models: string[] };
+}
+
 // 模型 Token 限额管理
 export async function getModelTokenLimitsApi() {
   const { data } = await client.get('/admin/model-limits');

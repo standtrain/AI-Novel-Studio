@@ -8,16 +8,22 @@ const ReviewerAgent = require('../core/agents/reviewerAgent');
 const DataAgent = require('../core/agents/dataAgent');
 const ImportAgent = require('../core/agents/importAgent');
 const ContextManager = require('../core/utils/contextManager');
+const fs = require('fs');
 const novelDao = require('../dao/novelDao');
 const chapterDao = require('../dao/chapterDao');
 const characterDao = require('../dao/characterDao');
+const chatDao = require('../dao/chatDao');
 const configDao = require('../dao/configDao');
 const usageService = require('./usageService');
 const queueManager = require('./queueManager');
+const { pickModel } = require('../config/openai');
 const { createLogger } = require('../utils/logger');
 const { countWords, stripWordCountLabel } = require('../core/utils/wordCounter');
 
 const logger = createLogger('agent');
+const CHAT_HISTORY_LIMIT = 12;
+const CHAT_MAX_TEXT_FILE_CHARS = 12000;
+const CHAT_MAX_TOTAL_FILE_CHARS = 30000;
 
 // ========== 阶段映射 ==========
 // 内部子阶段映射到对外暴露的 4 个主阶段，确保技能/MCP 配置正确匹配
@@ -279,6 +285,119 @@ function parseJson(val) {
   if (!val) return [];
   if (typeof val === 'object') return val;
   try { return JSON.parse(val); } catch { return []; }
+}
+
+function _formatShanghaiNow() {
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'long',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+  return `${formatter.format(now)}（Asia/Shanghai，ISO: ${now.toISOString()}）`;
+}
+
+function _cleanupChatFiles(fileList = []) {
+  for (const file of fileList) {
+    if (!file?.path) continue;
+    try { fs.unlinkSync(file.path); } catch { /* ignore cleanup failure */ }
+  }
+}
+
+function _stripHistoricalUploadMarkers(content) {
+  return String(content || '')
+    .replace(/\n*\[(?:已上传文件|本轮上传文件)[^\]]*\]/g, '')
+    .trim();
+}
+
+function _buildChatTitle(message, fileList = []) {
+  const cleaned = _stripHistoricalUploadMarkers(message)
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (cleaned) return cleaned.slice(0, 60);
+  const firstFile = fileList[0]?.originalName;
+  return firstFile ? `文件分析：${firstFile}`.slice(0, 60) : '新对话';
+}
+
+function _buildStoredChatMessage(message, fileList = []) {
+  const names = fileList.map(f => f.originalName).filter(Boolean);
+  if (names.length === 0) return message;
+  return `${message}\n\n[已上传文件：${names.join(', ')}]`;
+}
+
+function _safeChatRole(role) {
+  return role === 'assistant' ? 'assistant' : 'user';
+}
+
+function _readChatFilePayload(fileList = []) {
+  const textSections = [];
+  const imageParts = [];
+  let totalChars = 0;
+
+  for (const file of fileList) {
+    if (!file?.path) continue;
+    const originalName = String(file.originalName || file.filename || '未命名文件');
+    if (file.isImage) {
+      try {
+        const bytes = fs.readFileSync(file.path);
+        const mime = file.mimetype || 'image/png';
+        imageParts.push({
+          type: 'image_url',
+          image_url: { url: `data:${mime};base64,${bytes.toString('base64')}` },
+        });
+      } catch {
+        textSections.push(`【图片：${originalName}】读取失败，无法分析图像内容。`);
+      }
+      continue;
+    }
+
+    try {
+      const raw = fs.readFileSync(file.path, 'utf8');
+      const remaining = CHAT_MAX_TOTAL_FILE_CHARS - totalChars;
+      if (remaining <= 0) break;
+      const clipped = raw.slice(0, Math.min(CHAT_MAX_TEXT_FILE_CHARS, remaining));
+      totalChars += clipped.length;
+      const suffix = raw.length > clipped.length ? '\n...（文件内容已截断）' : '';
+      textSections.push(`【文件：${originalName}】\n${clipped}${suffix}`);
+    } catch {
+      textSections.push(`【文件：${originalName}】读取失败，无法分析文件内容。`);
+    }
+  }
+
+  return { textSections, imageParts };
+}
+
+function _buildChatSystemPrompt(hasCurrentFiles) {
+  return `你是一个严谨的中文 AI 对话助手，主要帮助用户进行小说创作、资料分析和写作规划。
+
+当前服务器时间：${_formatShanghaiNow()}
+
+事实边界：
+1. 用户询问当前日期或时间时，直接基于上面的服务器时间回答，不要声称自己没有日期、时间或日历能力。
+2. 只有当前消息中【本轮上传文件】列出的文件，才视为本轮已上传文件。${hasCurrentFiles ? '' : '本轮没有上传文件，禁止声称用户刚刚上传了任何文件。'}
+3. 不要虚构文件名、小说名、上传内容、已完成步骤或用户没有提供的背景。如果缺少材料，请明确说“我没有收到对应材料”并询问用户。
+4. 历史消息里出现的上传提示只代表历史轮次，不能当作本轮上传。`;
+}
+
+function _buildCurrentChatContent(message, fileList = []) {
+  const names = fileList.map(f => f.originalName).filter(Boolean);
+  const { textSections, imageParts } = _readChatFilePayload(fileList);
+  const fileHeader = names.length > 0
+    ? names.map(name => `- ${name}`).join('\n')
+    : '无';
+  const text = `${message}
+
+【本轮上传文件】
+${fileHeader}${textSections.length > 0 ? `\n\n【本轮文件内容】\n${textSections.join('\n\n')}` : ''}`;
+
+  if (imageParts.length === 0) return text;
+  return [{ type: 'text', text }, ...imageParts];
 }
 
 async function _recordUsage(userId, novelId, phase, usage, model, provider) {
@@ -1079,6 +1198,152 @@ ${finalContent}
             _cleanupTask(novelId, 'revise_' + phase, abortController);
           }
         })();
+      },
+    };
+  },
+
+  async chat(userId, message, conversationId = null, fileList = []) {
+    const normalized = String(message || '').trim();
+    if (!normalized && (!Array.isArray(fileList) || fileList.length === 0)) {
+      throw { status: 400, message: '请输入对话内容或上传文件' };
+    }
+
+    let convId = conversationId || null;
+    const storedUserMessage = _buildStoredChatMessage(normalized, fileList);
+
+    return {
+      execute: async (req, res) => {
+        const abortController = new AbortController();
+        let agent;
+        let providerName = null;
+        let modelName = null;
+        let assistantContent = '';
+        let userMessageSaved = false;
+
+        try {
+          const ctx = { novel: null, characters: [], allChapters: [] };
+          agent = await _createAgent(ctx, userId, 'chat');
+        } catch (err) {
+          _cleanupChatFiles(fileList);
+          setupSSE(res);
+          sendSSE(res, 'error', { message: 'AI 服务初始化失败：' + err.message });
+          _safeEnd(res);
+          return;
+        }
+
+        agent._abortSignal = abortController.signal;
+        setupSSE(res);
+        req.on('close', () => {
+          if (!res.writableEnded) abortController.abort();
+        });
+
+        try {
+          if (!convId) {
+            const title = _buildChatTitle(normalized, fileList);
+            convId = await chatDao.create(userId, title);
+            sendSSE(res, 'conversation', { conversationId: convId, title });
+          }
+
+          await chatDao.addMessage(convId, 'user', storedUserMessage);
+          userMessageSaved = true;
+          await chatDao.touch(convId, userId);
+
+          if (fileList.length > 0) {
+            sendSSE(res, 'file_uploads', {
+              files: fileList.map(f => ({
+                name: f.originalName,
+                size: f.size,
+                isImage: !!f.isImage,
+              })),
+            });
+          }
+
+          const historyRows = await chatDao.listMessages(convId);
+          const priorMessages = historyRows
+            .filter(row => !(row.role === 'user' && row.content === storedUserMessage))
+            .slice(-CHAT_HISTORY_LIMIT)
+            .map(row => ({
+              role: _safeChatRole(row.role),
+              content: row.role === 'user' ? _stripHistoricalUploadMarkers(row.content) : String(row.content || ''),
+            }))
+            .filter(row => row.content);
+
+          const currentFiles = Array.isArray(fileList) ? fileList : [];
+          const hasCurrentFiles = currentFiles.length > 0;
+          const hasCurrentImages = currentFiles.some(file => file.isImage);
+          const messages = [
+            { role: 'system', content: _buildChatSystemPrompt(hasCurrentFiles) },
+            ...priorMessages,
+            { role: 'user', content: _buildCurrentChatContent(normalized, currentFiles) },
+          ];
+
+          const { provider, model, skipReasons } = hasCurrentImages
+            ? await pickModel('chat', {
+              preferredModelName: agent.preferredModel,
+              preferredProviderName: agent.preferredProvider,
+              checkLimitFn: agent.checkLimitFn,
+              requireVision: true,
+            })
+            : await agent._resolve('chat');
+          providerName = provider.name;
+          modelName = model;
+          if (skipReasons && skipReasons.length > 0) {
+            sendSSE(res, 'model_fallback', {
+              preferredModel: agent.preferredModel,
+              actualModel: model,
+              reasons: skipReasons,
+            });
+          }
+
+          const client = agent._getClient(provider);
+          const stream = await client.chat.completions.create({
+            model,
+            messages,
+            temperature: agent._resolveTemperature('chat', 0.7),
+            max_tokens: agent.maxTokens,
+            stream: true,
+            stream_options: { include_usage: true },
+          }, { signal: abortController.signal });
+
+          let usage = null;
+          for await (const chunk of stream) {
+            if (abortController.signal.aborted) break;
+            if (chunk.usage) usage = chunk.usage;
+            const delta = chunk.choices?.[0]?.delta?.content || '';
+            if (!delta) continue;
+            assistantContent += delta;
+            sendSSE(res, 'chunk', { text: delta });
+          }
+
+          if (abortController.signal.aborted) {
+            sendSSE(res, 'abort', {});
+            _safeEnd(res);
+            return;
+          }
+
+          const finalContent = assistantContent.trim();
+          if (finalContent) {
+            await chatDao.addMessage(convId, 'assistant', finalContent);
+            await chatDao.touch(convId, userId);
+          }
+          if (usage) {
+            await _recordUsage(userId, 0, 'chat', usage, modelName, providerName);
+          }
+
+          sendSSE(res, 'done', {});
+          _safeEnd(res);
+        } catch (err) {
+          if (!res.writableEnded) {
+            logger.error('AI 对话失败：' + err.message);
+            if (!userMessageSaved && convId) {
+              try { await chatDao.addMessage(convId, 'user', storedUserMessage); } catch { /* ignore */ }
+            }
+            sendSSE(res, 'error', { message: err.message || '对话失败' });
+          }
+          _safeEnd(res);
+        } finally {
+          _cleanupChatFiles(fileList);
+        }
       },
     };
   },

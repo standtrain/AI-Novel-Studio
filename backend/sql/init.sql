@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `preferred_model` varchar(255) DEFAULT NULL COMMENT '用户首选模型(null=按管理员优先级)，格式: provider_name::model_name',
   `temperature_preset` varchar(20) NOT NULL DEFAULT 'balanced' COMMENT '创作温度预设：precise/balanced/creative/wild/custom',
   `custom_temperature` decimal(3,2) DEFAULT NULL COMMENT '自定义创作温度，范围0-2，仅custom预设生效',
+  `user_writing_prompt` text DEFAULT NULL COMMENT '用户个人全局写作提示词；NULL=使用系统默认，空字符串=关闭提示词',
   `last_login_at` timestamp NULL DEFAULT NULL COMMENT '最后登录时间',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,

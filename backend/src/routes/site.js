@@ -3,6 +3,7 @@ const configService = require('../services/configService');
 const authenticate = require('../middleware/authenticate');
 const { LEGAL_DOCUMENTS } = require('../constants/legalDefaults');
 const userDao = require('../dao/userDao');
+const { createLogger } = require('../utils/logger');
 const {
   DEFAULT_USER_WRITING_PROMPT,
   USER_WRITING_PROMPT_MAX_LENGTH,
@@ -11,6 +12,7 @@ const {
 } = require('../constants/writingPromptDefaults');
 
 const router = express.Router();
+const logger = createLogger('site-routes');
 
 // GET /api/site/info —— 公开接口，无需认证
 router.get('/info', async (_req, res) => {
@@ -92,6 +94,7 @@ router.put('/writing-prompt', authenticate, async (req, res) => {
     agentService.clearUserCache(req.user.id);
     res.json({ success: true, ...buildWritingPromptResponse(normalizedPrompt) });
   } catch (err) {
+    logger.error('保存写作提示词失败：' + (err.message || err));
     res.status(500).json({ error: '保存写作提示词失败' });
   }
 });

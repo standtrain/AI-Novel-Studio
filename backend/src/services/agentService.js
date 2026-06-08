@@ -177,6 +177,17 @@ function _cancelTask(userId, novelId, phase) {
   }
 }
 
+function _interruptExistingTask(userId, novelId, phase, reason = '已有新的同类请求，旧任务已自动取消') {
+  const key = _taskKey(userId, novelId, phase);
+  const existing = _activeTasks.get(key);
+  if (existing?.res && !existing.res.writableEnded) {
+    sendSSE(existing.res, 'error', { message: reason });
+    _safeEnd(existing.res);
+  }
+  _cancelTask(userId, novelId, phase);
+  queueManager.removeFromQueue(userId, novelId, phase, reason);
+}
+
 function _registerTask(novelId, phase, abortController, queueMeta = {}) {
   const userId = queueMeta.userId;
   const key = _taskKey(userId, novelId, phase);
@@ -427,6 +438,12 @@ function _buildChapterData(chapter) {
 function _toPositiveInt(value, fallback = null) {
   const num = Number.parseInt(value, 10);
   return Number.isInteger(num) && num > 0 ? num : fallback;
+}
+
+function _normalizePlanChapterCount(value, fallback = null) {
+  const parsed = _toPositiveInt(value, fallback);
+  if (!parsed) return fallback;
+  return Math.max(100, Math.min(200, parsed));
 }
 
 function _safeText(value, fallback = null, maxLength = null) {
@@ -1307,7 +1324,7 @@ ${finalContent}
 };
 
 // ========== 对话式规划创建小说 ==========
-// 用户用自然语言描述需求，Agent 通过搜索工具研究趋势后生成完整方案
+// 用户用自然语言描述需求，Agent 通过搜索工具研究趋势后生成全文大纲方案
 agentService.planNovel = function (userId, userInput) {
   if (!userInput || userInput.trim().length < 5) {
     throw { status: 400, message: '请提供更详细的创作需求（至少5个字）' };
@@ -1340,11 +1357,13 @@ agentService.planNovel = function (userId, userInput) {
       let queueSlot = null;
       let finalStatus = queueManager.STATUS.COMPLETED;
       try {
+        _interruptExistingTask(userId, 0, 'plan', '检测到新的对话创建请求，旧请求已自动中断');
         queueSlot = await _acquireQueueSlot(req, res, userId, 0, 'plan', abortController, { agent });
         _registerTask(0, 'plan', abortController, {
           userId,
           queueNovelId: 0,
           queuePhase: 'plan',
+          res,
         });
         agent._abortSignal = abortController.signal;
 
@@ -1396,7 +1415,7 @@ agentService.planNovel = function (userId, userInput) {
           }
 
           if (abortController.signal.aborted) { logger.info('用户已取消，中止创建'); sendSSE(res, 'done', {}); _safeEnd(res); return; }
-          const chapterCount = _toPositiveInt(plan.chapterCount, 0) || null;
+          const chapterCount = _normalizePlanChapterCount(plan.chapterCount, 100);
 
           let novel;
           await db.transaction(async (trx) => {
@@ -1601,11 +1620,13 @@ agentService.planRevise = function (userId, novelId, feedback) {
       let queueSlot = null;
       let finalStatus = queueManager.STATUS.COMPLETED;
       try {
+        _interruptExistingTask(userId, novelId, 'plan_revise', '检测到新的对话修订请求，旧请求已自动中断');
         queueSlot = await _acquireQueueSlot(req, res, userId, novelId, 'plan_revise', abortController, { agent });
         _registerTask(novelId, 'plan_revise', abortController, {
           userId,
           queueNovelId: novelId,
           queuePhase: 'plan_revise',
+          res,
         });
         agent._abortSignal = abortController.signal;
 
@@ -1663,7 +1684,7 @@ agentService.planRevise = function (userId, novelId, feedback) {
             logger.info('用户已取消，跳过方案修订保存');
             return;
           }
-          const chapterCount = _toPositiveInt(plan.chapterCount, 0) || novel.chapter_count || null;
+          const chapterCount = _normalizePlanChapterCount(plan.chapterCount, novel.chapter_count || 100);
 
           await db.transaction(async (trx) => {
             await trx('novels').where('id', novelId).update({

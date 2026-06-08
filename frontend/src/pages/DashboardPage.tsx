@@ -6,7 +6,7 @@ import NovelCard from '../components/novel/NovelCard';
 import LoadingSpinner from '../components/shared/LoadingSpinner';
 import PageShell from '../components/shared/PageShell';
 import { listNovelsApi, createNovelApi, deleteNovelApi, importNovelApi } from '../api/novels';
-import { startImportAnalysisStream, startNovelPlanningStream, startNovelPlanReviseStream } from '../api/agents';
+import { cancelAgentTaskApi, startImportAnalysisStream, startNovelPlanningStream, startNovelPlanReviseStream } from '../api/agents';
 import { getTemplatesApi, createNovelFromTemplateApi, NovelTemplate } from '../api/templates';
 import { useNovelStore } from '../store/novelStore';
 import useMobile from '../hooks/useMobile';
@@ -523,6 +523,9 @@ const DashboardPage: React.FC = () => {
       smartAbortRef.current.abort();
       smartAbortRef.current = null;
     }
+    cancelAgentTaskApi('import_analysis').catch(() => {
+      message.warning('已停止前端等待，后端取消请求发送失败');
+    });
     setAnalyzing(false);
     setAnalysisProgress(null);
     setAnalysisError(null);
@@ -633,6 +636,9 @@ const DashboardPage: React.FC = () => {
       planAbortRef.current.abort();
       planAbortRef.current = null;
     }
+    cancelAgentTaskApi('plan').catch(() => {
+      message.warning('已停止前端等待，后端取消请求发送失败');
+    });
     setPlanning(false);
     // 取消时如果后端已创建小说，需删除以避免残留空记录
     if (planCreatedRef.current) {
@@ -711,6 +717,11 @@ const DashboardPage: React.FC = () => {
     if (planReviseAbortRef.current) {
       planReviseAbortRef.current.abort();
       planReviseAbortRef.current = null;
+    }
+    if (createdNovelId) {
+      cancelAgentTaskApi('plan_revise', createdNovelId).catch(() => {
+        message.warning('已停止前端等待，后端取消请求发送失败');
+      });
     }
     setPlanRevising(false);
     setPlanReviseStreamContent('');

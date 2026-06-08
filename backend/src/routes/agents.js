@@ -10,6 +10,18 @@ const MIN_IMPORT_TEXT_LENGTH = 100;
 const MAX_IMPORT_TEXT_LENGTH = 200000;
 const MAX_IMPORT_INSTRUCTIONS_LENGTH = 1000;
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
+const CANCELLABLE_PHASES = new Set([
+  'plan',
+  'plan_revise',
+  'import_analysis',
+  'outline',
+  'characters',
+  'chapters_outline',
+  'write_chapter',
+  'review',
+  'extract',
+  'chat',
+]);
 
 function cleanImportText(value) {
   return typeof value === 'string' ? value.replace(/\u0000/g, '').trim() : '';
@@ -27,6 +39,14 @@ function validateBase64Payload(base64) {
   return compact;
 }
 
+function parseCancelNovelId(value) {
+  const parsed = Number.parseInt(String(value ?? '0'), 10);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw { status: 400, message: '小说ID无效' };
+  }
+  return parsed;
+}
+
 // 所有 Agent 创作路由都需要认证
 router.use(authenticate);
 
@@ -38,9 +58,23 @@ router.use((req, res, next) => {
 });
 
 // Token 配额检查
+// POST /api/novels/plan — 对话式创建：AI 搜索趋势后生成小说方案
+router.post('/cancel', async (req, res) => {
+  try {
+    const phase = cleanImportText(req.body?.phase);
+    if (!CANCELLABLE_PHASES.has(phase)) {
+      return res.status(400).json({ error: '任务阶段无效' });
+    }
+    const novelId = parseCancelNovelId(req.body?.novelId);
+    const result = agentService.cancelTask(req.user.id, novelId, phase);
+    res.json(result);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || '取消任务失败' });
+  }
+});
+
 router.use(checkTokenQuota);
 
-// POST /api/novels/plan — 对话式创建：AI 搜索趋势后生成小说方案
 router.post('/plan', async (req, res) => {
   try {
     const { userInput } = req.body;

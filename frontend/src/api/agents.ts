@@ -2,6 +2,7 @@
 // onEvent 回调接收 (eventType, data) => void
 
 type SSEEventHandler = (event: string, data: any) => void;
+type CancellablePhase = 'plan' | 'plan_revise' | 'import_analysis' | 'outline' | 'characters' | 'chapters_outline' | 'write_chapter' | 'review' | 'extract' | 'chat';
 
 // 统一错误处理：区分 429 额度超限和其他错误
 function handleFetchError(response: Response, onEvent: SSEEventHandler) {
@@ -168,6 +169,22 @@ export function startSSE(
   return controller;
 }
 
+export async function cancelAgentTaskApi(phase: CancellablePhase, novelId: number = 0): Promise<void> {
+  const token = localStorage.getItem('token');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch('/api/novels/cancel', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ phase, novelId }),
+  });
+  if (!response.ok) {
+    throw new Error('取消任务失败');
+  }
+}
+
 export function startOutlineStream(
   novelId: number,
   userInput: string,
@@ -282,4 +299,3 @@ export function startNovelPlanReviseStream(
     onEvent
   );
 }
-

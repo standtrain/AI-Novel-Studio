@@ -211,6 +211,12 @@ function _cleanupTask(novelId, phase, abortController, status = queueManager.STA
   }
 }
 
+function _throwIfCancelled(abortController, message = '任务已取消') {
+  if (abortController?.signal?.aborted) {
+    throw { status: queueManager.STATUS.CANCELLED, message };
+  }
+}
+
 // 如果该 novel + phase 已有进行中任务，抛出 409 拒绝新请求
 // 但如果旧任务已被中止（abortController.signal.aborted），自动清理并放行
 function _rejectIfActive(userId, novelId, phase) {
@@ -580,6 +586,12 @@ function _runSSETask(req, res, novelId, phase, agent, opts) {
 }
 
 const agentService = {
+  cancelTask(userId, novelId, phase) {
+    _cancelTask(userId, novelId, phase);
+    queueManager.removeFromQueue(userId, novelId, phase, '用户已取消任务');
+    return { success: true };
+  },
+
   // ========== 阶段1：生成大纲 ==========
   async generateOutline(userId, novelId, userInput) {
     await _getOwnedNovel(novelId, userId);
@@ -1374,6 +1386,7 @@ agentService.planNovel = function (userId, userInput) {
           finalStatus = queueManager.STATUS.CANCELLED;
           return;
         }
+        _throwIfCancelled(abortController);
 
         const plan = result.plan;
         // 严格校验：解析失败 或 缺少关键字段 都视为无效方案
@@ -1408,6 +1421,7 @@ agentService.planNovel = function (userId, userInput) {
             logger.info('用户已取消，跳过自动创建小说');
             return;
           }
+          _throwIfCancelled(abortController);
           const maxNovels = await configDao.getInt('max_novels_per_user', 50);
           const userNovels = await novelDao.countByUser(userId);
           if (userNovels >= maxNovels) {
@@ -1415,6 +1429,7 @@ agentService.planNovel = function (userId, userInput) {
           }
 
           if (abortController.signal.aborted) { logger.info('用户已取消，中止创建'); sendSSE(res, 'done', {}); _safeEnd(res); return; }
+          _throwIfCancelled(abortController);
           const chapterCount = _normalizePlanChapterCount(plan.chapterCount, 100);
 
           let novel;
@@ -1500,7 +1515,7 @@ agentService.runImportAnalysis = function (userId, text, instructions) {
       agent._abortSignal = abortController.signal;
 
       setupSSE(res);
-      req.on('close', () => { abortController.abort(); });
+      _onClose(req, res, abortController, 0, 'import_analysis');
 
       let queueSlot = null;
       let finalStatus = queueManager.STATUS.COMPLETED;
@@ -1510,6 +1525,7 @@ agentService.runImportAnalysis = function (userId, text, instructions) {
           userId,
           queueNovelId: 0,
           queuePhase: 'import_analysis',
+          res,
         });
         agent._abortSignal = abortController.signal;
 
@@ -1521,8 +1537,10 @@ agentService.runImportAnalysis = function (userId, text, instructions) {
           finalStatus = queueManager.STATUS.CANCELLED;
           return;
         }
+        _throwIfCancelled(abortController);
 
         sendSSE(res, 'result', result);
+        _throwIfCancelled(abortController);
         // 同时返回可导入的数据格式，方便前端直接调用 importNovelApi
         sendSSE(res, 'import_payload', {
           title: result.novel?.title || '导入的小说',
@@ -1684,6 +1702,7 @@ agentService.planRevise = function (userId, novelId, feedback) {
             logger.info('用户已取消，跳过方案修订保存');
             return;
           }
+          _throwIfCancelled(abortController);
           const chapterCount = _normalizePlanChapterCount(plan.chapterCount, novel.chapter_count || 100);
 
           await db.transaction(async (trx) => {

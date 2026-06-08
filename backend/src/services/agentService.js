@@ -1367,14 +1367,6 @@ agentService.planNovel = function (userId, userInput) {
           _safeEnd(res);
           return;
         }
-        // 额外安全校验：characters 和 chapters 必须为非空数组
-        if (!Array.isArray(plan.characters) || plan.characters.length === 0 ||
-            !Array.isArray(plan.chapters) || plan.chapters.length === 0) {
-          sendSSE(res, 'error', { message: '方案缺少角色或章纲数据，生成不完整，请重试' });
-          _safeEnd(res);
-          return;
-        }
-
         // 发送规划结果给前端展示
         sendSSE(res, 'plan_result', {
           title: plan.title,
@@ -1388,8 +1380,7 @@ agentService.planNovel = function (userId, userInput) {
           chapterCount: plan.chapterCount,
           marketAnalysis: plan.marketAnalysis,
           innovationPoints: plan.innovationPoints,
-          characters: plan.characters,
-          chapters: plan.chapters,
+          phaseLimit: 'outline',
         });
 
         // 自动创建小说（创建前再次检查是否已取消）
@@ -1405,16 +1396,7 @@ agentService.planNovel = function (userId, userInput) {
           }
 
           if (abortController.signal.aborted) { logger.info('用户已取消，中止创建'); sendSSE(res, 'done', {}); _safeEnd(res); return; }
-          const planCharacters = _normalizeGeneratedCharacters(plan.characters);
-          const planChapters = _normalizeGeneratedChapters(plan.chapters, {
-            from: 1,
-            to: _toPositiveInt(plan.chapterCount, plan.chapters.length) || plan.chapters.length,
-          });
-          if (planCharacters.length === 0 || planChapters.length === 0) {
-            throw new Error('方案缺少可保存的角色或章节编号');
-          }
-          const planStatus = _inferPlanStatus(planCharacters, planChapters);
-          const chapterCount = Math.max(_toPositiveInt(plan.chapterCount, 0) || 0, planChapters.length, Math.max(...planChapters.map(ch => ch.chapter_number)));
+          const chapterCount = _toPositiveInt(plan.chapterCount, 0) || null;
 
           let novel;
           await db.transaction(async (trx) => {
@@ -1427,12 +1409,11 @@ agentService.planNovel = function (userId, userInput) {
               main_plot: _safeText(plan.mainPlot),
               sub_plots: JSON.stringify(Array.isArray(plan.subPlots) ? plan.subPlots : []),
               chapter_count: chapterCount,
-              status: planStatus.status,
-              current_step: planStatus.currentStep,
+              // 对话创建只落库到全文大纲阶段，后续人设、章纲、正文由用户进入作品后手动触发。
+              status: 'outline',
+              current_step: 1,
             });
 
-            await trx('characters').insert(planCharacters.map(c => ({ novel_id: novelId, ...c })));
-            await trx('chapters').insert(planChapters.map(ch => ({ novel_id: novelId, ...ch })));
             novel = await trx('novels').where('id', novelId).first();
           });
 
@@ -1440,10 +1421,8 @@ agentService.planNovel = function (userId, userInput) {
           sendSSE(res, 'novel_created', {
             novelId: novel.id,
             title: novel.title,
-            status: plan.characters?.length > 0
-              ? (plan.chapters?.length > 0 ? 'chapters_outline' : 'characters')
-              : 'outline',
-            currentStep: plan.chapters?.length > 0 ? 3 : (plan.characters?.length > 0 ? 2 : 1),
+            status: 'outline',
+            currentStep: 1,
           });
 
           // 记录用量
@@ -1633,9 +1612,6 @@ agentService.planRevise = function (userId, novelId, feedback) {
         // 从 DB 加载当前方案，读取前先校验小说归属，避免方案修订串线。
         const novel = await _getOwnedNovel(novelId, userId);
 
-        const characters = await characterDao.findByNovelId(novelId);
-        const chapters = await chapterDao.findByNovelId(novelId);
-
         const currentPlan = {
           title: novel.title,
           genre: novel.genre,
@@ -1644,26 +1620,6 @@ agentService.planRevise = function (userId, novelId, feedback) {
           mainPlot: novel.main_plot,
           subPlots: novel.sub_plots ? parseJson(novel.sub_plots) : [],
           chapterCount: novel.chapter_count,
-          characters: characters.map(c => ({
-            name: c.name,
-            role: c.role,
-            age: c.age,
-            gender: c.gender,
-            personality: c.personality,
-            background: c.background,
-            motivation: c.motivation,
-            arc: c.arc,
-            relationships: c.relationships ? parseJson(c.relationships) : [],
-          })),
-          chapters: chapters.map(ch => ({
-            chapter: ch.chapter_number,
-            title: ch.title,
-            summary: ch.summary,
-            keyEvents: ch.scenes ? parseJson(ch.scenes) : [],
-            charactersInvolved: ch.characters_involved ? parseJson(ch.characters_involved) : [],
-            emotionalTone: ch.emotional_tone,
-            endingHook: ch.ending_hook,
-          })),
         };
 
         // 执行修订
@@ -1684,13 +1640,6 @@ agentService.planRevise = function (userId, novelId, feedback) {
           _safeEnd(res);
           return;
         }
-        if (!Array.isArray(plan.characters) || plan.characters.length === 0 ||
-            !Array.isArray(plan.chapters) || plan.chapters.length === 0) {
-          sendSSE(res, 'error', { message: '修订方案缺少角色或章纲数据，请重试' });
-          _safeEnd(res);
-          return;
-        }
-
         // 发送修订结果
         sendSSE(res, 'plan_result', {
           title: plan.title,
@@ -1705,8 +1654,7 @@ agentService.planRevise = function (userId, novelId, feedback) {
           marketAnalysis: plan.marketAnalysis,
           innovationPoints: plan.innovationPoints,
           revisionNote: plan.revisionNote,
-          characters: plan.characters,
-          chapters: plan.chapters,
+          phaseLimit: 'outline',
         });
 
         // 更新数据库（更新前检查是否已取消）
@@ -1715,21 +1663,7 @@ agentService.planRevise = function (userId, novelId, feedback) {
             logger.info('用户已取消，跳过方案修订保存');
             return;
           }
-          const planCharacters = _normalizeGeneratedCharacters(plan.characters);
-          const planChapters = _normalizeGeneratedChapters(plan.chapters, {
-            from: 1,
-            to: _toPositiveInt(plan.chapterCount, novel.chapter_count || plan.chapters.length) || plan.chapters.length,
-          });
-          if (planCharacters.length === 0 || planChapters.length === 0) {
-            throw new Error('修订方案缺少可保存的角色或章节编号');
-          }
-          const planStatus = _inferPlanStatus(planCharacters, planChapters);
-          const chapterCount = Math.max(
-            _toPositiveInt(plan.chapterCount, 0) || 0,
-            novel.chapter_count || 0,
-            planChapters.length,
-            Math.max(...planChapters.map(ch => ch.chapter_number))
-          );
+          const chapterCount = _toPositiveInt(plan.chapterCount, 0) || novel.chapter_count || null;
 
           await db.transaction(async (trx) => {
             await trx('novels').where('id', novelId).update({
@@ -1740,39 +1674,10 @@ agentService.planRevise = function (userId, novelId, feedback) {
               main_plot: _safeText(plan.mainPlot),
               sub_plots: JSON.stringify(Array.isArray(plan.subPlots) ? plan.subPlots : []),
               chapter_count: chapterCount,
-              status: planStatus.status,
-              current_step: planStatus.currentStep,
+              // 对话修订只修改全文大纲，不覆盖已存在的人设、章纲、正文或创作进度。
+              status: novel.status || 'outline',
+              current_step: novel.current_step || 1,
             });
-
-            await trx('characters').where('novel_id', novelId).del();
-            await trx('characters').insert(planCharacters.map(c => ({ novel_id: novelId, ...c })));
-
-            // 修订方案时只替换未写正文的章纲，已完成章节正文和提取结果保留。
-            await trx('chapters')
-              .where('novel_id', novelId)
-              .where((builder) => builder.whereNull('content').orWhere('content', ''))
-              .del();
-            for (const ch of planChapters) {
-              const existing = await trx('chapters')
-                .where({ novel_id: novelId, chapter_number: ch.chapter_number })
-                .first();
-              if (existing?.content) {
-                await trx('chapters').where('id', existing.id).update({
-                  title: ch.title,
-                  brief: ch.brief,
-                  summary: existing.summary || ch.summary,
-                  scenes: ch.scenes,
-                  conflict: ch.conflict,
-                  turning_point: ch.turning_point,
-                  characters_involved: ch.characters_involved,
-                  emotional_tone: ch.emotional_tone,
-                  ending_hook: ch.ending_hook,
-                  updated_at: db.fn.now(),
-                });
-              } else {
-                await trx('chapters').insert({ novel_id: novelId, ...ch });
-              }
-            }
           });
 
           if (result.usage) {

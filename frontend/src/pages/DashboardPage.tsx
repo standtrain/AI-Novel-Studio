@@ -610,7 +610,7 @@ const DashboardPage: React.FC = () => {
           break;
         case 'plan_result':
           setPlanResult(data);
-          setPlanMessages(prev => [...prev, { type: 'result', text: '方案生成完成！' }]);
+          setPlanMessages(prev => [...prev, { type: 'result', text: '全文大纲生成完成！' }]);
           break;
         case 'novel_created':
           planCreatedRef.current = { id: data.novelId, title: data.title };
@@ -1173,7 +1173,7 @@ const DashboardPage: React.FC = () => {
                   <Alert
                     type="info"
                     showIcon
-                    message="用自然语言描述你想创作的小说，AI 将主动搜索最新趋势、分析读者偏好，并为你量身定制完整的小说创作方案（包括书名、大纲、角色、章纲）"
+                    message="用自然语言描述你想创作的小说，AI 将主动搜索最新趋势、分析读者偏好，并先为你生成全文大纲。人设、章纲和正文需要进入作品后再继续生成。"
                     style={{ marginBottom: 16 }}
                   />
 
@@ -1273,7 +1273,7 @@ const DashboardPage: React.FC = () => {
                             transition: 'all 0.3s ease',
                           }}
                         >
-                          开始智能规划
+                          生成全文大纲
                         </Button>
                       </div>
                     </>
@@ -1394,7 +1394,7 @@ const DashboardPage: React.FC = () => {
                         }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                             <CheckCircleOutlined style={{ color: '#34d399' }} />
-                            <span style={{ color: '#e2e8f0', fontWeight: 600 }}>方案生成完成</span>
+                            <span style={{ color: '#e2e8f0', fontWeight: 600 }}>全文大纲生成完成</span>
                           </div>
                           <Descriptions column={isMobile ? 1 : 2} size="small" colon={false}>
                             <Descriptions.Item label="书名" span={2}>
@@ -1403,7 +1403,7 @@ const DashboardPage: React.FC = () => {
                             <Descriptions.Item label="题材">{planResult.genre}</Descriptions.Item>
                             <Descriptions.Item label="基调">{planResult.tone || '未指定'}</Descriptions.Item>
                             <Descriptions.Item label="目标读者">{planResult.targetAudience || '未指定'}</Descriptions.Item>
-                            <Descriptions.Item label="预计章数">{planResult.chapterCount || planResult.chapters?.length || '未知'} 章</Descriptions.Item>
+                            <Descriptions.Item label="预计章数">{planResult.chapterCount || '未知'} 章</Descriptions.Item>
                           </Descriptions>
                           {planResult.theme && (
                             <div style={{ marginTop: 8 }}>
@@ -1415,16 +1415,6 @@ const DashboardPage: React.FC = () => {
                             <div style={{ marginTop: 4 }}>
                               <span style={{ color: '#f59e0b', fontSize: 11 }}>市场分析：</span>
                               <span style={{ color: '#94a3b8', fontSize: 11 }}>{planResult.marketAnalysis}</span>
-                            </div>
-                          )}
-                          {planResult.characters && planResult.characters.length > 0 && (
-                            <div style={{ marginTop: 8 }}>
-                              <span style={{ color: '#818cf8', fontSize: 11 }}>
-                                角色（{planResult.characters.length}人）：
-                              </span>
-                              <span style={{ color: '#94a3b8', fontSize: 11 }}>
-                                {planResult.characters.map((c: any) => `${c.name}(${c.role})`).join('、')}
-                              </span>
                             </div>
                           )}
                           {planResult.innovationPoints && planResult.innovationPoints.length > 0 && (

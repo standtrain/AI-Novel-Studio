@@ -32,7 +32,6 @@ const msgBubbleBase: React.CSSProperties = {
   borderRadius: 16,
   fontSize: 14,
   lineHeight: 1.75,
-  whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
 };
 
@@ -40,6 +39,190 @@ const roleIconStyle: React.CSSProperties = {
   fontSize: 18,
   flexShrink: 0,
   marginTop: 4,
+};
+
+const markdownBlockStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  whiteSpace: 'normal',
+};
+
+const markdownParagraphStyle: React.CSSProperties = {
+  margin: 0,
+  whiteSpace: 'pre-wrap',
+};
+
+function renderInlineMarkdown(text: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index));
+    const token = match[0];
+    const key = `${match.index}-${token}`;
+    if (token.startsWith('`')) {
+      nodes.push(<code key={key} style={{ background: 'rgba(15,23,42,0.65)', borderRadius: 4, padding: '1px 5px' }}>{token.slice(1, -1)}</code>);
+    } else if (token.startsWith('**')) {
+      nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith('*')) {
+      nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
+    } else {
+      const linkMatch = token.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+      if (linkMatch) {
+        nodes.push(
+          <a key={key} href={linkMatch[2]} target="_blank" rel="noreferrer" style={{ color: '#93c5fd' }}>
+            {linkMatch[1]}
+          </a>
+        );
+      } else {
+        nodes.push(token);
+      }
+    }
+    lastIndex = match.index + token.length;
+  }
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex));
+  return nodes;
+}
+
+function parseMarkdownTable(lines: string[], startIndex: number) {
+  const header = lines[startIndex];
+  const divider = lines[startIndex + 1];
+  if (!divider || !/^\s*\|?[\s:-]+\|[\s|:-]*$/.test(divider)) return null;
+  const rows: string[][] = [];
+  let index = startIndex;
+  while (index < lines.length && /\|/.test(lines[index])) {
+    const cells = lines[index]
+      .trim()
+      .replace(/^\|/, '')
+      .replace(/\|$/, '')
+      .split('|')
+      .map(cell => cell.trim());
+    rows.push(cells);
+    index++;
+  }
+  if (rows.length < 2 || !header.includes('|')) return null;
+  return { headers: rows[0], rows: rows.slice(2), nextIndex: index };
+}
+
+const MarkdownMessage: React.FC<{ content: string }> = ({ content }) => {
+  const lines = String(content || '').split(/\r?\n/);
+  const blocks: React.ReactNode[] = [];
+  let paragraph: string[] = [];
+  let codeLines: string[] | null = null;
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    blocks.push(
+      <p key={`p-${blocks.length}`} style={markdownParagraphStyle}>
+        {renderInlineMarkdown(paragraph.join('\n'))}
+      </p>
+    );
+    paragraph = [];
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim().startsWith('```')) {
+      if (codeLines) {
+        blocks.push(
+          <pre key={`code-${blocks.length}`} style={{ margin: 0, padding: 12, overflowX: 'auto', background: 'rgba(2,6,23,0.65)', borderRadius: 6 }}>
+            <code>{codeLines.join('\n')}</code>
+          </pre>
+        );
+        codeLines = null;
+      } else {
+        flushParagraph();
+        codeLines = [];
+      }
+      continue;
+    }
+    if (codeLines) {
+      codeLines.push(line);
+      continue;
+    }
+
+    const table = parseMarkdownTable(lines, i);
+    if (table) {
+      flushParagraph();
+      blocks.push(
+        <div key={`table-${blocks.length}`} style={{ overflowX: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
+            <thead>
+              <tr>{table.headers.map((cell, idx) => <th key={idx} style={{ border: '1px solid rgba(148,163,184,0.28)', padding: '6px 8px', textAlign: 'left' }}>{renderInlineMarkdown(cell)}</th>)}</tr>
+            </thead>
+            <tbody>
+              {table.rows.map((row, rowIdx) => (
+                <tr key={rowIdx}>{row.map((cell, cellIdx) => <td key={cellIdx} style={{ border: '1px solid rgba(148,163,184,0.2)', padding: '6px 8px' }}>{renderInlineMarkdown(cell)}</td>)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      i = table.nextIndex - 1;
+      continue;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      const level = heading[1].length;
+      blocks.push(
+        <div key={`h-${blocks.length}`} style={{ fontWeight: 700, fontSize: Math.max(15, 22 - level * 2), marginTop: blocks.length ? 6 : 0 }}>
+          {renderInlineMarkdown(heading[2])}
+        </div>
+      );
+      continue;
+    }
+
+    const quote = line.match(/^>\s?(.*)$/);
+    if (quote) {
+      flushParagraph();
+      blocks.push(
+        <blockquote key={`q-${blocks.length}`} style={{ margin: 0, paddingLeft: 10, borderLeft: '3px solid rgba(129,140,248,0.7)', color: '#cbd5e1' }}>
+          {renderInlineMarkdown(quote[1])}
+        </blockquote>
+      );
+      continue;
+    }
+
+    const listItem = line.match(/^\s*(?:[-*]|\d+\.)\s+(.+)$/);
+    if (listItem) {
+      flushParagraph();
+      const items = [listItem[1]];
+      while (i + 1 < lines.length) {
+        const next = lines[i + 1].match(/^\s*(?:[-*]|\d+\.)\s+(.+)$/);
+        if (!next) break;
+        items.push(next[1]);
+        i++;
+      }
+      blocks.push(
+        <ul key={`ul-${blocks.length}`} style={{ margin: 0, paddingLeft: 20 }}>
+          {items.map((item, idx) => <li key={idx}>{renderInlineMarkdown(item)}</li>)}
+        </ul>
+      );
+      continue;
+    }
+
+    paragraph.push(line);
+  }
+
+  flushParagraph();
+  if (codeLines) {
+    blocks.push(
+      <pre key={`code-${blocks.length}`} style={{ margin: 0, padding: 12, overflowX: 'auto', background: 'rgba(2,6,23,0.65)', borderRadius: 6 }}>
+        <code>{codeLines.join('\n')}</code>
+      </pre>
+    );
+  }
+
+  return <div style={markdownBlockStyle}>{blocks}</div>;
 };
 
 const ChatPage: React.FC = () => {
@@ -799,7 +982,7 @@ const ChatPage: React.FC = () => {
                         borderTopRightRadius: msg.role === 'user' ? 4 : 16,
                       }}
                     >
-                      {msg.content}
+                      {msg.role === 'assistant' ? <MarkdownMessage content={msg.content} /> : msg.content}
                     </div>
 
                     {/* AI 回复操作按钮 */}
@@ -870,7 +1053,7 @@ const ChatPage: React.FC = () => {
                         borderTopLeftRadius: 4,
                       }}
                     >
-                      {streamContent || queueNotice || <Spin size="small" />}
+                      {streamContent ? <MarkdownMessage content={streamContent} /> : (queueNotice || <Spin size="small" />)}
                       {streamContent && <span className="stream-cursor" />}
                     </div>
                   </div>

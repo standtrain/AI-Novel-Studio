@@ -1,4 +1,5 @@
 const { DEFAULT_TERMS_CONTENT, DEFAULT_PRIVACY_CONTENT } = require('../src/constants/legalDefaults');
+const { DEFAULT_TEMPERATURE_CONFIGS } = require('../src/utils/temperaturePreset');
 
 exports.seed = async function (knex) {
   await knex('site_config').del();
@@ -9,7 +10,11 @@ exports.seed = async function (knex) {
     { config_key: 'terms_content', config_value: DEFAULT_TERMS_CONTENT, description: '服务条款页面正文' },
     { config_key: 'privacy_content', config_value: DEFAULT_PRIVACY_CONTENT, description: '隐私政策页面正文' },
     { config_key: 'max_tokens_per_request', config_value: '0', description: '单次请求最大token数（0=不限制）' },
-    { config_key: 'default_temperature', config_value: '0.7', description: '默认temperature参数' },
+    ...Object.entries(DEFAULT_TEMPERATURE_CONFIGS).map(([config_key, cfg]) => ({
+      config_key,
+      config_value: String(cfg.value),
+      description: cfg.description,
+    })),
     { config_key: 'chapters_per_batch', config_value: '20', description: '章节大纲每批生成章节数' },
     { config_key: 'agent_max_concurrent_tasks', config_value: '5', description: 'AI任务全局并发上限（0=不限制）' },
     { config_key: 'allow_registration', config_value: 'true', description: '是否允许新用户注册（true/false）' },

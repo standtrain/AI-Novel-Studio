@@ -288,7 +288,7 @@ ${this._instructions ? `\n【用户补充意见】\n${this._instructions}\n（�
 }`;
 
     try {
-      const { content } = await this.callLLM(systemPrompt, userPrompt, 0.3, 'import_analysis');
+      const { content } = await this.callLLM(systemPrompt, userPrompt, 0.3, 'import_title');
       const parsed = this.parseJSON(content, {});
       if (parsed._parseError) return guessedTitle ? { title: guessedTitle } : {};
       // 如果 AI 返回的标题为空或"未命名"，使用预提取的标题
@@ -387,7 +387,7 @@ ${this._instructions ? `\n【用户补充意见】\n${this._instructions}\n（�
 - 关系类型使用中文描述`;
 
     try {
-      const { content } = await this.callLLM(systemPrompt, userPrompt, 0.3, 'import_analysis');
+      const { content } = await this.callLLM(systemPrompt, userPrompt, 0.3, 'import_chars');
       const parsed = this.parseJSON(content, []);
       return Array.isArray(parsed) ? parsed : [];
     } catch (err) {
@@ -488,7 +488,7 @@ ${text}
 - 如文本中有对话，对话双方都算出场角色`;
 
     try {
-      const { content } = await this.callLLM(systemPrompt, userPrompt, 0.2, 'import_analysis');
+      const { content } = await this.callLLM(systemPrompt, userPrompt, 0.2, 'import_chapters');
       const parsed = this.parseJSON(content, {
         chapter_number: chapter.chapter_number,
         title: chapter.title,

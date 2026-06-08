@@ -97,8 +97,8 @@ class PlanningAgent extends BaseAgent {
     const searchTools = this._filterSearchTools();
     const openaiTools = searchTools.length > 0 ? this.getMcpOpenAITools(searchTools) : undefined;
 
-    const researchTemperature = this._resolveTemperature('plan', 0.7);
-    const planTemperature = this._resolveTemperature('plan', 0.8);
+    const researchTemperature = this._resolveTemperature('plan_research', 0.7);
+    const planTemperature = this._resolveTemperature('plan_generate', 0.8);
 
     const systemPrompt = this._buildSystemPrompt();
     const messages = [
@@ -117,7 +117,7 @@ class PlanningAgent extends BaseAgent {
 
     for (let turn = 0; turn < MAX_RESEARCH_TURNS; turn++) {
       try {
-        const researchResult = await this._withProviderRetry('plan', {}, async ({ provider, model, skipReasons: reasons }) => {
+        const researchResult = await this._withProviderRetry('plan_research', {}, async ({ provider, model, skipReasons: reasons }) => {
           const client = this._getClient(provider);
           const response = await client.chat.completions.create({
             model,
@@ -231,7 +231,7 @@ ${researchSummary || '（无搜索结果，请基于你的知识库进行创作�
         streamMessages[1].content,
         planTemperature,
         (text) => onProgress('chunk', { text }),
-        'plan',
+        'plan_generate',
         this._abortSignal,
         this.maxTokens || 16000
       );
@@ -266,7 +266,7 @@ ${researchSummary || '（无搜索结果，请基于你的知识库进行创作�
 
   // 根据用户反馈修订小说方案（多轮对话修订）
   async revisePlan(currentPlan, feedback, novelId, onProgress) {
-    const reviseTemperature = this._resolveTemperature('plan', 0.7);
+    const reviseTemperature = this._resolveTemperature('plan_revise', 0.7);
 
     const currentPlanStr = JSON.stringify(currentPlan, null, 2);
 
@@ -314,7 +314,7 @@ ${feedback}
         userPrompt,
         reviseTemperature,
         (text) => onProgress('chunk', { text }),
-        'plan',
+        'plan_revise',
         this._abortSignal,
         this.maxTokens || 16000
       );

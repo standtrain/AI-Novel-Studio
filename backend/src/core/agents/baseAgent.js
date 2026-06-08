@@ -7,7 +7,11 @@ const {
   isRetryableProviderError,
 } = require('../../config/openai');
 const { createLogger } = require('../../utils/logger');
-const { resolveTemperature, shouldApplyUserTemperature } = require('../../utils/temperaturePreset');
+const {
+  resolveConfiguredTemperature,
+  resolveTemperature,
+  shouldApplyUserTemperature,
+} = require('../../utils/temperaturePreset');
 const { parseToolCallResult } = require('../mcp/mcpToolAdapter');
 const { getMcpClientManager } = require('../mcp/mcpClient');
 
@@ -59,6 +63,7 @@ class BaseAgent {
     this.globalPrompt = options.globalPrompt || null;
     this.temperaturePreset = options.temperaturePreset || 'balanced';
     this.customTemperature = options.customTemperature ?? null;
+    this.temperatureConfig = options.temperatureConfig || {};
     this.maxTokens = null;
   }
 
@@ -181,8 +186,9 @@ class BaseAgent {
 
   // 创作类阶段使用用户温度偏好；审查、摘要、数据抽取等低温任务保持原始稳定设置
   _resolveTemperature(phase, requestedTemperature) {
+    const configuredTemperature = resolveConfiguredTemperature(phase, requestedTemperature, this.temperatureConfig);
     if (!shouldApplyUserTemperature(phase, requestedTemperature)) {
-      return requestedTemperature;
+      return configuredTemperature;
     }
     return resolveTemperature(this.temperaturePreset, this.customTemperature);
   }

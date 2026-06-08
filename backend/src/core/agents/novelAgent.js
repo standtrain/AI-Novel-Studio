@@ -286,7 +286,7 @@ ${SCENE_ELEMENTS}
     const { content: chapterContent, usage: writeUsage, model, provider, skipReasons } = await this.callLLMStream(
       systemPrompt, userPrompt, 0.85,
       (chunk) => onProgress && onProgress('chunk', { text: chunk }),
-      'writing'
+      'chapter_summary'
     );
 
     // 生成本章摘要

@@ -19,6 +19,11 @@ const { db } = require('../config/database');
 const { createLogger } = require('../utils/logger');
 const { countWords, stripWordCountLabel } = require('../core/utils/wordCounter');
 const { resolveUserWritingPrompt } = require('../constants/writingPromptDefaults');
+const {
+  DEFAULT_TEMPERATURE_CONFIGS,
+  TEMPERATURE_CONFIG_KEYS,
+  normalizeTemperatureConfigMap,
+} = require('../utils/temperaturePreset');
 
 const logger = createLogger('agent');
 
@@ -57,7 +62,17 @@ function _getAgentCacheKey(userId) {
 
 async function _loadAgentBaseConfig() {
   const maxTokens = await configDao.getInt('max_tokens_per_request', 0);
-  return { maxTokens };
+  const rows = await Promise.all(
+    TEMPERATURE_CONFIG_KEYS.map(async key => [key, await configDao.get(key)])
+  );
+  const rawTemperatureConfig = Object.fromEntries(rows);
+  if (rawTemperatureConfig.default_temperature === null) {
+    rawTemperatureConfig.default_temperature = DEFAULT_TEMPERATURE_CONFIGS.default_temperature.value;
+  }
+  return {
+    maxTokens,
+    temperatureConfig: normalizeTemperatureConfigMap(rawTemperatureConfig),
+  };
 }
 
 async function _loadUserConfig(userId) {
@@ -115,6 +130,7 @@ async function _createAgent(ctx, userId, phase, AgentClass = NovelWritingAgent) 
   if (cached.preferredModel) agentOptions.preferredModel = cached.preferredModel;
   if (cached.temperaturePreset) agentOptions.temperaturePreset = cached.temperaturePreset;
   if (cached.customTemperature !== undefined) agentOptions.customTemperature = cached.customTemperature;
+  if (cached.temperatureConfig) agentOptions.temperatureConfig = cached.temperatureConfig;
   if (cached.checkLimitFn) agentOptions.checkLimitFn = cached.checkLimitFn;
 
   const agent = new AgentClass(ctx, agentOptions);

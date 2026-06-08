@@ -13,6 +13,7 @@ const modelTokenService = require('../services/modelTokenService');
 const { createLogger } = require('../utils/logger');
 const { parsePositiveInt, parseOptionalPositiveInt, parsePagination } = require('../utils/requestParser');
 const { LEGAL_DOCUMENTS } = require('../constants/legalDefaults');
+const { TEMPERATURE_CONFIG_KEYS, clampTemperature } = require('../utils/temperaturePreset');
 
 const router = Router();
 const logger = createLogger('admin-routes');
@@ -54,6 +55,14 @@ async function validateDefaultGroupConfig(value) {
 }
 
 function normalizeConfigValue(key, value) {
+  if (TEMPERATURE_CONFIG_KEYS.includes(key)) {
+    const normalized = clampTemperature(value);
+    if (normalized === null) {
+      throw { status: 400, message: '温度参数必须是 0-2 之间的数字' };
+    }
+    return String(normalized);
+  }
+
   if (key === 'agent_max_concurrent_tasks') {
     const parsed = parseInt(value, 10);
     if (!Number.isInteger(parsed) || parsed < 0 || parsed > 1000) {

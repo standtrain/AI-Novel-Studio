@@ -4,6 +4,7 @@ const configDao = require('../dao/configDao');
 const categoryDao = require('../dao/categoryDao');
 const { db } = require('../config/database');
 const OpenAI = require('openai');
+const { DEFAULT_TEMPERATURE_CONFIGS, normalizeConfigTemperature } = require('../utils/temperaturePreset');
 
 // 审核模式常量
 const REVIEW_MODES = {
@@ -28,6 +29,11 @@ async function getAiReviewConfig() {
     providerName: providerName || null,
     modelName: modelName || null,
   };
+}
+
+async function getConfiguredTemperature(key) {
+  const value = await configDao.get(key);
+  return normalizeConfigTemperature(value, DEFAULT_TEMPERATURE_CONFIGS[key]?.value || 0.7);
 }
 
 // AI 审核模板内容
@@ -60,6 +66,7 @@ async function aiReviewTemplate(template) {
   }
 
   const openai = new OpenAI({ baseURL, apiKey });
+  const temperature = await getConfiguredTemperature('temp_template');
 
   const prompt = `请审核以下小说创作模板内容，判断是否适合公开发布。
 
@@ -91,7 +98,7 @@ async function aiReviewTemplate(template) {
       { role: 'system', content: '你是一个内容审核助手，请严格按照审核标准输出JSON格式结果。' },
       { role: 'user', content: prompt },
     ],
-    temperature: 0.1,
+    temperature,
     max_tokens: 500,
   });
 

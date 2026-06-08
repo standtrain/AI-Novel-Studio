@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Input, InputNumber, Button, Switch, Typography, message, Space, Upload, Select, Collapse } from 'antd';
-import { SaveOutlined, ReloadOutlined, SafetyCertificateOutlined, UploadOutlined, DeleteOutlined, PictureOutlined, GlobalOutlined, EditOutlined, LockOutlined, MailOutlined, ApiOutlined, FileTextOutlined } from '@ant-design/icons';
+import { SaveOutlined, ReloadOutlined, SafetyCertificateOutlined, UploadOutlined, DeleteOutlined, PictureOutlined, GlobalOutlined, EditOutlined, FireOutlined, LockOutlined, MailOutlined, ApiOutlined, FileTextOutlined } from '@ant-design/icons';
 import { getConfigsApi, updateConfigApi, getFaviconInfoApi, uploadFaviconApi, deleteFaviconApi } from '../../api/admin';
 import { refreshSiteBrand } from '../../hooks/useSiteBrand';
 import BrandIcon from '../shared/BrandIcon';
@@ -15,6 +15,8 @@ function generateRandomKey(length = 48): string {
   for (let i = 0; i < length; i++) result += chars[arr[i] % chars.length];
   return result;
 }
+
+const TEMPERATURE_KEYS = ['default_temperature', 'temp_outline', 'temp_characters', 'temp_chapters_outline', 'temp_write_chapter', 'temp_chapter_summary', 'temp_plan_research', 'temp_plan_generate', 'temp_plan_revise', 'temp_context_assembly', 'temp_polish', 'temp_revise', 'temp_review', 'temp_review_retry', 'temp_data_extraction', 'temp_import_title', 'temp_import_chars', 'temp_import_chapters', 'temp_ban', 'temp_template'];
 
 // 配置分类定义
 const CONFIG_CATEGORIES: { key: string; label: string; icon: React.ReactNode; keys: string[] }[] = [
@@ -34,7 +36,13 @@ const CONFIG_CATEGORIES: { key: string; label: string; icon: React.ReactNode; ke
     key: 'writing',
     label: '写作参数',
     icon: <EditOutlined />,
-    keys: ['max_tokens_per_request', 'default_temperature', 'chapters_per_batch', 'agent_max_concurrent_tasks'],
+    keys: ['max_tokens_per_request', 'chapters_per_batch', 'agent_max_concurrent_tasks'],
+  },
+  {
+    key: 'temperature',
+    label: '温度参数',
+    icon: <FireOutlined />,
+    keys: TEMPERATURE_KEYS,
   },
   {
     key: 'security',
@@ -186,6 +194,21 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
     }
 
     const inputStyle = { background: modified ? 'rgba(251,191,36,0.08)' : undefined, borderColor: modified ? 'rgba(251,191,36,0.4)' : undefined };
+
+    if (TEMPERATURE_KEYS.includes(record.config_key)) {
+      const numericValue = Number(currentVal);
+      return (
+        <InputNumber
+          value={Number.isFinite(numericValue) ? numericValue : 0.7}
+          onChange={(v) => setEditingValues({ ...editingValues, [record.config_key]: String(v ?? 0.7) })}
+          min={0}
+          max={2}
+          step={0.01}
+          precision={2}
+          style={{ width: '100%' }}
+        />
+      );
+    }
 
     if (record.config_key === 'footer_content') {
       return (

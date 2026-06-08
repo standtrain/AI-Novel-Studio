@@ -1,6 +1,7 @@
 const banDao = require('../dao/banDao');
 const configDao = require('../dao/configDao');
 const OpenAI = require('openai');
+const { DEFAULT_TEMPERATURE_CONFIGS, normalizeConfigTemperature } = require('../utils/temperaturePreset');
 
 // 申诉审核模式常量
 const APPEAL_REVIEW_MODES = {
@@ -19,6 +20,11 @@ async function getAiReviewConfig() {
   const providerName = await configDao.get('appeal_review_provider');
   const modelName = await configDao.get('appeal_review_model');
   return { providerName: providerName || null, modelName: modelName || null };
+}
+
+async function getConfiguredTemperature(key) {
+  const value = await configDao.get(key);
+  return normalizeConfigTemperature(value, DEFAULT_TEMPERATURE_CONFIGS[key]?.value || 0.7);
 }
 
 async function aiReviewAppeal(appeal, ban, user) {
@@ -48,6 +54,7 @@ async function aiReviewAppeal(appeal, ban, user) {
   }
 
   const openai = new OpenAI({ baseURL, apiKey });
+  const temperature = await getConfiguredTemperature('temp_ban');
 
   const prompt = `请审核以下用户的账号申诉，判断是否应该解封该用户。
 
@@ -82,7 +89,7 @@ ${appeal.content}
       { role: 'system', content: '你是一个公正的账号申诉审核助手，请严格按照审核标准输出JSON格式结果。' },
       { role: 'user', content: prompt },
     ],
-    temperature: 0.3,
+    temperature,
     max_tokens: 500,
   });
 

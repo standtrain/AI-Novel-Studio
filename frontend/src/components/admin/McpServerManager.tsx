@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, Select, Switch, Popconfirm, Tag, Space, Typography, message } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, LinkOutlined, KeyOutlined } from '@ant-design/icons';
-import { getAdminMcpServersApi, createMcpServerApi, updateMcpServerApi, deleteMcpServerApi, testMcpServerApi, McpServer } from '../../api/mcp';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
+import { ApiOutlined, DeleteOutlined, EditOutlined, KeyOutlined, LinkOutlined, PlusOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { createMcpServerApi, deleteMcpServerApi, getAdminMcpServersApi, McpServer, testMcpServerApi, updateMcpServerApi } from '../../api/mcp';
 
-const { TextArea } = Input;
-const { Text } = Typography;
+const { Text, Paragraph } = Typography;
+
+type HeaderRow = { key: string; value: string };
 
 const transportOptions = [
   { value: 'http', label: 'HTTP' },
@@ -12,19 +13,59 @@ const transportOptions = [
   { value: 'stdio', label: 'Stdio' },
 ];
 
-const transportColorMap: Record<string, string> = { http: 'blue', sse: 'cyan', stdio: 'orange' };
+const authOptions = [
+  { value: 'none', label: '不使用' },
+  { value: 'bearer', label: 'Bearer Token' },
+  { value: 'custom', label: '自定义 Authorization' },
+];
 
-// 从 headers 中提取 API Key（Authorization: Bearer xxx）
-function extractApiKey(headers: Record<string, string> | null | undefined | string): string {
-  if (!headers) return '';
-  const h = typeof headers === 'string' ? tryParseJson(headers) : headers;
-  if (!h || typeof h !== 'object') return '';
-  const auth = h['Authorization'] || h['authorization'] || '';
-  return auth.startsWith('Bearer ') ? auth.slice(7) : auth;
+const transportColorMap: Record<string, string> = { http: 'blue', sse: 'cyan', stdio: 'orange' };
+const ANYSEARCH_TEMPLATE = {
+  name: 'anysearch',
+  transport: 'http',
+  url: 'https://api.anysearch.com/mcp',
+  authType: 'bearer',
+  description: '统一实时搜索引擎，为AI代理提供网页、新闻、图片等搜索能力。免费API Key申请: https://anysearch.com/console/api-keys',
+  enabled: true,
+};
+
+function tryParseJson(value: unknown): any {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(String(value)); } catch { return null; }
 }
 
-function tryParseJson(val: string): any {
-  try { return JSON.parse(val); } catch { return null; }
+function normalizeUrl(value: string): string {
+  return (value || '').replace(/\s+/g, '').replace(/^https:\/(?!\/)/i, 'https://').replace(/^http:\/(?!\/)/i, 'http://');
+}
+
+function headersToRows(headers: unknown): HeaderRow[] {
+  const parsed = tryParseJson(headers);
+  if (!parsed || typeof parsed !== 'object') return [];
+  return Object.keys(parsed)
+    .filter((key) => key.toLowerCase() !== 'authorization')
+    .map((key) => ({ key, value: String(parsed[key] ?? '') }));
+}
+
+function extractAuthorization(headers: unknown): { authType: string; authValue: string } {
+  const parsed = tryParseJson(headers);
+  const auth = parsed?.Authorization || parsed?.authorization || '';
+  if (!auth) return { authType: 'none', authValue: '' };
+  if (String(auth).startsWith('Bearer ')) return { authType: 'bearer', authValue: String(auth).slice(7) };
+  return { authType: 'custom', authValue: String(auth) };
+}
+
+function buildHeaders(authType: string, authValue: string, rows: HeaderRow[]) {
+  const headers: Record<string, string> = {};
+  rows.forEach((row) => {
+    const key = row.key.trim();
+    const value = row.value.trim();
+    if (key && value) headers[key] = value;
+  });
+  const cleanAuth = (authValue || '').trim();
+  if (authType === 'bearer' && cleanAuth) headers.Authorization = cleanAuth.startsWith('Bearer ') ? cleanAuth : `Bearer ${cleanAuth}`;
+  if (authType === 'custom' && cleanAuth) headers.Authorization = cleanAuth;
+  return headers;
 }
 
 const McpServerManager: React.FC = () => {
@@ -33,7 +74,17 @@ const McpServerManager: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<McpServer | null>(null);
   const [testingId, setTestingId] = useState<number | null>(null);
+  const [headerRows, setHeaderRows] = useState<HeaderRow[]>([]);
   const [form] = Form.useForm();
+
+  const transport = Form.useWatch('transport', form);
+  const authType = Form.useWatch('authType', form) || 'none';
+  const authValue = Form.useWatch('authValue', form) || '';
+
+  const headerPreview = useMemo(() => {
+    const headers = buildHeaders(authType, authValue, headerRows);
+    return Object.keys(headers).length ? JSON.stringify(headers, null, 2) : '{}';
+  }, [authType, authValue, headerRows]);
 
   const loadServers = async () => {
     setLoading(true);
@@ -49,52 +100,57 @@ const McpServerManager: React.FC = () => {
 
   useEffect(() => { loadServers(); }, []);
 
-  const handleCreate = () => {
-    setEditingServer(null);
-    form.resetFields();
-    form.setFieldsValue({ transport: 'http', enabled: true });
+  const openModal = (server?: McpServer, useAnySearchTemplate = false) => {
+    setEditingServer(server || null);
+    const auth = extractAuthorization(server?.headers);
+    setHeaderRows(server ? headersToRows(server.headers) : []);
+    form.setFieldsValue({
+      name: server?.name || '',
+      transport: server?.transport || 'http',
+      command: server?.command || '',
+      argsText: server?.args ? JSON.stringify(server.args, null, 2) : '',
+      url: server?.url || '',
+      authType: auth.authType,
+      authValue: auth.authValue,
+      enabled: server?.enabled ?? true,
+      description: server?.description || '',
+    });
+    if (!server && useAnySearchTemplate) {
+      form.setFieldsValue(ANYSEARCH_TEMPLATE);
+    }
     setModalOpen(true);
   };
 
-  const handleEdit = (server: McpServer) => {
-    setEditingServer(server);
-    form.setFieldsValue({
-      name: server.name,
-      transport: server.transport,
-      command: server.command || '',
-      args: server.args ? JSON.stringify(server.args) : '',
-      url: server.url || '',
-      apiKey: extractApiKey(server.headers),
-      headers: server.headers ? JSON.stringify(server.headers, null, 2) : '',
-      enabled: server.enabled,
-      description: server.description || '',
-    });
-    setModalOpen(true);
+  const applyAnySearchTemplate = () => {
+    form.setFieldsValue(ANYSEARCH_TEMPLATE);
+    setHeaderRows([]);
   };
+
+  const addHeaderRow = () => setHeaderRows((rows) => rows.concat({ key: '', value: '' }));
+  const updateHeaderRow = (index: number, patch: Partial<HeaderRow>) => {
+    setHeaderRows((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  };
+  const removeHeaderRow = (index: number) => setHeaderRows((rows) => rows.filter((_, i) => i !== index));
 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-
-      // 处理 headers：合并 API Key 和自定义 headers
-      let headers: Record<string, string> = {};
-      if (values.headers) {
-        headers = typeof values.headers === 'string' ? JSON.parse(values.headers) : values.headers;
-      }
-      // API Key 写入 Authorization header
-      if (values.apiKey) {
-        headers['Authorization'] = `Bearer ${values.apiKey}`;
+      const headers = buildHeaders(values.authType, values.authValue, headerRows);
+      const args = values.argsText?.trim() ? JSON.parse(values.argsText) : null;
+      if (args && !Array.isArray(args)) {
+        message.error('命令参数必须是 JSON 数组');
+        return;
       }
 
       const data: Record<string, any> = {
-        name: values.name,
+        name: values.name.trim(),
         transport: values.transport,
-        url: values.url || null,
-        command: values.command || null,
-        args: values.args ? JSON.parse(values.args) : null,
-        headers: Object.keys(headers).length > 0 ? headers : null,
+        url: values.transport === 'stdio' ? null : normalizeUrl(values.url),
+        command: values.transport === 'stdio' ? values.command?.trim() || null : null,
+        args,
+        headers: Object.keys(headers).length ? headers : null,
         enabled: values.enabled,
-        description: values.description || null,
+        description: values.description?.trim() || null,
       };
 
       if (editingServer) {
@@ -109,7 +165,7 @@ const McpServerManager: React.FC = () => {
     } catch (err: any) {
       if (err?.errorFields) return;
       if (err instanceof SyntaxError) {
-        message.error('JSON 格式无效，请检查请求头配置');
+        message.error('JSON 格式无效，请检查命令参数');
         return;
       }
       message.error(err?.response?.data?.error || '操作失败');
@@ -131,105 +187,165 @@ const McpServerManager: React.FC = () => {
     try {
       const result = await testMcpServerApi(serverId);
       if (result.success) {
-        message.success(`连接成功！发现 ${result.toolCount || 0} 个工具：${(result.tools || []).join(', ') || '无'}`);
+        Modal.success({
+          title: '连接成功',
+          content: `发现 ${result.toolCount || 0} 个工具：${(result.tools || []).join(', ') || '无'}`,
+        });
       } else {
-        message.error(`连接失败：${result.message}`);
+        Modal.error({ title: '连接失败', content: result.message || '未返回错误详情' });
       }
-    } catch {
-      message.error('测试请求失败');
+    } catch (err: any) {
+      Modal.error({ title: '测试请求失败', content: err?.response?.data?.error || err.message || '请求失败' });
     } finally {
       setTestingId(null);
     }
   };
 
   const columns = [
-    { title: '名称', dataIndex: 'name', key: 'name', width: 130, ellipsis: true,
+    {
+      title: '名称',
+      dataIndex: 'name',
+      key: 'name',
+      width: 160,
+      ellipsis: true,
       render: (text: string, record: McpServer) => (
-        <Space size={4}>
-          <span>{text}</span>
-          {record.headers && extractApiKey(record.headers) && (
-            <Tag color="gold" style={{ fontSize: 10, lineHeight: '16px', padding: '0 4px' }}>🔑</Tag>
-          )}
+        <Space size={6}>
+          <Text strong>{text}</Text>
+          {extractAuthorization(record.headers).authType !== 'none' && <Tag color="gold">Auth</Tag>}
         </Space>
       ),
     },
     {
-      title: '协议', dataIndex: 'transport', key: 'transport', width: 70,
-      render: (t: string) => <Tag color={transportColorMap[t] || 'default'}>{t.toUpperCase()}</Tag>,
+      title: '协议',
+      dataIndex: 'transport',
+      key: 'transport',
+      width: 80,
+      render: (t: string) => <Tag color={transportColorMap[t] || 'default'}>{String(t).toUpperCase()}</Tag>,
     },
     {
-      title: '地址', key: 'endpoint', ellipsis: true,
+      title: '端点',
+      key: 'endpoint',
+      ellipsis: true,
       render: (_: any, r: McpServer) => <Text ellipsis>{r.url || r.command || '-'}</Text>,
     },
     {
-      title: '启用', dataIndex: 'enabled', key: 'enabled', width: 60,
+      title: '启用',
+      dataIndex: 'enabled',
+      key: 'enabled',
+      width: 70,
       render: (v: boolean) => <Tag color={v ? 'green' : 'red'}>{v ? '是' : '否'}</Tag>,
     },
     {
-      title: '操作', key: 'actions', width: 100,
+      title: '操作',
+      key: 'actions',
+      width: 128,
       render: (_: any, record: McpServer) => (
-        <Space size={0}>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
-          <Button type="link" size="small" icon={<LinkOutlined />} loading={testingId === record.id} onClick={() => handleTest(record.id)} />
-          <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+        <Space size={2}>
+          <Button type="text" size="small" icon={<EditOutlined />} onClick={() => openModal(record)} />
+          <Button type="text" size="small" icon={<LinkOutlined />} loading={testingId === record.id} onClick={() => handleTest(record.id)} />
+          <Popconfirm title="确定删除此 MCP 服务器？" okText="删除" cancelText="取消" onConfirm={() => handleDelete(record.id)}>
+            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
       ),
     },
   ];
 
-  const transport = Form.useWatch('transport', form);
-
   return (
     <div>
-      <div style={{ marginBottom: 16 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>添加服务器</Button>
+      <div style={{ marginBottom: 16, display: 'flex', gap: 8, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <Space wrap>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>添加服务器</Button>
+          <Button icon={<ThunderboltOutlined />} onClick={() => openModal(undefined, true)}>添加 AnySearch</Button>
+        </Space>
       </div>
+
       <Table columns={columns} dataSource={servers} rowKey="id" loading={loading} size="small" />
+
       <Modal
         title={editingServer ? '编辑 MCP 服务器' : '添加 MCP 服务器'}
         open={modalOpen}
         onOk={handleSubmit}
         onCancel={() => setModalOpen(false)}
-        width={640}
+        width={760}
         destroyOnClose
       >
-        <Form form={form} layout="vertical">
-          <Form.Item name="name" label="服务器名称" rules={[{ required: true, message: '请输入名称' }]}>
-            <Input placeholder="如：Context7 文档搜索" />
+        <Form form={form} layout="vertical" initialValues={{ transport: 'http', authType: 'none', enabled: true }}>
+          <Space style={{ marginBottom: 12 }} wrap>
+            <Button size="small" icon={<ApiOutlined />} onClick={applyAnySearchTemplate}>套用 AnySearch</Button>
+          </Space>
+
+          <Form.Item name="name" label="服务器名称" rules={[{ required: true, message: '请输入名称' }, { max: 80, message: '名称不能超过80个字符' }]}>
+            <Input placeholder="anysearch" />
           </Form.Item>
+
           <Form.Item name="transport" label="传输协议" rules={[{ required: true }]}>
             <Select options={transportOptions} />
           </Form.Item>
+
           {(transport === 'http' || transport === 'sse') && (
-            <Form.Item name="url" label="服务端点 URL" rules={[{ required: true, message: '请输入 URL' }]}>
-              <Input placeholder="https://example.com/mcp" />
+            <Form.Item
+              name="url"
+              label="服务端点 URL"
+              normalize={normalizeUrl}
+              rules={[{ required: true, message: '请输入 URL' }]}
+            >
+              <Input placeholder="https://api.anysearch.com/mcp" />
             </Form.Item>
           )}
+
           {transport === 'stdio' && (
             <>
               <Form.Item name="command" label="启动命令" rules={[{ required: true, message: '请输入命令' }]}>
                 <Input placeholder="npx" />
               </Form.Item>
-              <Form.Item name="args" label="命令参数（JSON 数组）">
+              <Form.Item name="argsText" label="命令参数 JSON 数组">
                 <Input placeholder='["-y", "@modelcontextprotocol/server-example"]' />
               </Form.Item>
             </>
           )}
-          <Form.Item name="apiKey" label="API Key（可选）" extra="需要认证的服务器填写，自动设为 Authorization: Bearer">
-            <Input.Password
-              prefix={<KeyOutlined />}
-              placeholder="部分 MCP 服务器不需要 API Key，可留空"
-              visibilityToggle
-            />
+
+          <Form.Item label="认证">
+            <Space.Compact style={{ width: '100%' }}>
+              <Form.Item name="authType" noStyle>
+                <Select options={authOptions} style={{ width: 190 }} />
+              </Form.Item>
+              <Form.Item name="authValue" noStyle>
+                <Input.Password
+                  prefix={<KeyOutlined />}
+                  disabled={authType === 'none'}
+                  placeholder={authType === 'bearer' ? '粘贴 API Key，不需要写 Bearer' : 'Authorization 完整值'}
+                  visibilityToggle
+                />
+              </Form.Item>
+            </Space.Compact>
           </Form.Item>
-          <Form.Item name="headers" label="自定义请求头 — JSON（可选）" extra="高级配置，如需额外请求头可在此填写">
-            <TextArea rows={3} placeholder='{"X-Custom-Header": "value"}' />
+
+          <Form.Item label="额外请求头">
+            <Space direction="vertical" style={{ width: '100%' }}>
+              {headerRows.map((row, index) => (
+                <Space.Compact key={index} style={{ width: '100%' }}>
+                  <Input value={row.key} placeholder="Header 名称" onChange={(e) => updateHeaderRow(index, { key: e.target.value })} />
+                  <Input value={row.value} placeholder="Header 值" onChange={(e) => updateHeaderRow(index, { value: e.target.value })} />
+                  <Button danger icon={<DeleteOutlined />} onClick={() => removeHeaderRow(index)} />
+                </Space.Compact>
+              ))}
+              <Button size="small" onClick={addHeaderRow}>添加请求头</Button>
+            </Space>
           </Form.Item>
-          <Form.Item name="description" label="描述（可选）">
-            <TextArea rows={2} placeholder="服务器功能说明" />
+
+          <Alert
+            type="info"
+            showIcon
+            message="Headers 预览"
+            description={<Paragraph style={{ marginBottom: 0 }} copyable><pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{headerPreview}</pre></Paragraph>}
+            style={{ marginBottom: 16 }}
+          />
+
+          <Form.Item name="description" label="描述">
+            <Input.TextArea rows={2} placeholder="说明这个 MCP 服务提供哪些工具" />
           </Form.Item>
+
           <Form.Item name="enabled" label="全局启用" valuePropName="checked">
             <Switch />
           </Form.Item>

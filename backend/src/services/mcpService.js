@@ -15,6 +15,65 @@ function _parseObject(value, fallback = {}) {
   }
 }
 
+function _parseJsonObjectStrict(value, fieldName) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') {
+    throw { status: 400, message: `${fieldName} 必须是 JSON 对象` };
+  }
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('not object');
+    }
+    return parsed;
+  } catch {
+    throw { status: 400, message: `${fieldName} JSON 格式无效，请填写类似 {"Authorization":"Bearer xxx"} 的对象` };
+  }
+}
+
+function _parseJsonArrayStrict(value, fieldName) {
+  if (value === undefined || value === null || value === '') return null;
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') {
+    throw { status: 400, message: `${fieldName} 必须是 JSON 数组` };
+  }
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) throw new Error('not array');
+    return parsed;
+  } catch {
+    throw { status: 400, message: `${fieldName} JSON 格式无效，请填写类似 ["-y","pkg"] 的数组` };
+  }
+}
+
+function _normalizeUrl(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const text = String(value).replace(/\s+/g, '').replace(/^https?:\/\//i, (m) => m.toLowerCase());
+  const fixed = text.replace(/^https:\/(?!\/)/i, 'https://').replace(/^http:\/(?!\/)/i, 'http://');
+  try {
+    const parsed = new URL(fixed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('unsupported protocol');
+    }
+    return parsed.toString();
+  } catch {
+    throw { status: 400, message: 'URL 格式无效，请填写 https://example.com/mcp' };
+  }
+}
+
+function _normalizeServerPayload(data) {
+  const payload = { ...data };
+  if (payload.name !== undefined) payload.name = String(payload.name || '').trim();
+  if (payload.transport !== undefined) payload.transport = String(payload.transport || 'http').trim();
+  if (payload.url !== undefined) payload.url = _normalizeUrl(payload.url);
+  if (payload.command !== undefined) payload.command = payload.command ? String(payload.command).trim() : null;
+  if (payload.args !== undefined) payload.args = _parseJsonArrayStrict(payload.args, 'args');
+  if (payload.headers !== undefined) payload.headers = _parseJsonObjectStrict(payload.headers, 'headers');
+  if (payload.description !== undefined) payload.description = payload.description ? String(payload.description).trim() : null;
+  return payload;
+}
+
 function _maskSecret(value) {
   if (!value) return null;
   const text = String(value);
@@ -117,6 +176,7 @@ const mcpService = {
   },
 
   async createServer(data) {
+    data = _normalizeServerPayload(data);
     if (!data.name) throw { status: 400, message: '服务器名称为必填项' };
     const existing = await mcpDao.getServerByName(data.name);
     if (existing) throw { status: 409, message: '服务器名称已存在' };
@@ -134,6 +194,7 @@ const mcpService = {
   },
 
   async updateServer(id, data) {
+    data = _normalizeServerPayload(data);
     const server = await mcpDao.getServerById(id);
     if (!server) throw { status: 404, message: 'MCP 服务器不存在' };
     if (data.name && data.name !== server.name) {

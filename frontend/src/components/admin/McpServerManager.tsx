@@ -1,11 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography, message } from 'antd';
-import { ApiOutlined, DeleteOutlined, EditOutlined, KeyOutlined, LinkOutlined, PlusOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, KeyOutlined, LinkOutlined, PlusOutlined } from '@ant-design/icons';
 import { createMcpServerApi, deleteMcpServerApi, getAdminMcpServersApi, McpServer, testMcpServerApi, updateMcpServerApi } from '../../api/mcp';
 
 const { Text, Paragraph } = Typography;
-
-type HeaderRow = { key: string; value: string };
 
 const transportOptions = [
   { value: 'http', label: 'HTTP' },
@@ -20,14 +18,6 @@ const authOptions = [
 ];
 
 const transportColorMap: Record<string, string> = { http: 'blue', sse: 'cyan', stdio: 'orange' };
-const ANYSEARCH_TEMPLATE = {
-  name: 'anysearch',
-  transport: 'http',
-  url: 'https://api.anysearch.com/mcp',
-  authType: 'bearer',
-  description: '统一实时搜索引擎，为AI代理提供网页、新闻、图片等搜索能力。免费API Key申请: https://anysearch.com/console/api-keys',
-  enabled: true,
-};
 
 function tryParseJson(value: unknown): any {
   if (!value) return null;
@@ -39,14 +29,6 @@ function normalizeUrl(value: string): string {
   return (value || '').replace(/\s+/g, '').replace(/^https:\/(?!\/)/i, 'https://').replace(/^http:\/(?!\/)/i, 'http://');
 }
 
-function headersToRows(headers: unknown): HeaderRow[] {
-  const parsed = tryParseJson(headers);
-  if (!parsed || typeof parsed !== 'object') return [];
-  return Object.keys(parsed)
-    .filter((key) => key.toLowerCase() !== 'authorization')
-    .map((key) => ({ key, value: String(parsed[key] ?? '') }));
-}
-
 function extractAuthorization(headers: unknown): { authType: string; authValue: string } {
   const parsed = tryParseJson(headers);
   const auth = parsed?.Authorization || parsed?.authorization || '';
@@ -55,13 +37,30 @@ function extractAuthorization(headers: unknown): { authType: string; authValue: 
   return { authType: 'custom', authValue: String(auth) };
 }
 
-function buildHeaders(authType: string, authValue: string, rows: HeaderRow[]) {
-  const headers: Record<string, string> = {};
-  rows.forEach((row) => {
-    const key = row.key.trim();
-    const value = row.value.trim();
-    if (key && value) headers[key] = value;
+function extraHeadersToJson(headers: unknown): string {
+  const parsed = tryParseJson(headers);
+  if (!parsed || typeof parsed !== 'object') return '';
+  const extra: Record<string, string> = {};
+  Object.entries(parsed).forEach(([key, value]) => {
+    if (key.toLowerCase() !== 'authorization') extra[key] = String(value ?? '');
   });
+  return Object.keys(extra).length ? JSON.stringify(extra, null, 2) : '';
+}
+
+function buildHeadersFromJson(authType: string, authValue: string, extraHeadersJson: string) {
+  const headers: Record<string, string> = {};
+  if (extraHeadersJson?.trim()) {
+    try {
+      const parsed = JSON.parse(extraHeadersJson);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        Object.entries(parsed).forEach(([key, value]) => {
+          const k = String(key).trim();
+          const v = String(value ?? '').trim();
+          if (k && v) headers[k] = v;
+        });
+      }
+    } catch { /* 解析失败时忽略 */ }
+  }
   const cleanAuth = (authValue || '').trim();
   if (authType === 'bearer' && cleanAuth) headers.Authorization = cleanAuth.startsWith('Bearer ') ? cleanAuth : `Bearer ${cleanAuth}`;
   if (authType === 'custom' && cleanAuth) headers.Authorization = cleanAuth;
@@ -74,7 +73,7 @@ const McpServerManager: React.FC = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<McpServer | null>(null);
   const [testingId, setTestingId] = useState<number | null>(null);
-  const [headerRows, setHeaderRows] = useState<HeaderRow[]>([]);
+  const [extraHeadersJson, setExtraHeadersJson] = useState('');
   const [form] = Form.useForm();
 
   const transport = Form.useWatch('transport', form);
@@ -82,9 +81,9 @@ const McpServerManager: React.FC = () => {
   const authValue = Form.useWatch('authValue', form) || '';
 
   const headerPreview = useMemo(() => {
-    const headers = buildHeaders(authType, authValue, headerRows);
+    const headers = buildHeadersFromJson(authType, authValue, extraHeadersJson);
     return Object.keys(headers).length ? JSON.stringify(headers, null, 2) : '{}';
-  }, [authType, authValue, headerRows]);
+  }, [authType, authValue, extraHeadersJson]);
 
   const loadServers = async () => {
     setLoading(true);
@@ -100,10 +99,10 @@ const McpServerManager: React.FC = () => {
 
   useEffect(() => { loadServers(); }, []);
 
-  const openModal = (server?: McpServer, useAnySearchTemplate = false) => {
+  const openModal = (server?: McpServer) => {
     setEditingServer(server || null);
     const auth = extractAuthorization(server?.headers);
-    setHeaderRows(server ? headersToRows(server.headers) : []);
+    setExtraHeadersJson(server ? extraHeadersToJson(server.headers) : '');
     form.setFieldsValue({
       name: server?.name || '',
       transport: server?.transport || 'http',
@@ -115,27 +114,13 @@ const McpServerManager: React.FC = () => {
       enabled: server?.enabled ?? true,
       description: server?.description || '',
     });
-    if (!server && useAnySearchTemplate) {
-      form.setFieldsValue(ANYSEARCH_TEMPLATE);
-    }
     setModalOpen(true);
   };
-
-  const applyAnySearchTemplate = () => {
-    form.setFieldsValue(ANYSEARCH_TEMPLATE);
-    setHeaderRows([]);
-  };
-
-  const addHeaderRow = () => setHeaderRows((rows) => rows.concat({ key: '', value: '' }));
-  const updateHeaderRow = (index: number, patch: Partial<HeaderRow>) => {
-    setHeaderRows((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
-  };
-  const removeHeaderRow = (index: number) => setHeaderRows((rows) => rows.filter((_, i) => i !== index));
 
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      const headers = buildHeaders(values.authType, values.authValue, headerRows);
+      const headers = buildHeadersFromJson(values.authType, values.authValue, extraHeadersJson);
       const args = values.argsText?.trim() ? JSON.parse(values.argsText) : null;
       if (args && !Array.isArray(args)) {
         message.error('命令参数必须是 JSON 数组');
@@ -256,7 +241,6 @@ const McpServerManager: React.FC = () => {
       <div style={{ marginBottom: 16, display: 'flex', gap: 8, justifyContent: 'space-between', flexWrap: 'wrap' }}>
         <Space wrap>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>添加服务器</Button>
-          <Button icon={<ThunderboltOutlined />} onClick={() => openModal(undefined, true)}>添加 AnySearch</Button>
         </Space>
       </div>
 
@@ -271,10 +255,6 @@ const McpServerManager: React.FC = () => {
         destroyOnClose
       >
         <Form form={form} layout="vertical" initialValues={{ transport: 'http', authType: 'none', enabled: true }}>
-          <Space style={{ marginBottom: 12 }} wrap>
-            <Button size="small" icon={<ApiOutlined />} onClick={applyAnySearchTemplate}>套用 AnySearch</Button>
-          </Space>
-
           <Form.Item name="name" label="服务器名称" rules={[{ required: true, message: '请输入名称' }, { max: 80, message: '名称不能超过80个字符' }]}>
             <Input placeholder="anysearch" />
           </Form.Item>
@@ -321,17 +301,13 @@ const McpServerManager: React.FC = () => {
             </Space.Compact>
           </Form.Item>
 
-          <Form.Item label="额外请求头">
-            <Space direction="vertical" style={{ width: '100%' }}>
-              {headerRows.map((row, index) => (
-                <Space.Compact key={index} style={{ width: '100%' }}>
-                  <Input value={row.key} placeholder="Header 名称" onChange={(e) => updateHeaderRow(index, { key: e.target.value })} />
-                  <Input value={row.value} placeholder="Header 值" onChange={(e) => updateHeaderRow(index, { value: e.target.value })} />
-                  <Button danger icon={<DeleteOutlined />} onClick={() => removeHeaderRow(index)} />
-                </Space.Compact>
-              ))}
-              <Button size="small" onClick={addHeaderRow}>添加请求头</Button>
-            </Space>
+          <Form.Item label="额外请求头（JSON）">
+            <Input.TextArea
+              rows={4}
+              value={extraHeadersJson}
+              onChange={(e) => setExtraHeadersJson(e.target.value)}
+              placeholder='{"X-Custom-Header": "自定义值"}'
+            />
           </Form.Item>
 
           <Alert

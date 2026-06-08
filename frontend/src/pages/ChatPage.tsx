@@ -358,6 +358,9 @@ const ChatPage: React.FC = () => {
         case 'model_fallback':
           msgApi.warning(`模型已切换：${data.actualModel || '备选'}`);
           break;
+        case 'tool_call':
+          setStreamContent((prev) => prev + `\n\n[正在调用工具：${data.tool || 'MCP'}]\n`);
+          break;
         case 'file_uploads':
           // 服务端确认文件已接收
           break;

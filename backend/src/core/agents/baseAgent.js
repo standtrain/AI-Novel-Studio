@@ -8,6 +8,8 @@ const {
 } = require('../../config/openai');
 const { createLogger } = require('../../utils/logger');
 const { resolveTemperature, shouldApplyUserTemperature } = require('../../utils/temperaturePreset');
+const { parseToolCallResult } = require('../mcp/mcpToolAdapter');
+const { getMcpClientManager } = require('../mcp/mcpClient');
 
 const logger = createLogger('base-agent');
 
@@ -36,6 +38,13 @@ function isExactPreferredModel(value) {
   return typeof value === 'string' && value.includes('::');
 }
 
+function isEnabledValue(value, defaultValue = true) {
+  if (value === undefined || value === null) return defaultValue;
+  if (value === true || value === 1 || value === '1' || value === 'true') return true;
+  if (value === false || value === 0 || value === '0' || value === 'false') return false;
+  return Boolean(value);
+}
+
 class BaseAgent {
   constructor(contextManager, options = {}) {
     this._clients = new Map();
@@ -51,6 +60,47 @@ class BaseAgent {
     this.temperaturePreset = options.temperaturePreset || 'balanced';
     this.customTemperature = options.customTemperature ?? null;
     this.maxTokens = null;
+  }
+
+  _getMcpOriginalToolName(toolName) {
+    const tool = (this.mcpTools || []).find(t => t.function?.name === toolName);
+    return tool?.x_mcp_original_name || toolName;
+  }
+
+  getMcpOpenAITools(tools = this.mcpTools) {
+    return (Array.isArray(tools) ? tools : []).map(tool => ({
+      type: tool.type,
+      function: tool.function,
+    }));
+  }
+
+  _getMcpToolServer(toolName) {
+    const originalName = this._getMcpOriginalToolName(toolName);
+    return this.mcpToolServers?.[originalName] || this.mcpToolServers?.[toolName] || null;
+  }
+
+  async executeMcpTool(toolName, args) {
+    try {
+      const originalName = this._getMcpOriginalToolName(toolName);
+      const server = this._getMcpToolServer(toolName);
+      if (!server) {
+        return `工具 "${toolName}" 执行失败：当前用户未启用该工具`;
+      }
+      if (!isEnabledValue(server.enabled, true) || !isEnabledValue(server.user_enabled, true)) {
+        return `工具 "${toolName}" 执行失败：服务已禁用`;
+      }
+
+      const manager = getMcpClientManager();
+      const tools = await manager.getTools(server);
+      const found = tools.find(t => t.name === originalName);
+      if (!found) {
+        return `工具 "${toolName}" 执行失败：服务器未返回该工具`;
+      }
+      const result = await manager.callTool(server, originalName, args || {});
+      return parseToolCallResult(result);
+    } catch (err) {
+      return `工具调用错误：${err.message}`;
+    }
   }
 
   // 获取或创建指定 provider 的 OpenAI 客户端

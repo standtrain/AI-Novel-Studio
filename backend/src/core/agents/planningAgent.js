@@ -29,7 +29,8 @@ class PlanningAgent extends BaseAgent {
   // 执行 MCP 工具调用
   async _executeMcpTool(toolName, args) {
     try {
-      const server = this.mcpToolServers?.[toolName];
+      const originalName = this._getMcpOriginalToolName ? this._getMcpOriginalToolName(toolName) : toolName;
+      const server = this.mcpToolServers?.[originalName] || this.mcpToolServers?.[toolName];
       if (!server) {
         return `工具 "${toolName}" 执行失败：当前用户未启用该工具`;
       }
@@ -39,11 +40,11 @@ class PlanningAgent extends BaseAgent {
 
       const manager = getMcpClientManager();
       const tools = await manager.getTools(server);
-      const found = tools.find(t => t.name === toolName);
+      const found = tools.find(t => t.name === originalName);
       if (!found) {
         return `工具 "${toolName}" 执行失败：服务器未返回该工具`;
       }
-      const result = await manager.callTool(server, toolName, args);
+      const result = await manager.callTool(server, originalName, args);
       return parseToolCallResult(result);
     } catch (err) {
       return `工具调用错误：${err.message}`;
@@ -94,7 +95,7 @@ class PlanningAgent extends BaseAgent {
   // 实际执行规划的主方法
   async planNovel(userInput, onProgress) {
     const searchTools = this._filterSearchTools();
-    const openaiTools = searchTools.length > 0 ? searchTools : undefined;
+    const openaiTools = searchTools.length > 0 ? this.getMcpOpenAITools(searchTools) : undefined;
 
     const researchTemperature = this._resolveTemperature('plan', 0.7);
     const planTemperature = this._resolveTemperature('plan', 0.8);

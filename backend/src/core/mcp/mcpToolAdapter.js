@@ -8,14 +8,36 @@
 function toolsToOpenAIFunctions(mcpTools) {
   if (!Array.isArray(mcpTools)) return [];
 
-  return mcpTools.map(tool => ({
-    type: 'function',
-    function: {
-      name: tool.name,
-      description: tool.description || '',
-      parameters: convertSchema(tool.inputSchema),
-    },
-  }));
+  const usedNames = new Set();
+  return mcpTools.map((tool, index) => {
+    const safeName = makeOpenAIToolName(tool.name, index, usedNames);
+    return {
+      type: 'function',
+      function: {
+        name: safeName,
+        description: tool.description || '',
+        parameters: convertSchema(tool.inputSchema),
+      },
+      x_mcp_original_name: tool.name,
+    };
+  });
+}
+
+function makeOpenAIToolName(name, index = 0, usedNames = new Set()) {
+  const raw = String(name || `mcp_tool_${index + 1}`);
+  let safe = raw.replace(/[^A-Za-z0-9_-]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+  if (!safe) safe = `mcp_tool_${index + 1}`;
+  if (!/^[A-Za-z]/.test(safe)) safe = `mcp_${safe}`;
+  safe = safe.slice(0, 64);
+
+  let candidate = safe;
+  let suffix = 2;
+  while (usedNames.has(candidate)) {
+    const tail = `_${suffix++}`;
+    candidate = safe.slice(0, 64 - tail.length) + tail;
+  }
+  usedNames.add(candidate);
+  return candidate;
 }
 
 /**
@@ -70,4 +92,4 @@ function parseToolCallResult(result) {
   return JSON.stringify(result);
 }
 
-module.exports = { toolsToOpenAIFunctions, convertSchema, parseToolCallResult };
+module.exports = { toolsToOpenAIFunctions, convertSchema, parseToolCallResult, makeOpenAIToolName };

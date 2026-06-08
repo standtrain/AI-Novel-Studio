@@ -459,6 +459,21 @@ function _safeText(value, fallback = null, maxLength = null) {
   return maxLength ? text.substring(0, maxLength) : text;
 }
 
+function _truncateToolResult(text, maxLength = 6000) {
+  const value = String(text || '');
+  return value.length > maxLength ? value.substring(0, maxLength) + '\n...(结果已截断)' : value;
+}
+
+function _mergeUsage(...usages) {
+  const valid = usages.filter(Boolean);
+  if (valid.length === 0) return null;
+  return valid.reduce((sum, item) => ({
+    prompt_tokens: (sum.prompt_tokens || 0) + (item.prompt_tokens || 0),
+    completion_tokens: (sum.completion_tokens || 0) + (item.completion_tokens || 0),
+    total_tokens: (sum.total_tokens || 0) + (item.total_tokens || 0),
+  }), {});
+}
+
 function _normalizeGeneratedCharacters(characters) {
   const seen = new Set();
   return (Array.isArray(characters) ? characters : [])
@@ -1911,6 +1926,63 @@ agentService.chat = function (userId, message, conversationId, fileList) {
           '5. 如果用户上传了文件或图片，请根据文件/图片内容进行针对性分析\n' +
           '请用热情、专业且富有启发性的方式回答，像一位经验丰富的写作导师。';
 
+        let toolMessages = messages;
+        let researchUsage = null;
+        let researchModel = null;
+        let researchProvider = null;
+        let researchSkipReasons = [];
+        const openaiTools = agent.mcpTools && agent.mcpTools.length > 0 && !hasImageUploads
+          ? agent.getMcpOpenAITools()
+          : undefined;
+
+        if (openaiTools) {
+          for (let turn = 0; turn < 4; turn++) {
+            const toolResult = await agent._withProviderRetry('chat', {}, async ({ provider, model, skipReasons: reasons }) => {
+              const client = agent._getClient(provider);
+              const response = await client.chat.completions.create({
+                model,
+                messages: [
+                  { role: 'system', content: agent._enrichSystemPrompt(systemPrompt, 'chat') },
+                  ...toolMessages,
+                ],
+                tools: openaiTools,
+                tool_choice: 'auto',
+                temperature: 0.8,
+                max_tokens: agent.maxTokens,
+              }, { signal: abortController.signal });
+              return { response, model, provider: provider.name, skipReasons: reasons };
+            });
+
+            researchModel = toolResult.model;
+            researchProvider = toolResult.provider;
+            researchSkipReasons = toolResult.skipReasons || researchSkipReasons;
+            if (toolResult.response?.usage) researchUsage = toolResult.response.usage;
+
+            const toolMessage = toolResult.response?.choices?.[0]?.message;
+            if (!toolMessage?.tool_calls || toolMessage.tool_calls.length === 0) {
+              break;
+            }
+
+            toolMessages = toolMessages.concat([toolMessage]);
+            for (const toolCall of toolMessage.tool_calls) {
+              const toolName = toolCall.function?.name;
+              if (!toolName) continue;
+              let toolArgs = {};
+              try {
+                toolArgs = JSON.parse(toolCall.function?.arguments || '{}');
+              } catch { /* invalid tool args degrade to empty object */ }
+
+              sendSSE(res, 'tool_call', { tool: toolName });
+              const toolOutput = await agent.executeMcpTool(toolName, toolArgs);
+              toolMessages = toolMessages.concat([{
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                content: _truncateToolResult(toolOutput),
+              }]);
+            }
+          }
+        }
+
         const { content, usage, model, provider, skipReasons } = await agent.callLLMStream(
           systemPrompt,
           message.trim(),
@@ -1921,14 +1993,18 @@ agentService.chat = function (userId, message, conversationId, fileList) {
           'chat',
           abortController.signal,
           undefined,
-          { messages, requireVision: hasImageUploads }
+          { messages: toolMessages, requireVision: hasImageUploads }
         );
 
-        if (skipReasons && skipReasons.length > 0) {
+        const combinedSkipReasons = [
+          ...researchSkipReasons,
+          ...(skipReasons || []),
+        ];
+        if (combinedSkipReasons.length > 0) {
           sendSSE(res, 'model_fallback', {
             preferredModel: agent.preferredModel,
             actualModel: model,
-            reasons: skipReasons,
+            reasons: combinedSkipReasons,
           });
         }
 
@@ -1938,7 +2014,7 @@ agentService.chat = function (userId, message, conversationId, fileList) {
           await chatDao.touch(resolvedConvId, userId);
         }
 
-        await _recordUsage(userId, 0, 'chat', usage, model, provider);
+        await _recordUsage(userId, 0, 'chat', _mergeUsage(researchUsage, usage), model || researchModel, provider || researchProvider);
         sendSSE(res, 'done', { conversationId: resolvedConvId });
         _safeEnd(res);
 

@@ -1,6 +1,8 @@
 // Agent 基类 — 统一 LLM 调用、重试、模型解析、技能/MCP 注入
 const OpenAI = require('openai');
 const { pickModel } = require('../../config/openai');
+const { getMcpClientManager } = require('../mcp/mcpClient');
+const { parseToolCallResult } = require('../mcp/mcpToolAdapter');
 
 class BaseAgent {
   constructor(contextManager, options = {}) {
@@ -9,6 +11,8 @@ class BaseAgent {
     this._abortSignal = null;
     this.skills = options.skills || [];
     this.mcpTools = options.mcpTools || [];
+    this.mcpToolServers = options.mcpToolServers || {};
+    this._mcpToolNameMap = {};
     this.preferredModel = options.preferredModel || null;
     this.preferredProvider = options.preferredProvider || null;
     this.checkLimitFn = options.checkLimitFn || null;
@@ -73,6 +77,64 @@ class BaseAgent {
       preferredProviderName: this.preferredProvider,
       checkLimitFn: this.checkLimitFn,
     });
+  }
+
+  async _withProviderRetry(phase, resolveOptions = {}, task, retryOptions = {}) {
+    const maxRetries = retryOptions.maxRetries || 3;
+    const retryDelay = retryOptions.retryDelay || 5000;
+    let lastError = null;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const resolved = await pickModel(phase, {
+          preferredModelName: this.preferredModel,
+          preferredProviderName: this.preferredProvider,
+          checkLimitFn: this.checkLimitFn,
+          ...resolveOptions,
+        });
+        return await task(resolved);
+      } catch (err) {
+        lastError = err;
+        if (this._abortSignal?.aborted) throw err;
+        const limited = err?.status === 429 || (err?.message && err.message.includes('429'));
+        if (limited && attempt < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          continue;
+        }
+        break;
+      }
+    }
+
+    throw lastError;
+  }
+
+  getMcpOpenAITools(tools = this.mcpTools) {
+    if (!Array.isArray(tools) || tools.length === 0) return [];
+    return tools
+      .filter(tool => tool?.type === 'function' && tool.function?.name)
+      .map((tool) => {
+        const originalName = tool.x_mcp_original_name || tool.function.name;
+        this._mcpToolNameMap[tool.function.name] = originalName;
+        this._mcpToolNameMap[originalName] = originalName;
+        return {
+          type: 'function',
+          function: tool.function,
+        };
+      });
+  }
+
+  _getMcpOriginalToolName(toolName) {
+    return this._mcpToolNameMap?.[toolName] || toolName;
+  }
+
+  async _executeMcpTool(toolName, args) {
+    const originalName = this._getMcpOriginalToolName(toolName);
+    const server = this.mcpToolServers?.[originalName] || this.mcpToolServers?.[toolName];
+    if (!server) {
+      throw new Error(`当前用户未启用工具：${toolName}`);
+    }
+    const result = await getMcpClientManager().callTool(server, originalName, args || {});
+    return parseToolCallResult(result);
   }
 
   // 将技能提示词和全局写作提示词注入系统提示词

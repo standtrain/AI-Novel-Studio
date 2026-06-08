@@ -24,6 +24,8 @@ const logger = createLogger('agent');
 const CHAT_HISTORY_LIMIT = 12;
 const CHAT_MAX_TEXT_FILE_CHARS = 12000;
 const CHAT_MAX_TOTAL_FILE_CHARS = 30000;
+const CHAT_MAX_TOOL_TURNS = 4;
+const CHAT_MAX_TOOL_RESULT_CHARS = 8000;
 
 // ========== 阶段映射 ==========
 // 内部子阶段映射到对外暴露的 4 个主阶段，确保技能/MCP 配置正确匹配
@@ -88,9 +90,16 @@ async function _loadUserConfig(userId) {
   };
 }
 
-async function _loadMcpTools(userId) {
+async function _loadMcpRuntime(userId) {
   const mcpService = require('./mcpService');
-  return mcpService.getAvailableUserTools(userId);
+  return mcpService.getAvailableUserToolRuntime(userId);
+}
+
+async function _loadMcpTools(userId) {
+  const runtime = await _loadMcpRuntime(userId);
+  const tools = runtime.openaiTools || [];
+  tools.toolServers = runtime.toolServers || {};
+  return tools;
 }
 
 async function _getOrCreateCache(userId) {
@@ -164,6 +173,7 @@ async function _createAgent(ctx, userId, phase, AgentClass = NovelWritingAgent) 
   // 注入 MCP 工具
   if (cached.mcpTools && cached.mcpTools.length > 0) {
     agent.mcpTools = cached.mcpTools;
+    agent.mcpToolServers = cached.mcpTools.toolServers || {};
   }
 
   // 注入技能提示词（按阶段查询，无法缓存因 phase 不同）
@@ -357,6 +367,11 @@ function _buildStoredChatMessage(message, fileList = []) {
   return `${message}\n\n[已上传文件：${names.join(', ')}]`;
 }
 
+function _shouldRequireChatTools(message) {
+  return /(搜索|搜一下|查一下|查询|联网|实时|最新|今天|今日|新闻|大事|热点|current|latest|today|news|search|lookup)/i
+    .test(String(message || ''));
+}
+
 function _safeChatRole(role) {
   return role === 'assistant' ? 'assistant' : 'user';
 }
@@ -408,7 +423,8 @@ function _buildChatSystemPrompt(hasCurrentFiles) {
 1. 用户询问当前日期或时间时，直接基于上面的服务器时间回答，不要声称自己没有日期、时间或日历能力。
 2. 只有当前消息中【本轮上传文件】列出的文件，才视为本轮已上传文件。${hasCurrentFiles ? '' : '本轮没有上传文件，禁止声称用户刚刚上传了任何文件。'}
 3. 不要虚构文件名、小说名、上传内容、已完成步骤或用户没有提供的背景。如果缺少材料，请明确说“我没有收到对应材料”并询问用户。
-4. 历史消息里出现的上传提示只代表历史轮次，不能当作本轮上传。`;
+4. 历史消息里出现的上传提示只代表历史轮次，不能当作本轮上传。
+5. 如果本轮可用工具中包含搜索、网页、新闻、查询、lookup、search、web 等能力，且用户询问今天、最新、实时新闻、当前资料或要求搜索，你必须优先调用工具获取信息；不要声称自己不能联网或不能调用外部工具，除非工具实际调用失败。`;
 }
 
 function _buildCurrentChatContent(message, fileList = []) {
@@ -1342,23 +1358,85 @@ ${finalContent}
           }
 
           const client = agent._getClient(provider);
-          const stream = await client.chat.completions.create({
-            model,
-            messages,
-            temperature: agent._resolveTemperature('chat', 0.7),
-            max_tokens: agent.maxTokens,
-            stream: true,
-            stream_options: { include_usage: true },
-          }, { signal: abortController.signal });
-
+          const openaiTools = hasCurrentImages ? [] : agent.getMcpOpenAITools(agent.mcpTools);
+          const requireToolCall = openaiTools.length > 0 && _shouldRequireChatTools(normalized);
           let usage = null;
-          for await (const chunk of stream) {
-            if (abortController.signal.aborted) break;
-            if (chunk.usage) usage = chunk.usage;
-            const delta = chunk.choices?.[0]?.delta?.content || '';
-            if (!delta) continue;
-            assistantContent += delta;
-            sendSSE(res, 'chunk', { text: delta });
+          let shouldStreamFinal = true;
+          if (openaiTools.length > 0) {
+            for (let turn = 0; turn < CHAT_MAX_TOOL_TURNS; turn++) {
+              const toolResponse = await client.chat.completions.create({
+                model,
+                messages,
+                tools: openaiTools,
+                tool_choice: requireToolCall && turn === 0 ? 'required' : 'auto',
+                temperature: agent._resolveTemperature('chat', 0.7),
+                max_tokens: agent.maxTokens,
+              }, { signal: abortController.signal });
+
+              if (toolResponse.usage) usage = toolResponse.usage;
+              const toolMessage = toolResponse.choices?.[0]?.message;
+              if (!toolMessage?.tool_calls || toolMessage.tool_calls.length === 0) {
+                const directContent = toolMessage?.content || '';
+                if (directContent) {
+                  assistantContent += directContent;
+                  sendSSE(res, 'chunk', { text: directContent });
+                  shouldStreamFinal = false;
+                }
+                break;
+              }
+
+              messages.push(toolMessage);
+              for (const toolCall of toolMessage.tool_calls) {
+                const toolName = toolCall.function?.name || '';
+                let toolArgs = {};
+                try {
+                  toolArgs = JSON.parse(toolCall.function?.arguments || '{}');
+                } catch { /* 使用空参数 */ }
+
+                sendSSE(res, 'tool_call', {
+                  tool: agent._getMcpOriginalToolName(toolName),
+                  arguments: toolArgs,
+                });
+
+                let toolResult;
+                try {
+                  toolResult = await agent._executeMcpTool(toolName, toolArgs);
+                } catch (toolErr) {
+                  toolResult = `工具调用失败：${toolErr.message}`;
+                }
+                if (toolResult.length > CHAT_MAX_TOOL_RESULT_CHARS) {
+                  toolResult = toolResult.substring(0, CHAT_MAX_TOOL_RESULT_CHARS) + '\n...(工具结果已截断)';
+                }
+
+                messages.push({
+                  role: 'tool',
+                  tool_call_id: toolCall.id,
+                  content: toolResult,
+                });
+              }
+
+              if (abortController.signal.aborted) break;
+            }
+          }
+
+          if (shouldStreamFinal) {
+            const stream = await client.chat.completions.create({
+              model,
+              messages,
+              temperature: agent._resolveTemperature('chat', 0.7),
+              max_tokens: agent.maxTokens,
+              stream: true,
+              stream_options: { include_usage: true },
+            }, { signal: abortController.signal });
+
+            for await (const chunk of stream) {
+              if (abortController.signal.aborted) break;
+              if (chunk.usage) usage = chunk.usage;
+              const delta = chunk.choices?.[0]?.delta?.content || '';
+              if (!delta) continue;
+              assistantContent += delta;
+              sendSSE(res, 'chunk', { text: delta });
+            }
           }
 
           if (abortController.signal.aborted) {

@@ -17,6 +17,7 @@ const { TEMPERATURE_CONFIG_KEYS, clampTemperature } = require('../utils/temperat
 
 const router = Router();
 const logger = createLogger('admin-routes');
+const TEMPERATURE_SEARCH_TERMS = ['温度', '温度设置', '温度参数', '创作温度', 'temperature', 'temp'];
 
 // 管理端用户响应脱敏：管理员也不需要拿到密码哈希
 function sanitizeAdminUser(user) {
@@ -44,6 +45,12 @@ function parseSearchKeyword(value, fieldName = '搜索词', maxLength = 100) {
     throw err;
   }
   return keyword;
+}
+
+function isTemperatureSearch(keyword) {
+  const normalized = String(keyword || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return TEMPERATURE_SEARCH_TERMS.some(term => normalized.includes(term.toLowerCase()));
 }
 
 async function validateDefaultGroupConfig(value) {
@@ -156,6 +163,16 @@ router.get('/search', async (req, res) => {
           .orWhere('config_value', 'like', term);
       })
       .limit(10);
+    const configResults = configs.map(c => ({ ...c, _type: 'config' }));
+    if (isTemperatureSearch(q) && !configResults.some(c => TEMPERATURE_CONFIG_KEYS.includes(c.config_key))) {
+      configResults.unshift({
+        config_key: 'temperature_settings',
+        config_value: '',
+        description: '高级设置 / 温度设置 / 创作温度 / temperature',
+        target_path: '/advanced',
+        _type: 'config',
+      });
+    }
 
     // 搜索通知（标题、内容）
     const notifications = await db('notifications')
@@ -170,7 +187,7 @@ router.get('/search', async (req, res) => {
     res.json({
       users: users.map(u => ({ ...u, _type: 'user' })),
       novels: novels.map(n => ({ ...n, _type: 'novel' })),
-      configs: configs.map(c => ({ ...c, _type: 'config' })),
+      configs: configResults,
       notifications: notifications.map(n => ({ ...n, _type: 'notification' })),
     });
   } catch (err) {

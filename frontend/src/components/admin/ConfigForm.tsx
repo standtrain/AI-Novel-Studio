@@ -17,6 +17,28 @@ function generateRandomKey(length = 48): string {
 }
 
 const TEMPERATURE_KEYS = ['default_temperature', 'temp_outline', 'temp_characters', 'temp_chapters_outline', 'temp_write_chapter', 'temp_chapter_summary', 'temp_plan_research', 'temp_plan_generate', 'temp_plan_revise', 'temp_context_assembly', 'temp_polish', 'temp_revise', 'temp_review', 'temp_review_retry', 'temp_data_extraction', 'temp_import_title', 'temp_import_chars', 'temp_import_chapters', 'temp_ban', 'temp_template'];
+const TEMPERATURE_FALLBACK_DESCRIPTIONS: Record<string, string> = {
+  default_temperature: '默认temperature参数',
+  temp_outline: '整书大纲生成温度',
+  temp_characters: '角色设定生成温度',
+  temp_chapters_outline: '章节大纲生成温度',
+  temp_write_chapter: '章节正文写作温度',
+  temp_chapter_summary: '章节摘要生成温度',
+  temp_plan_research: '创作规划调研温度',
+  temp_plan_generate: '创作规划生成温度',
+  temp_plan_revise: '创作规划修订温度',
+  temp_context_assembly: '写作任务书组装温度',
+  temp_polish: '章节润色修复温度',
+  temp_revise: '正文修订温度',
+  temp_review: '章节审查温度',
+  temp_review_retry: '审查结果重试解析温度',
+  temp_data_extraction: '结构化数据抽取温度',
+  temp_import_title: '导入概览分析温度',
+  temp_import_chars: '导入角色提取温度',
+  temp_import_chapters: '导入章节分析温度',
+  temp_ban: '封禁申诉审核温度',
+  temp_template: '模板审核温度',
+};
 
 // 配置分类定义
 const CONFIG_CATEGORIES: { key: string; label: string; icon: React.ReactNode; keys: string[] }[] = [
@@ -72,6 +94,19 @@ const CONFIG_CATEGORIES: { key: string; label: string; icon: React.ReactNode; ke
 
 const ALL_SITE_CONFIG_KEYS = CONFIG_CATEGORIES.flatMap(c => c.keys);
 const BOOLEAN_KEYS = ['allow_registration', 'cors_enabled', 'captcha_enabled', 'email_verification_enabled', 'email_domain_whitelist_enabled', 'smtp_secure', 'smtp_auth_login'];
+const TEMPERATURE_SEARCH_TERMS = ['温度', '温度设置', '温度参数', '创作温度', 'temperature', 'temp'];
+
+const isTemperatureSearch = (term: string) => {
+  const normalized = term.trim().toLowerCase();
+  return Boolean(normalized) && TEMPERATURE_SEARCH_TERMS.some(item => normalized.includes(item.toLowerCase()));
+};
+
+const getSearchText = (record: any) => {
+  const aliases = TEMPERATURE_KEYS.includes(record.config_key)
+    ? ' 温度设置 温度参数 创作温度 temperature temp'
+    : '';
+  return `${record.config_key || ''} ${record.description || ''} ${aliases}`.toLowerCase();
+};
 
 // 高亮搜索匹配文本
 const highlightText = (text: string, term: string): React.ReactNode => {
@@ -146,7 +181,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
   const getCategoryConfigs = (catKeys: string[]) => {
     const list = catKeys.map(key => {
       const existing = configs.find(c => c.config_key === key);
-      return existing || { config_key: key, config_value: '', description: '' };
+      return existing || { config_key: key, config_value: '', description: TEMPERATURE_FALLBACK_DESCRIPTIONS[key] || '' };
     });
     return list;
   };
@@ -170,7 +205,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
   // 搜索时自动展开所有分类，清空搜索词时恢复默认
   useEffect(() => {
     if (searchTerm.trim()) {
-      setActiveKeys(CONFIG_CATEGORIES.map(cat => cat.key));
+      setActiveKeys(isTemperatureSearch(searchTerm) ? ['temperature'] : CONFIG_CATEGORIES.map(cat => cat.key));
     } else {
       setActiveKeys(['site']);
     }
@@ -295,7 +330,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
   const isRowMatch = (record: any): boolean => {
     if (!searchTerm.trim()) return false;
     const term = searchTerm.toLowerCase();
-    return (record.config_key || '').toLowerCase().includes(term) || (record.description || '').toLowerCase().includes(term);
+    return getSearchText(record).includes(term) || (isTemperatureSearch(term) && TEMPERATURE_KEYS.includes(record.config_key));
   };
 
   const configColumns = [
@@ -324,9 +359,9 @@ const ConfigForm: React.FC<ConfigFormProps> = ({ searchTerm }) => {
   ];
 
   const totalMatched = searchTerm.trim()
-    ? configs.filter(c => {
+    ? ALL_SITE_CONFIG_KEYS.map(key => configs.find(c => c.config_key === key) || { config_key: key, config_value: '', description: '' }).filter(c => {
         const term = searchTerm.toLowerCase();
-        return (c.config_key || '').toLowerCase().includes(term) || (c.description || '').toLowerCase().includes(term);
+        return getSearchText(c).includes(term) || (isTemperatureSearch(term) && TEMPERATURE_KEYS.includes(c.config_key));
       }).length
     : 0;
 

@@ -17,7 +17,7 @@ import NotificationManager from '../components/admin/NotificationManager';
 import ChatManager from '../components/admin/ChatManager';
 import { adminSearchApi, AdminSearchResult } from '../api/admin';
 import { useAuthStore } from '../store/authStore';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import PageShell from '../components/shared/PageShell';
 
 const { Text } = Typography;
@@ -53,6 +53,7 @@ const statusLabelMap: Record<string, string> = {
 
 const AdminPage: React.FC = () => {
   const user = useAuthStore((s) => s.user);
+  const navigate = useNavigate();
   const { activeKey, renderedKeys, onChange } = useLazyTabs('stats');
   const [searchTerm, setSearchTerm] = useState('');
   const [appliedSearchTerm, setAppliedSearchTerm] = useState('');
@@ -113,8 +114,12 @@ const AdminPage: React.FC = () => {
     : 0;
 
   // 点击搜索结果跳转到对应 tab
-  const handleResultClick = (_type: string) => {
+  const handleResultClick = (_type: string, item?: { target_path?: string }) => {
     setShowResults(false);
+    if (item?.target_path) {
+      navigate(item.target_path);
+      return;
+    }
     if (_type === 'user') onChange('users');
     else if (_type === 'novel') onChange('novels');
     else if (_type === 'config') onChange('config');
@@ -277,7 +282,7 @@ const AdminPage: React.FC = () => {
                           ? (item.config_value === 'true' ? '已开启' : '已关闭')
                           : (item.config_value || '(空)');
                         return (
-                          <List.Item onClick={() => handleResultClick('config')} style={resultItemStyle}>
+                          <List.Item onClick={() => handleResultClick('config', item)} style={resultItemStyle}>
                             <div style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <Text code style={{ fontSize: 11, color: '#a5b4fc' }}>{item.config_key}</Text>

@@ -38,7 +38,7 @@ export async function getConfigsApi() {
 export interface AdminSearchResult {
   users: Array<{ id: number; username: string; email: string; status: string; group_name: string; _type: 'user' }>;
   novels: Array<{ id: number; title: string; genre: string; status: string; author: string; _type: 'novel' }>;
-  configs: Array<{ config_key: string; config_value: string; description: string; _type: 'config' }>;
+  configs: Array<{ config_key: string; config_value: string; description: string; target_path?: string; _type: 'config' }>;
   notifications: Array<{ id: number; title: string; content: string; enabled: boolean; show_popup: boolean; show_banner: boolean; show_inmail: boolean; show_email: boolean; created_at: string; _type: 'notification' }>;
 }
 

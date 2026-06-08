@@ -116,6 +116,37 @@ function _clearAgentCache(userId) {
   _agentCache.delete(_getAgentCacheKey(userId));
 }
 
+function _userTaskScope(userId) {
+  return `user:${userId || '__anon__'}`;
+}
+
+function _resolveCancellableTaskKeys(userId, novelId, phase) {
+  const scopedNovelId = (novelId || 0) === 0 ? _userTaskScope(userId) : novelId;
+  const taskNovelId = (phase === 'plan' || phase === 'import_analysis' || phase === 'chat')
+    ? scopedNovelId
+    : novelId;
+  const keys = new Set([_taskKey(novelId, phase)]);
+  if (taskNovelId !== novelId) {
+    keys.add(_taskKey(taskNovelId, phase));
+  }
+  if (phase === 'review' || phase === 'extract') {
+    keys.add(_taskKey(novelId, 'write_chapter'));
+  }
+  if (['outline', 'characters', 'chapters_outline', 'write_chapter'].includes(phase)) {
+    keys.add(_taskKey(novelId, 'revise_' + phase));
+  }
+  return [...keys];
+}
+
+function _cancelTaskByKey(key) {
+  const existing = _activeTasks.get(key);
+  if (!existing) return false;
+  logger.info(`取消进行中的任务：${key}`);
+  existing.abort();
+  _activeTasks.delete(key);
+  return true;
+}
+
 async function _createAgent(ctx, userId, phase, AgentClass = NovelWritingAgent) {
   const cached = await _getOrCreateCache(userId);
   const agentOptions = {};
@@ -174,12 +205,7 @@ function _taskKey(novelId, phase) {
 
 function _cancelTask(novelId, phase) {
   const key = _taskKey(novelId, phase);
-  const existing = _activeTasks.get(key);
-  if (existing) {
-    logger.info(`取消旧的进行中任务：${key}`);
-    existing.abort();
-    _activeTasks.delete(key);
-  }
+  _cancelTaskByKey(key);
 }
 
 function _registerTask(novelId, phase, abortController) {
@@ -501,6 +527,26 @@ function _runSSETask(req, res, novelId, phase, agent, opts) {
 }
 
 const agentService = {
+  clearUserCache(userId) {
+    _clearAgentCache(userId);
+  },
+
+  clearAllCaches() {
+    _agentCache.clear();
+  },
+
+  cancelTask(userId, novelId = 0, phase) {
+    const normalizedNovelId = Number.parseInt(String(novelId || 0), 10) || 0;
+    let cancelled = false;
+    for (const key of _resolveCancellableTaskKeys(userId, normalizedNovelId, phase)) {
+      cancelled = _cancelTaskByKey(key) || cancelled;
+    }
+    if (cancelled) {
+      _clearAgentCache(userId);
+    }
+    return { success: true, cancelled };
+  },
+
   // ========== 阶段1：生成大纲 ==========
   async generateOutline(userId, novelId, userInput) {
     const ctx = new ContextManager(novelDao, novelId);
@@ -1378,7 +1424,9 @@ agentService.planNovel = function (userId, userInput) {
         if (res.writableEnded) return;
         sendSSE(res, event, data);
       };
-      _onClose(req, res, abortController, 0, 'plan');
+      const taskScope = _userTaskScope(userId);
+      _registerTask(taskScope, 'plan', abortController);
+      _onClose(req, res, abortController, taskScope, 'plan');
 
       try {
         // 执行规划
@@ -1525,6 +1573,8 @@ agentService.planNovel = function (userId, userInput) {
         logger.error('对话规划失败：' + err.message);
         sendSSE(res, 'error', { message: err.message });
         _safeEnd(res);
+      } finally {
+        _cleanupTask(taskScope, 'plan', abortController);
       }
     },
   };
@@ -1552,7 +1602,9 @@ agentService.runImportAnalysis = function (userId, text, instructions) {
       agent._abortSignal = abortController.signal;
 
       setupSSE(res);
-      req.on('close', () => { abortController.abort(); });
+      const taskScope = _userTaskScope(userId);
+      _registerTask(taskScope, 'import_analysis', abortController);
+      _onClose(req, res, abortController, taskScope, 'import_analysis');
 
       try {
         const result = await agent.analyzeImport(text, (event, data) => {
@@ -1599,6 +1651,8 @@ agentService.runImportAnalysis = function (userId, text, instructions) {
           sendSSE(res, 'error', { message: err.message });
         }
         _safeEnd(res);
+      } finally {
+        _cleanupTask(taskScope, 'import_analysis', abortController);
       }
     },
   };
@@ -1632,6 +1686,7 @@ agentService.planRevise = function (userId, novelId, feedback) {
         if (res.writableEnded) return;
         sendSSE(res, event, data);
       };
+      _registerTask(novelId, 'plan_revise', abortController);
       _onClose(req, res, abortController, novelId, 'plan_revise');
 
       try {
@@ -1793,6 +1848,8 @@ agentService.planRevise = function (userId, novelId, feedback) {
         logger.error('对话修订失败：' + err.message);
         sendSSE(res, 'error', { message: err.message });
         _safeEnd(res);
+      } finally {
+        _cleanupTask(novelId, 'plan_revise', abortController);
       }
     },
   };

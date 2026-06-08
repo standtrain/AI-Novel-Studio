@@ -19,6 +19,15 @@ const authOptions = [
 
 const transportColorMap: Record<string, string> = { http: 'blue', sse: 'cyan', stdio: 'orange' };
 
+const ANYSEARCH_DEFAULTS = {
+  name: 'anysearch',
+  transport: 'http' as const,
+  url: 'https://api.anysearch.com/mcp',
+  authType: 'bearer',
+  description: '统一实时搜索引擎，为AI代理提供网页、新闻、图片等搜索能力。免费API Key申请: https://anysearch.com/console/api-keys',
+  enabled: true,
+};
+
 function tryParseJson(value: unknown): any {
   if (!value) return null;
   if (typeof value === 'object') return value;
@@ -104,15 +113,15 @@ const McpServerManager: React.FC = () => {
     const auth = extractAuthorization(server?.headers);
     setExtraHeadersJson(server ? extraHeadersToJson(server.headers) : '');
     form.setFieldsValue({
-      name: server?.name || '',
-      transport: server?.transport || 'http',
+      name: server?.name || ANYSEARCH_DEFAULTS.name,
+      transport: server?.transport || ANYSEARCH_DEFAULTS.transport,
       command: server?.command || '',
       argsText: server?.args ? JSON.stringify(server.args, null, 2) : '',
-      url: server?.url || '',
-      authType: auth.authType,
-      authValue: auth.authValue,
-      enabled: server?.enabled ?? true,
-      description: server?.description || '',
+      url: server?.url || ANYSEARCH_DEFAULTS.url,
+      authType: server ? auth.authType : ANYSEARCH_DEFAULTS.authType,
+      authValue: auth.authValue || '',
+      enabled: server?.enabled ?? ANYSEARCH_DEFAULTS.enabled,
+      description: server?.description || ANYSEARCH_DEFAULTS.description,
     });
     setModalOpen(true);
   };

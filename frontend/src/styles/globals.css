@@ -869,6 +869,23 @@ samp,
   color: #f1f5f9 !important;
 }
 
+/* ===== Ant Design Confirm Modal（Modal.success/error 等）暗色样式 ===== */
+.ant-modal-confirm .ant-modal-content {
+  background: rgba(30, 41, 59, 0.98) !important;
+}
+
+.ant-modal-confirm .ant-modal-confirm-body > .anticon {
+  color: #f1f5f9 !important;
+}
+
+.ant-modal-confirm-title {
+  color: #f1f5f9 !important;
+}
+
+.ant-modal-confirm-content {
+  color: #cbd5e1 !important;
+}
+
 /* ===== Ant Design Tag 暗色样式 ===== */
 .ant-tag {
   background: rgba(99, 102, 241, 0.1) !important;

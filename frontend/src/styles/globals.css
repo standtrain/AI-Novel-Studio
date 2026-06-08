@@ -1550,7 +1550,7 @@ samp,
 }
 
 .auth-code-input input {
-  text-align: center;
+  text-align: left;
   letter-spacing: 0;
 }
 

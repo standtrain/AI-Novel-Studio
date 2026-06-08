@@ -270,6 +270,7 @@ const RegisterPage: React.FC = () => {
                       rules={[
                         { required: true, message: '请输入6位验证码' },
                         { len: 6, message: '验证码为6位数字' },
+                        { pattern: /^\d{6}$/, message: '验证码为6位数字' },
                       ]}
                     >
                       <Input
@@ -277,6 +278,7 @@ const RegisterPage: React.FC = () => {
                         prefix={<NumberOutlined />}
                         placeholder="6位验证码"
                         maxLength={6}
+                        inputMode="numeric"
                         autoComplete="one-time-code"
                       />
                     </Form.Item>

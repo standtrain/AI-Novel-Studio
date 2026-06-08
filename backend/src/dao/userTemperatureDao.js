@@ -1,25 +1,50 @@
 const { db } = require('../config/database');
 
 const TABLE = 'user_temperature_config';
+let ensureTablePromise = null;
+
+async function ensureTemperatureTable() {
+  if (ensureTablePromise) return ensureTablePromise;
+
+  ensureTablePromise = (async () => {
+    const exists = await db.schema.hasTable(TABLE);
+    if (exists) return;
+
+    await db.schema.createTable(TABLE, (table) => {
+      table.increments('id').unsigned().primary();
+      table.integer('user_id').unsigned().notNullable();
+      table.string('phase', 50).notNullable();
+      table.decimal('temperature', 3, 2).notNullable();
+      table.timestamp('created_at').notNullable().defaultTo(db.fn.now());
+      table.timestamp('updated_at').notNullable().defaultTo(db.fn.now());
+      table.unique(['user_id', 'phase'], 'uk_user_phase');
+      table.foreign('user_id', 'utc_user_id_fk').references('users.id').onDelete('CASCADE');
+    });
+  })().catch((err) => {
+    ensureTablePromise = null;
+    throw err;
+  });
+
+  return ensureTablePromise;
+}
 
 const userTemperatureDao = {
-  /** 获取用户所有阶段温度配置 */
   async getByUserId(userId) {
+    await ensureTemperatureTable();
     const rows = await db(TABLE).where('user_id', userId).select('phase', 'temperature');
     const config = {};
     for (const row of rows) {
-      config[row.phase] = row.temperature;
+      config[row.phase] = Number(row.temperature);
     }
     return config;
   },
 
-  /** 批量保存用户阶段温度配置（UPSERT） */
   async saveBatch(userId, configs) {
+    await ensureTemperatureTable();
     const trx = await db.transaction();
     try {
       for (const [phase, temperature] of Object.entries(configs)) {
         if (temperature === null || temperature === undefined) {
-          // null/undefined = 删除覆盖，使用系统默认
           await trx(TABLE).where({ user_id: userId, phase }).del();
         } else {
           await trx(TABLE)
@@ -35,8 +60,8 @@ const userTemperatureDao = {
     }
   },
 
-  /** 删除用户所有温度配置 */
   async deleteByUserId(userId) {
+    await ensureTemperatureTable();
     return db(TABLE).where('user_id', userId).del();
   },
 };

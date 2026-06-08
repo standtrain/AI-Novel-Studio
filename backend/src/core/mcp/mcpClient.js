@@ -1,22 +1,23 @@
-// MCP 客户端管理器
-// 管理与外部 MCP 服务器的连接、工具发现和调用
+// MCP client manager. Handles remote MCP initialization, tool discovery and tool calls.
 const { createLogger } = require('../../utils/logger');
 const crypto = require('crypto');
+const http = require('http');
+const https = require('https');
+const { URL } = require('url');
 
 const logger = createLogger('mcp-client');
 
-// 工具缓存：serverKey -> { tools, expiresAt }
 const _toolCache = new Map();
-const CACHE_TTL = 300000; // 5 分钟缓存
+const CACHE_TTL = 300000;
+const REQUEST_TIMEOUT_MS = 30000;
 
 class McpClientManager {
   constructor() {
-    this._clients = new Map(); // serverKey -> 客户端实例
+    this._clients = new Map();
+    this._endpoints = new Map();
   }
 
-  // 生成服务器唯一键
   _serverKey(serverConfig) {
-    // 用户级 MCP 密钥或请求头可能影响工具列表，缓存键只保存哈希，避免明文密钥进入内存日志。
     const identity = JSON.stringify({
       url: serverConfig.url || '',
       headers: serverConfig.headers || {},
@@ -27,47 +28,225 @@ class McpClientManager {
     return `mcp:${serverConfig.id || serverConfig.name}:${serverConfig.transport}:${fingerprint}`;
   }
 
-  // 构建请求头
   _buildHeaders(serverConfig) {
     const headers = { 'Content-Type': 'application/json' };
-    if (serverConfig.headers && typeof serverConfig.headers === 'object') {
-      // headers 可能是 JSON 字符串或已解析的对象
+    if (serverConfig.headers) {
       const hdrs = typeof serverConfig.headers === 'string'
         ? JSON.parse(serverConfig.headers)
         : serverConfig.headers;
-      Object.assign(headers, hdrs);
+      if (hdrs && typeof hdrs === 'object') {
+        Object.assign(headers, hdrs);
+      }
     }
     return headers;
   }
 
-  // 发送 JSON-RPC 请求到 MCP 服务器
-  async _sendJsonRpc(url, headers, method, params) {
-    const body = {
-      jsonrpc: '2.0',
-      id: Date.now().toString(),
-      method,
-      params: params || {},
-    };
+  _request(method, url, headers, body) {
+    return new Promise((resolve, reject) => {
+      let parsed;
+      try {
+        parsed = new URL(url);
+      } catch (err) {
+        reject(new Error('MCP server URL is invalid'));
+        return;
+      }
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        reject(new Error('MCP client only supports HTTP and SSE transports'));
+        return;
+      }
+
+      const payload = body ? JSON.stringify(body) : null;
+      const requestHeaders = Object.assign({}, headers || {});
+      if (payload) {
+        requestHeaders['Content-Length'] = Buffer.byteLength(payload);
+      }
+
+      const client = parsed.protocol === 'https:' ? https : http;
+      const req = client.request({
+        method,
+        protocol: parsed.protocol,
+        hostname: parsed.hostname,
+        port: parsed.port,
+        path: `${parsed.pathname}${parsed.search}`,
+        headers: requestHeaders,
+        timeout: REQUEST_TIMEOUT_MS,
+      }, (res) => {
+        const chunks = [];
+        res.setEncoding('utf8');
+        res.on('data', chunk => chunks.push(chunk));
+        res.on('end', () => {
+          resolve({
+            statusCode: res.statusCode,
+            statusMessage: res.statusMessage,
+            headers: res.headers,
+            text: chunks.join(''),
+          });
+        });
+      });
+
+      req.on('timeout', () => {
+        req.destroy(new Error('MCP request timed out'));
+      });
+      req.on('error', reject);
+      if (payload) req.write(payload);
+      req.end();
     });
+  }
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  async _resolveRequestUrl(serverConfig, headers) {
+    const url = serverConfig.url;
+    if (!url) throw new Error('MCP server URL is not configured');
+    if (serverConfig.transport !== 'sse') return url;
+
+    const key = this._serverKey(serverConfig);
+    const cached = this._endpoints.get(key);
+    if (cached) return cached;
+
+    const endpoint = await this._fetchSseEndpoint(url, headers);
+    this._endpoints.set(key, endpoint);
+    return endpoint;
+  }
+
+  _fetchSseEndpoint(url, headers) {
+    return new Promise((resolve, reject) => {
+      let parsed;
+      try {
+        parsed = new URL(url);
+      } catch (err) {
+        reject(new Error('MCP server URL is invalid'));
+        return;
+      }
+
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        reject(new Error('MCP SSE client only supports HTTP URLs'));
+        return;
+      }
+
+      let settled = false;
+      let body = '';
+      const client = parsed.protocol === 'https:' ? https : http;
+      const req = client.request({
+        method: 'GET',
+        protocol: parsed.protocol,
+        hostname: parsed.hostname,
+        port: parsed.port,
+        path: `${parsed.pathname}${parsed.search}`,
+        headers: headers || {},
+        timeout: REQUEST_TIMEOUT_MS,
+      }, (res) => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          settled = true;
+          reject(new Error(`SSE HTTP ${res.statusCode}: ${res.statusMessage}`));
+          res.resume();
+          return;
+        }
+
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          if (settled) return;
+          body += chunk;
+          const endpoint = this._findSseEndpoint(body, url);
+          if (endpoint) {
+            settled = true;
+            resolve(endpoint);
+            req.destroy();
+          }
+        });
+        res.on('end', () => {
+          if (settled) return;
+          settled = true;
+          try {
+            resolve(this._parseSseEndpoint(body, url));
+          } catch (err) {
+            reject(err);
+          }
+        });
+      });
+
+      req.on('timeout', () => {
+        req.destroy(new Error('MCP SSE endpoint discovery timed out'));
+      });
+      req.on('error', (err) => {
+        if (!settled) reject(err);
+      });
+      req.end();
+    });
+  }
+
+  _findSseEndpoint(body, sourceUrl) {
+    try {
+      return this._parseSseEndpoint(body, sourceUrl);
+    } catch (err) {
+      return null;
+    }
+  }
+
+  _parseSseEndpoint(body, sourceUrl) {
+    const lines = String(body || '').split(/\r?\n/);
+    let eventName = null;
+
+    for (const line of lines) {
+      if (line.indexOf('event:') === 0) {
+        eventName = line.slice(6).trim();
+        continue;
+      }
+
+      if (eventName === 'endpoint' && line.indexOf('data:') === 0) {
+        const endpoint = line.slice(5).trim();
+        if (!endpoint) break;
+        try {
+          return new URL(endpoint, sourceUrl).toString();
+        } catch (err) {
+          throw new Error('SSE endpoint URL is invalid');
+        }
+      }
     }
 
-    const data = await response.json();
+    throw new Error('SSE server did not return an endpoint event');
+  }
+
+  async _sendJsonRpc(url, headers, method, params) {
+    const response = await this._request('POST', url, headers, {
+      jsonrpc: '2.0',
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      method,
+      params: params || {},
+    });
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw new Error(`HTTP ${response.statusCode}: ${response.statusMessage}`);
+    }
+    if (!response.text) {
+      throw new Error(`MCP method ${method} did not return a JSON-RPC response`);
+    }
+
+    let data;
+    try {
+      data = JSON.parse(response.text);
+    } catch (err) {
+      throw new Error(`MCP method ${method} returned invalid JSON`);
+    }
+
     if (data.error) {
-      throw new Error(data.error.message || 'JSON-RPC 错误');
+      throw new Error(data.error.message || 'JSON-RPC error');
     }
 
     return data.result;
   }
 
-  // 初始化 MCP 连接
+  async _sendJsonRpcNotification(url, headers, method, params) {
+    const response = await this._request('POST', url, headers, {
+      jsonrpc: '2.0',
+      method,
+      params: params || {},
+    });
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw new Error(`HTTP ${response.statusCode}: ${response.statusMessage}`);
+    }
+  }
+
   async _initialize(url, headers) {
     const result = await this._sendJsonRpc(url, headers, 'initialize', {
       protocolVersion: '2024-11-05',
@@ -80,101 +259,84 @@ class McpClientManager {
       },
     });
 
-    // 发送 initialized 通知
-    await this._sendJsonRpc(url, headers, 'notifications/initialized', {});
-
+    await this._sendJsonRpcNotification(url, headers, 'notifications/initialized', {});
     return result;
   }
 
-  // 获取服务器的工具列表
   async _listTools(url, headers) {
     const result = await this._sendJsonRpc(url, headers, 'tools/list', {});
-    return result.tools || [];
+    return result && Array.isArray(result.tools) ? result.tools : [];
   }
 
-  // 调用服务器上的工具
-  async callTool(serverConfig, toolName, args) {
-    const url = serverConfig.url;
-    if (!url) throw new Error('服务器未配置 URL');
+  async _ensureInitialized(serverConfig, headers) {
+    const key = this._serverKey(serverConfig);
+    const url = await this._resolveRequestUrl(serverConfig, headers);
 
+    if (!this._clients.has(key)) {
+      await this._initialize(url, headers);
+      this._clients.set(key, true);
+    }
+
+    return { key, url };
+  }
+
+  async callTool(serverConfig, toolName, args) {
     const headers = this._buildHeaders(serverConfig);
+    let key = null;
 
     try {
-      // 确保已初始化
-      const key = this._serverKey(serverConfig);
-      if (!this._clients.has(key)) {
-        await this._initialize(url, headers);
-        this._clients.set(key, true);
-      }
+      const initialized = await this._ensureInitialized(serverConfig, headers);
+      key = initialized.key;
 
-      const result = await this._sendJsonRpc(url, headers, 'tools/call', {
+      return await this._sendJsonRpc(initialized.url, headers, 'tools/call', {
         name: toolName,
-        arguments: args,
+        arguments: args || {},
       });
-
-      return result;
     } catch (err) {
-      // 连接可能过期，清除初始化状态
-      this._clients.delete(this._serverKey(serverConfig));
+      this._clients.delete(key || this._serverKey(serverConfig));
       throw err;
     }
   }
 
-  // 获取服务器工具（含缓存）
   async getTools(serverConfig) {
     const key = this._serverKey(serverConfig);
-
-    // 检查缓存
     const cached = _toolCache.get(key);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.tools;
     }
 
-    const url = serverConfig.url;
-    if (!url) {
-      logger.warn(`MCP 服务器 "${serverConfig.name}" 未配置 URL，跳过`);
+    if (!serverConfig.url) {
+      logger.warn(`MCP server "${serverConfig.name}" has no URL configured, skipping`);
       return [];
     }
 
     const headers = this._buildHeaders(serverConfig);
 
     try {
-      await this._initialize(url, headers);
-      this._clients.set(key, true);
-
-      const tools = await this._listTools(url, headers);
-
-      // 缓存结果
+      const initialized = await this._ensureInitialized(serverConfig, headers);
+      const tools = await this._listTools(initialized.url, headers);
       _toolCache.set(key, { tools, expiresAt: Date.now() + CACHE_TTL });
-
       return tools;
     } catch (err) {
-      logger.error(`获取 MCP 服务器 "${serverConfig.name}" 工具失败：${err.message}`);
+      logger.error(`Failed to fetch MCP tools from "${serverConfig.name}": ${err.message}`);
       this._clients.delete(key);
       return [];
     }
   }
 
-  // 测试服务器连接
   async testServer(serverConfig) {
-    const url = serverConfig.url;
-    if (!url) throw new Error('服务器未配置 URL');
-
     const headers = this._buildHeaders(serverConfig);
-    await this._initialize(url, headers);
-    const tools = await this._listTools(url, headers);
-
-    return tools;
+    const initialized = await this._ensureInitialized(serverConfig, headers);
+    return this._listTools(initialized.url, headers);
   }
 
-  // 清理缓存
   clearCache() {
     _toolCache.clear();
     this._clients.clear();
+    this._endpoints.clear();
   }
 }
 
-// 单例
 let _instance = null;
 
 function getMcpClientManager() {
@@ -184,4 +346,8 @@ function getMcpClientManager() {
   return _instance;
 }
 
-module.exports = { McpClientManager, getMcpClientManager, toolsToOpenAIFunctions: require('./mcpToolAdapter').toolsToOpenAIFunctions };
+module.exports = {
+  McpClientManager,
+  getMcpClientManager,
+  toolsToOpenAIFunctions: require('./mcpToolAdapter').toolsToOpenAIFunctions,
+};

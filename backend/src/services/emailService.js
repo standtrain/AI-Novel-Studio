@@ -1,4 +1,5 @@
 // 邮件发送服务：支持 Resend API 和 SMTP 两种方式。
+const crypto = require('crypto');
 const https = require('https');
 const nodemailer = require('nodemailer');
 const configService = require('./configService');
@@ -22,14 +23,22 @@ async function _getSmtpTransporter() {
 
   if (!user || !pass) return null;
 
-  const hash = `${host}:${port}:${secure}:${user}:${pass}:${authLogin}`;
+  const passHash = crypto.createHash('sha256').update(pass).digest('hex').slice(0, 16);
+  const hash = `${host}:${port}:${secure}:${user}:${passHash}:${authLogin}`;
   if (_smtpTransporter && _smtpConfigHash === hash) return _smtpTransporter;
 
   const auth = authLogin
     ? { user, pass, method: 'LOGIN' }
     : { user, pass };
 
-  _smtpTransporter = nodemailer.createTransport({ host, port, secure, auth });
+  const transporter = nodemailer.createTransport({ host, port, secure, auth });
+  try {
+    await transporter.verify();
+  } catch (err) {
+    logger.error({ host, port, user }, 'SMTP 连接验证失败');
+    return null;
+  }
+  _smtpTransporter = transporter;
   _smtpConfigHash = hash;
   return _smtpTransporter;
 }
@@ -266,6 +275,7 @@ async function sendVerificationCode(to, code, purpose) {
     register: '注册账号',
     reset_password: '重置密码',
     change_email: '变更邮箱',
+    login: '登录账号',
   };
   const purposeText = purposeTitleMap[purpose] || purpose;
   const safePurposeText = _escapeHtml(purposeText);

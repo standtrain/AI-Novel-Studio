@@ -6,6 +6,9 @@ const inmailDao = require('../dao/inmailDao');
 const { db } = require('../config/database');
 const emailService = require('../services/emailService');
 const { parsePositiveInt } = require('../utils/requestParser');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('admin-notifications');
 
 const router = Router();
 router.use(authenticate);
@@ -38,7 +41,7 @@ async function handleNotificationSideEffects(notification, channels = {}) {
         }
       }
     } catch (err) {
-      console.error('[通知] 站内信批量创建失败:', err.message);
+      logger.error('[通知] 站内信批量创建失败:', err.message);
     }
   }
 
@@ -58,9 +61,9 @@ async function handleNotificationSideEffects(notification, channels = {}) {
           const successCount = results.filter((result) => result.status === 'fulfilled' && result.value?.success).length;
           results.forEach((result, index) => {
             if (result.status === 'rejected') {
-              console.error(`[通知] 邮件发送失败 ${users[index].email}:`, result.reason?.message || result.reason);
+              logger.error(`[通知] 邮件发送失败 ${users[index].email}:`, result.reason?.message || result.reason);
             } else if (!result.value?.success) {
-              console.error(`[通知] 邮件发送失败 ${users[index].email}:`, result.value?.error || '未知错误');
+              logger.error(`[通知] 邮件发送失败 ${users[index].email}:`, result.value?.error || '未知错误');
             }
           });
           if (users.length > 0 && successCount === 0) {
@@ -68,11 +71,11 @@ async function handleNotificationSideEffects(notification, channels = {}) {
           }
         }).catch(async (err) => {
           await notificationDao.clearChannelSending(notification.id, 'email');
-          console.error('[通知] 邮件批量发送失败:', err.message);
+          logger.error('[通知] 邮件批量发送失败:', err.message);
         });
       }
     } catch (err) {
-      console.error('[通知] 邮件批量发送失败:', err.message);
+      logger.error('[通知] 邮件批量发送失败:', err.message);
     }
   }
 }
@@ -119,7 +122,7 @@ router.post('/notifications', async (req, res) => {
       sort_order: parseInt(sort_order, 10) || 0,
     });
     // 异步处理站内信和邮件发送
-    handleNotificationSideEffects(notification, {
+    await handleNotificationSideEffects(notification, {
       inmail: notification.show_inmail,
       email: notification.show_email,
     });
@@ -153,7 +156,7 @@ router.put('/notifications/:id', async (req, res) => {
     if (sort_order !== undefined) data.sort_order = parseInt(sort_order, 10) || 0;
     const notification = await notificationDao.update(id, data);
     const willEnable = enabled !== undefined && toBoolean(enabled) && !existing.enabled;
-    handleNotificationSideEffects(notification, {
+    await handleNotificationSideEffects(notification, {
       inmail: (show_inmail !== undefined && toBoolean(show_inmail) && !existing.show_inmail) || (willEnable && notification.show_inmail),
       email: (show_email !== undefined && toBoolean(show_email) && !existing.show_email) || (willEnable && notification.show_email),
     });

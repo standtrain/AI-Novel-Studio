@@ -16,6 +16,16 @@ export async function loginApi(
   return data;
 }
 
+export async function loginWithEmailCodeApi(
+  email: string,
+  code: string,
+  captchaId?: string,
+  captchaCode?: string
+): Promise<AuthResponse> {
+  const { data } = await client.post('/auth/login/email-code', { email, code, captchaId, captchaCode });
+  return data;
+}
+
 export async function registerApi(
   username: string,
   email: string,
@@ -87,7 +97,7 @@ export async function getCaptchaApi(): Promise<{
 // 发送邮箱验证码
 export async function sendVerifyCodeApi(
   email: string,
-  type: 'register' | 'reset_password',
+  type: 'register' | 'reset_password' | 'login',
   captchaId?: string,
   captchaCode?: string
 ): Promise<{ success: boolean; message: string }> {

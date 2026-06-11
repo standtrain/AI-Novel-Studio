@@ -30,6 +30,23 @@ const userDao = {
       .first();
   },
 
+  async findByLogin(login) {
+    const query = db(TABLE)
+      .join('user_groups', 'users.group_id', 'user_groups.id')
+      .select('users.*', 'user_groups.name as group_name',
+        'user_groups.token_limit_per_day', 'user_groups.rate_limit_per_minute',
+        'user_groups.max_novels', 'user_groups.max_chapters_per_novel',
+        'user_groups.can_export', 'user_groups.can_customize',
+        'user_groups.can_choose_model',
+        'user_groups.queue_priority', 'user_groups.is_admin');
+
+    if (String(login || '').includes('@')) {
+      return query.where('users.email', login).first();
+    }
+
+    return query.where('users.username', login).first();
+  },
+
   async findByEmail(email) {
     return db(TABLE).where('email', email).first();
   },

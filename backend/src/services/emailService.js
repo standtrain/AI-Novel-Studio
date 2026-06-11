@@ -1,23 +1,11 @@
 // 邮件发送服务：支持 Resend API 和 SMTP 两种方式。
-const { Resend } = require('resend');
+const https = require('https');
 const nodemailer = require('nodemailer');
 const configService = require('./configService');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('email-service');
 const DEFAULT_SITE_NAME = 'AI Novel Studio';
-
-let _resendClient = null;
-let _cachedApiKey = null;
-
-async function _getResendClient() {
-  const apiKey = (await configService.get('resend_api_key')) || process.env.RESEND_API_KEY || '';
-  if (!apiKey) return null;
-  if (_resendClient && _cachedApiKey === apiKey) return _resendClient;
-  _cachedApiKey = apiKey;
-  _resendClient = new Resend(apiKey);
-  return _resendClient;
-}
 
 let _smtpTransporter = null;
 let _smtpConfigHash = '';
@@ -114,22 +102,74 @@ async function sendEmail(to, subject, html) {
 }
 
 async function _sendViaResend(to, subject, html) {
-  const client = await _getResendClient();
-  if (!client) {
+  const apiKey = (await configService.get('resend_api_key')) || process.env.RESEND_API_KEY || '';
+  if (!apiKey) {
     return { success: false, error: 'Resend API Key 未配置' };
   }
 
   const { fromName } = await _getEmailBrand();
-  const fromEmail = (await configService.get('email_from')) || 'noreply@your-domain.com';
+  const fromEmail = ((await configService.get('email_from')) || '').trim();
+  if (!fromEmail || fromEmail === 'noreply@your-domain.com') {
+    return { success: false, error: '发件人邮箱未配置，请在邮件设置中填写已通过 Resend 验证的发件地址' };
+  }
 
   try {
-    const result = await client.emails.send({ from: `${fromName} <${fromEmail}>`, to, subject, html });
-    return { success: true, messageId: result.id };
+    const result = await _postResendEmail(apiKey, {
+      from: `${fromName} <${fromEmail}>`,
+      to: Array.isArray(to) ? to : [to],
+      subject,
+      html,
+    });
+    return { success: true, messageId: result.id || (result.data && result.data.id) || '' };
   } catch (err) {
-    const errMsg = err?.response?.body?.message || err?.message || '邮件发送失败';
+    const errMsg = err && err.message ? err.message : '邮件发送失败';
     logger.error({ err }, 'Resend 邮件发送失败');
     return { success: false, error: errMsg };
   }
+}
+
+function _postResendEmail(apiKey, payload) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify(payload);
+    const req = https.request({
+      hostname: 'api.resend.com',
+      path: '/emails',
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+      timeout: 15000,
+    }, (res) => {
+      let raw = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { raw += chunk; });
+      res.on('end', () => {
+        let parsed = {};
+        if (raw) {
+          try {
+            parsed = JSON.parse(raw);
+          } catch (e) {
+            parsed = { message: raw };
+          }
+        }
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(parsed);
+          return;
+        }
+        const message = parsed.message || (parsed.error && parsed.error.message) || `Resend API 返回 ${res.statusCode}`;
+        reject(new Error(message));
+      });
+    });
+
+    req.on('timeout', () => {
+      req.destroy(new Error('Resend API 请求超时'));
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
 }
 
 async function _sendViaSmtp(to, subject, html) {

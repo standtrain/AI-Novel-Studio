@@ -15,7 +15,53 @@ const registerSchema = z.object({
   username: z.string().min(3).max(50),
   email: z.string().email(),
   password: z.string().min(6).max(100),
+  code: z.string().regex(/^\d{6}$/).optional(),
 });
+
+const emailCodeTypeSchema = z.enum(['register', 'reset_password', 'login']);
+const sendVerifyCodeSchema = z.object({
+  email: z.string().email().max(120),
+  type: emailCodeTypeSchema,
+  captchaId: z.string().max(80).optional(),
+  captchaCode: z.string().max(12).optional(),
+});
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email().max(120),
+  captchaId: z.string().max(80).optional(),
+  captchaCode: z.string().max(12).optional(),
+});
+
+const resetPasswordSchema = z.object({
+  email: z.string().email().max(120),
+  code: z.string().regex(/^\d{6}$/),
+  password: z.string().min(6).max(100),
+});
+
+const changeEmailCodeSchema = z.object({
+  email: z.string().email().max(120),
+  captchaId: z.string().max(80).optional(),
+  captchaCode: z.string().max(12).optional(),
+});
+
+const changeEmailSchema = z.object({
+  newEmail: z.string().email().max(120),
+  code: z.string().regex(/^\d{6}$/),
+});
+
+async function validateCaptchaIfEnabled(body, res) {
+  const captchaEnabled = await configService.get('captcha_enabled');
+  if (captchaEnabled !== 'true') return true;
+  if (!body.captchaId || body.captchaCode === undefined) {
+    res.status(400).json({ error: '请输入验证码' });
+    return false;
+  }
+  if (!captchaService.validate(body.captchaId, body.captchaCode)) {
+    res.status(400).json({ error: '验证码错误或已过期，请刷新后重试' });
+    return false;
+  }
+  return true;
+}
 
 router.post('/register', async (req, res) => {
   try {
@@ -41,7 +87,18 @@ router.get('/register-status', async (_req, res) => {
   try {
     const allowRegistration = await configService.get('allow_registration');
     const allowed = allowRegistration !== 'false' && allowRegistration !== '0';
-    res.json({ allowRegistration: allowed });
+    const emailVerificationEnabled = await configService.get('email_verification_enabled');
+    const emailDomainWhitelistEnabled = await configService.get('email_domain_whitelist_enabled');
+    const rawDomains = await configService.get('email_domain_whitelist');
+    const allowedDomains = rawDomains
+      ? rawDomains.split(/[\n,]+/).map(item => item.trim().toLowerCase()).filter(Boolean)
+      : [];
+    res.json({
+      allowRegistration: allowed,
+      emailVerificationEnabled: emailVerificationEnabled === 'true',
+      emailDomainWhitelistEnabled: emailDomainWhitelistEnabled === 'true',
+      allowedDomains,
+    });
   } catch {
     res.json({ allowRegistration: true }); // 出错时默认允许
   }
@@ -74,15 +131,7 @@ router.post('/login', loginRateLimiter, async (req, res) => {
     const body = loginSchema.parse(req.body);
 
     // 验证码校验（仅在管理员启用时）
-    const captchaEnabled = await configService.get('captcha_enabled');
-    if (captchaEnabled === 'true') {
-      if (!body.captchaId || body.captchaCode === undefined) {
-        return res.status(400).json({ error: '请输入验证码' });
-      }
-      if (!captchaService.validate(body.captchaId, body.captchaCode)) {
-        return res.status(400).json({ error: '验证码错误或已过期，请刷新后重试' });
-      }
-    }
+    if (!(await validateCaptchaIfEnabled(body, res))) return;
 
     const result = await authService.login(body);
     res.json(result);
@@ -94,6 +143,80 @@ router.post('/login', loginRateLimiter, async (req, res) => {
       error: err.message || '登录失败',
       banInfo: err.banInfo || undefined,
     });
+  }
+});
+
+router.post('/login/email-code', loginRateLimiter, async (req, res) => {
+  try {
+    const body = z.object({
+      email: z.string().email().max(120),
+      code: z.string().regex(/^\d{6}$/),
+      captchaId: z.string().max(80).optional(),
+      captchaCode: z.string().max(12).optional(),
+    }).parse(req.body);
+
+    if (!(await validateCaptchaIfEnabled(body, res))) return;
+
+    const result = await authService.loginWithEmailCode(body);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: '输入数据格式不正确', details: err.errors });
+    }
+    res.status(err.status || 500).json({
+      error: err.message || '登录失败',
+      banInfo: err.banInfo || undefined,
+    });
+  }
+});
+
+router.get('/email-verification-status', async (_req, res) => {
+  try {
+    const enabled = await configService.get('email_verification_enabled');
+    res.json({ enabled: enabled === 'true' });
+  } catch {
+    res.json({ enabled: false });
+  }
+});
+
+router.post('/send-verify-code', async (req, res) => {
+  try {
+    const body = sendVerifyCodeSchema.parse(req.body);
+    if (!(await validateCaptchaIfEnabled(body, res))) return;
+    const result = await authService.sendVerificationCode(body.email.trim(), body.type);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: '输入数据格式不正确', details: err.errors });
+    }
+    res.status(err.status || 500).json({ error: err.message || '验证码发送失败' });
+  }
+});
+
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const body = forgotPasswordSchema.parse(req.body);
+    if (!(await validateCaptchaIfEnabled(body, res))) return;
+    const result = await authService.forgotPassword(body.email.trim());
+    res.json(result);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: '输入数据格式不正确', details: err.errors });
+    }
+    res.status(err.status || 500).json({ error: err.message || '发送验证码失败' });
+  }
+});
+
+router.post('/reset-password', async (req, res) => {
+  try {
+    const body = resetPasswordSchema.parse(req.body);
+    const result = await authService.resetPassword(body.email.trim(), body.code, body.password);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: '输入数据格式不正确', details: err.errors });
+    }
+    res.status(err.status || 500).json({ error: err.message || '重置密码失败' });
   }
 });
 
@@ -131,6 +254,10 @@ router.put('/me', authenticate, async (req, res) => {
     }
 
     if (email) {
+      const verificationEnabled = await configService.get('email_verification_enabled');
+      if (verificationEnabled === 'true') {
+        return res.status(400).json({ error: '请通过邮箱验证码流程变更邮箱' });
+      }
       data.email = email;
     }
 
@@ -142,6 +269,33 @@ router.put('/me', authenticate, async (req, res) => {
     res.json({ success: true, message: '修改成功' });
   } catch (err) {
     res.status(500).json({ error: '修改失败' });
+  }
+});
+
+router.post('/me/send-change-email-code', authenticate, async (req, res) => {
+  try {
+    const body = changeEmailCodeSchema.parse(req.body);
+    if (!(await validateCaptchaIfEnabled(body, res))) return;
+    const result = await authService.sendVerificationCode(body.email.trim(), 'change_email', req.user.id);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: '输入数据格式不正确', details: err.errors });
+    }
+    res.status(err.status || 500).json({ error: err.message || '验证码发送失败' });
+  }
+});
+
+router.post('/me/change-email', authenticate, async (req, res) => {
+  try {
+    const body = changeEmailSchema.parse(req.body);
+    const result = await authService.changeEmail(req.user.id, req.user.email, body.newEmail.trim(), body.code);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: '输入数据格式不正确', details: err.errors });
+    }
+    res.status(err.status || 500).json({ error: err.message || '邮箱变更失败' });
   }
 });
 

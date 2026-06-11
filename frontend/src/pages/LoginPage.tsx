@@ -1,16 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Button, Card, Descriptions, Form, Input, Modal, Space, Tag, Typography, message } from 'antd';
+import { Button, Card, Descriptions, Form, Input, Modal, Segmented, Space, Tag, Typography, message } from 'antd';
 import {
   ExclamationCircleOutlined,
   LockOutlined,
   LoginOutlined,
+  MailOutlined,
+  NumberOutlined,
   RocketOutlined,
   SafetyCertificateOutlined,
+  SendOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { getCaptchaApi } from '../api/auth';
+import { getCaptchaApi, getEmailVerificationStatusApi, loginWithEmailCodeApi, sendVerifyCodeApi } from '../api/auth';
 import { submitAppealApi } from '../api/admin';
 import useMobile from '../hooks/useMobile';
 import useSiteBrand from '../hooks/useSiteBrand';
@@ -20,10 +23,16 @@ const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
 const LoginPage: React.FC = () => {
+  const [form] = Form.useForm();
+  const [loginMode, setLoginMode] = useState<'password' | 'email'>('password');
   const [loading, setLoading] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   const [captchaEnabled, setCaptchaEnabled] = useState(false);
   const [captchaId, setCaptchaId] = useState<string | null>(null);
   const [captchaSvg, setCaptchaSvg] = useState<string | null>(null);
+  const [emailVerificationEnabled, setEmailVerificationEnabled] = useState(false);
   const login = useAuthStore((s) => s.login);
   const navigate = useNavigate();
   const isMobile = useMobile();
@@ -47,6 +56,9 @@ const LoginPage: React.FC = () => {
 
   useEffect(() => {
     refreshCaptcha();
+    getEmailVerificationStatusApi()
+      .then(res => setEmailVerificationEnabled(res.enabled))
+      .catch(() => setEmailVerificationEnabled(false));
     const saved = localStorage.getItem('banInfo');
     if (!saved) return;
     try {
@@ -57,10 +69,61 @@ const LoginPage: React.FC = () => {
     }
   }, []);
 
-  const onFinish = async (values: { username: string; password: string; captchaCode?: string }) => {
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = window.setInterval(() => setCooldown(c => c - 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [cooldown]);
+
+  const handleSendEmailCode = async () => {
+    if (!emailVerificationEnabled) {
+      message.warning('邮箱验证码功能未启用');
+      return;
+    }
+
+    try {
+      await form.validateFields(['email']);
+    } catch {
+      message.warning('请先输入有效的邮箱地址');
+      return;
+    }
+
+    const captchaCode = String(form.getFieldValue('captchaCode') || '').trim();
+    if (captchaEnabled && !captchaCode) {
+      message.warning('请先填写图形验证码');
+      return;
+    }
+
+    setSendingCode(true);
+    try {
+      const email = String(form.getFieldValue('email') || '').trim();
+      const result = await sendVerifyCodeApi(email, 'login', captchaId ?? undefined, captchaCode || undefined);
+      setCodeSent(true);
+      setCooldown(60);
+      message.success(result.message || '验证码已发送至邮箱');
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '发送验证码失败');
+    } finally {
+      setSendingCode(false);
+      form.setFieldValue('captchaCode', '');
+      await refreshCaptcha();
+    }
+  };
+
+  const onFinish = async (values: { username?: string; password?: string; email?: string; code?: string; captchaCode?: string }) => {
     setLoading(true);
     try {
-      await login(values.username.trim(), values.password, captchaId ?? undefined, values.captchaCode);
+      if (loginMode === 'email') {
+        const result = await loginWithEmailCodeApi(
+          String(values.email || '').trim(),
+          String(values.code || '').trim(),
+          captchaId ?? undefined,
+          values.captchaCode
+        );
+        useAuthStore.getState().setUser(result.user, result.token);
+      } else {
+        await login(String(values.username || '').trim(), String(values.password || ''), captchaId ?? undefined, values.captchaCode);
+      }
       message.success('登录成功');
       navigate('/home');
     } catch (err: any) {
@@ -73,6 +136,14 @@ const LoginPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const switchLoginMode = (mode: 'password' | 'email') => {
+    setLoginMode(mode);
+    setCodeSent(false);
+    setCooldown(0);
+    form.resetFields();
+    refreshCaptcha();
   };
 
   const handleSubmitAppeal = async () => {
@@ -130,32 +201,98 @@ const LoginPage: React.FC = () => {
               </div>
             </div>
 
-            <Form className="auth-form" onFinish={onFinish} size="large" layout="vertical">
-              <Form.Item
-                name="username"
-                label="用户名"
-                rules={[{ required: true, message: '请输入用户名' }, { max: 60, message: '用户名不能超过60个字符' }]}
-              >
-                <Input
-                  className="auth-input"
-                  prefix={<UserOutlined />}
-                  placeholder="输入用户名"
-                  autoComplete="username"
-                />
-              </Form.Item>
+            <Form form={form} className="auth-form" onFinish={onFinish} size="large" layout="vertical">
+              <Segmented
+                block
+                value={loginMode}
+                onChange={(value) => switchLoginMode(value as 'password' | 'email')}
+                options={[
+                  { label: '密码登录', value: 'password' },
+                  { label: '邮箱验证码', value: 'email', disabled: !emailVerificationEnabled },
+                ]}
+                style={{ marginBottom: 18 }}
+              />
 
-              <Form.Item
-                name="password"
-                label="密码"
-                rules={[{ required: true, message: '请输入密码' }, { max: 128, message: '密码长度异常' }]}
-              >
-                <Input.Password
-                  className="auth-input"
-                  prefix={<LockOutlined />}
-                  placeholder="输入密码"
-                  autoComplete="current-password"
-                />
-              </Form.Item>
+              {loginMode === 'password' ? (
+                <>
+                  <Form.Item
+                    name="username"
+                    label="用户名或邮箱"
+                    rules={[{ required: true, message: '请输入用户名或邮箱' }, { max: 120, message: '账号长度异常' }]}
+                  >
+                    <Input
+                      className="auth-input"
+                      prefix={<UserOutlined />}
+                      placeholder="输入用户名或邮箱"
+                      autoComplete="username"
+                    />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="password"
+                    label="密码"
+                    rules={[{ required: true, message: '请输入密码' }, { max: 128, message: '密码长度异常' }]}
+                  >
+                    <Input.Password
+                      className="auth-input"
+                      prefix={<LockOutlined />}
+                      placeholder="输入密码"
+                      autoComplete="current-password"
+                    />
+                  </Form.Item>
+                </>
+              ) : (
+                <>
+                  <Form.Item
+                    name="email"
+                    label="邮箱"
+                    rules={[
+                      { required: true, message: '请输入邮箱' },
+                      { type: 'email', message: '请输入有效的邮箱' },
+                      { max: 120, message: '邮箱长度异常' },
+                    ]}
+                  >
+                    <Input
+                      className="auth-input"
+                      prefix={<MailOutlined />}
+                      placeholder="输入邮箱地址"
+                      autoComplete="email"
+                      suffix={(
+                        <Button
+                          type="link"
+                          size="small"
+                          icon={<SendOutlined />}
+                          loading={sendingCode}
+                          onClick={handleSendEmailCode}
+                          disabled={cooldown > 0}
+                          className="auth-inline-action"
+                        >
+                          {cooldown > 0 ? `${cooldown}s` : codeSent ? '重发' : '发送'}
+                        </Button>
+                      )}
+                    />
+                  </Form.Item>
+
+                  <Form.Item
+                    name="code"
+                    label="邮箱验证码"
+                    rules={[
+                      { required: true, message: '请输入6位验证码' },
+                      { len: 6, message: '验证码为6位数字' },
+                      { pattern: /^\d{6}$/, message: '验证码为6位数字' },
+                    ]}
+                  >
+                    <Input
+                      className="auth-input auth-code-input"
+                      prefix={<NumberOutlined />}
+                      placeholder="6位验证码"
+                      maxLength={6}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                    />
+                  </Form.Item>
+                </>
+              )}
 
               {captchaEnabled && (
                 <Form.Item label="图形验证码" required>

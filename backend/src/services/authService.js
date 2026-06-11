@@ -11,10 +11,19 @@ const configService = require('./configService');
 const usageService = require('./usageService');
 
 const SALT_ROUNDS = 12;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const VERIFY_CODE_PATTERN = /^\d{6}$/;
+const VERIFICATION_TYPES = ['register', 'reset_password', 'change_email', 'login'];
 
 // 生成 6 位随机数字验证码
 function generateCode() {
-  return String(crypto.randomInt(100000, 999999));
+  const range = 900000;
+  const limit = Math.floor(0x100000000 / range) * range;
+  let value;
+  do {
+    value = crypto.randomBytes(4).readUInt32BE(0);
+  } while (value >= limit);
+  return String(100000 + (value % range));
 }
 
 /** 检查邮箱域名是否在允许的白名单中 */
@@ -41,6 +50,49 @@ async function checkEmailDomainWhitelist(email) {
 async function attachActualDailyUsage(user) {
   const dailyUsed = await usageService.syncDailyUsage(user.id, user);
   return { ...user, actual_daily_tokens_used: dailyUsed };
+}
+
+function ensureActiveUser(user) {
+  if (user.status !== 'disabled') return;
+
+  const err = {
+    status: 403,
+    message: '账号已被禁用',
+    banInfo: {
+      userId: user.id,
+      type: 'unknown',
+      reason: '账号已被管理员禁用',
+      createdAt: user.updated_at,
+      canAppeal: false,
+    },
+  };
+  throw err;
+}
+
+async function buildDisabledUserError(user) {
+  const banDao = require('../dao/banDao');
+  const ban = await banDao.getActiveBan(user.id);
+  const banInfo = {
+    userId: user.id,
+    type: ban ? ban.type : 'unknown',
+    reason: ban?.reason || '账号已被管理员禁用',
+    createdAt: ban?.created_at || user.updated_at,
+    canAppeal: ban ? ban.type === 'ban' : false,
+  };
+  if (ban) banInfo.banId = ban.id;
+  return { status: 403, message: '账号已被禁用', banInfo };
+}
+
+async function issueLoginResult(user) {
+  await userDao.update(user.id, { last_login_at: db.fn.now() });
+  const updatedUser = await userDao.findById(user.id);
+  const dailyUsed = await usageService.syncDailyUsage(user.id, updatedUser);
+  const token = authService.generateToken(updatedUser);
+
+  return {
+    token,
+    user: authService.sanitizeUser({ ...updatedUser, actual_daily_tokens_used: dailyUsed }),
+  };
 }
 
 const authService = {
@@ -99,8 +151,12 @@ const authService = {
       throw { status: 403, message: '邮箱验证功能未启用' };
     }
 
+    if (!VERIFICATION_TYPES.includes(type)) {
+      throw { status: 400, message: '验证码类型不正确' };
+    }
+
     // 检查邮箱格式
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!email || !EMAIL_PATTERN.test(email)) {
       throw { status: 400, message: '邮箱格式不正确' };
     }
 
@@ -123,6 +179,15 @@ const authService = {
         // 不暴露用户是否存在，直接返回成功
         return { success: true, message: '如果该邮箱已注册，将收到验证码邮件' };
       }
+    }
+
+    // 邮箱验证码登录：未注册邮箱不暴露账号状态，直接返回成功。
+    if (type === 'login') {
+      const user = await userDao.findByEmail(email);
+      if (!user) {
+        return { success: true, message: '如果该邮箱已注册，将收到验证码邮件' };
+      }
+      ensureActiveUser(user);
     }
 
     // 邮箱变更：需要登录态
@@ -153,6 +218,7 @@ const authService = {
       register: '注册',
       reset_password: '密码重置',
       change_email: '邮箱变更',
+      login: '登录',
     };
     const result = await emailService.sendVerificationCode(email, code, purposeMap[type] || type);
 
@@ -175,6 +241,9 @@ const authService = {
   async resetPassword(email, code, newPassword) {
     if (!newPassword || newPassword.length < 6) {
       throw { status: 400, message: '新密码至少6个字符' };
+    }
+    if (!EMAIL_PATTERN.test(String(email || '')) || !VERIFY_CODE_PATTERN.test(String(code || ''))) {
+      throw { status: 400, message: '邮箱或验证码格式不正确' };
     }
 
     // 校验验证码
@@ -201,6 +270,9 @@ const authService = {
 
   // 通过验证码变更邮箱（需登录）
   async changeEmail(userId, currentEmail, newEmail, code) {
+    if (!EMAIL_PATTERN.test(String(newEmail || '')) || !VERIFY_CODE_PATTERN.test(String(code || ''))) {
+      throw { status: 400, message: '邮箱或验证码格式不正确' };
+    }
     // 校验验证码（发送到新邮箱的）
     const validRecord = await emailVerificationDao.verify(newEmail, code, 'change_email');
     if (!validRecord) {
@@ -224,22 +296,13 @@ const authService = {
 
   // 登录
   async login({ username, password }) {
-    const user = await userDao.findByUsername(username);
+    const loginName = String(username || '').trim();
+    const user = await userDao.findByLogin(loginName);
     if (!user) {
       throw { status: 401, message: '用户名或密码错误' };
     }
     if (user.status === 'disabled') {
-      const banDao = require('../dao/banDao');
-      const ban = await banDao.getActiveBan(user.id);
-      const banInfo = {
-        userId: user.id,
-        type: ban ? ban.type : 'unknown',
-        reason: ban?.reason || '账号已被管理员禁用',
-        createdAt: ban?.created_at || user.updated_at,
-        canAppeal: ban ? ban.type === 'ban' : false,
-      };
-      if (ban) banInfo.banId = ban.id;
-      throw { status: 403, message: '账号已被禁用', banInfo };
+      throw await buildDisabledUserError(user);
     }
 
     const valid = await bcrypt.compare(password, user.password_hash);
@@ -247,18 +310,33 @@ const authService = {
       throw { status: 401, message: '用户名或密码错误' };
     }
 
-    // 记录最后登录时间
-    await userDao.update(user.id, { last_login_at: db.fn.now() });
-    // 刷新 user 对象以获取最新的 last_login_at
-    const updatedUser = await userDao.findById(user.id);
-    const dailyUsed = await usageService.syncDailyUsage(user.id, updatedUser);
+    return issueLoginResult(user);
+  },
 
-    const token = this.generateToken(updatedUser);
+  // 邮箱验证码登录
+  async loginWithEmailCode({ email, code }) {
+    const normalizedEmail = String(email || '').trim();
+    const normalizedCode = String(code || '').trim();
+    if (!EMAIL_PATTERN.test(normalizedEmail) || !VERIFY_CODE_PATTERN.test(normalizedCode)) {
+      throw { status: 400, message: '邮箱或验证码格式不正确' };
+    }
 
-    return {
-      token,
-      user: this.sanitizeUser({ ...updatedUser, actual_daily_tokens_used: dailyUsed }),
-    };
+    const validRecord = await emailVerificationDao.verify(normalizedEmail, normalizedCode, 'login');
+    if (!validRecord) {
+      throw { status: 400, message: '验证码错误或已过期' };
+    }
+
+    const user = await userDao.findByEmail(normalizedEmail);
+    if (!user) {
+      throw { status: 401, message: '邮箱或验证码错误' };
+    }
+
+    if (user.status === 'disabled') {
+      throw await buildDisabledUserError(user);
+    }
+
+    await emailVerificationDao.markUsed(validRecord.id);
+    return issueLoginResult(await userDao.findByLogin(normalizedEmail));
   },
 
   // 生成 JWT

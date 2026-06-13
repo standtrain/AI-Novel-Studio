@@ -51,9 +51,10 @@ class ContextManager {
   addChapterSummary(chapterNumber, summary) {
     this.context.chaptersSummary.push({ chapter: chapterNumber, summary });
     this.context.currentChapter = chapterNumber;
-    // 超过 100 条摘要时裁剪，保留最近 50 条
-    if (this.context.chaptersSummary.length > 100) {
-      this.context.chaptersSummary = this.context.chaptersSummary.slice(-50);
+    // 严格保持 50 条窗口，避免高频写作时数组在 50-101 之间波动导致上下文不稳定
+    const MAX_SUMMARIES = 50;
+    if (this.context.chaptersSummary.length > MAX_SUMMARIES) {
+      this.context.chaptersSummary = this.context.chaptersSummary.slice(-MAX_SUMMARIES);
     }
     this._markDirty();
   }

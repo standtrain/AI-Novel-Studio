@@ -11,9 +11,9 @@ function authorize(requiredGroup) {
       return next();
     }
 
-    // 检查组名称
+    // 检查组名称：缺失字段时一律拒绝，避免数据异常时被绕过权限
     const groupName = req.user.group_name || req.user.group?.name;
-    if (groupName !== requiredGroup) {
+    if (!groupName || groupName !== requiredGroup) {
       return res.status(403).json({ error: '权限不足，需要 ' + requiredGroup + ' 权限' });
     }
 

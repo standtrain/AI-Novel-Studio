@@ -14,8 +14,20 @@ interface AuthState {
   setUser: (user: UserInfo, token: string) => void;
 }
 
+// 安全解析 localStorage 中的 JSON，损坏数据时清理后回退默认值，避免应用初始化崩溃
+function safeParseJSON<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw || raw === 'null' || raw === 'undefined') return fallback;
+    return JSON.parse(raw);
+  } catch {
+    localStorage.removeItem(key);
+    return fallback;
+  }
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
-  user: JSON.parse(localStorage.getItem('user') || 'null'),
+  user: safeParseJSON<UserInfo | null>('user', null),
   token: localStorage.getItem('token'),
   isAuthenticated: !!localStorage.getItem('token'),
   loading: false,
@@ -62,9 +74,17 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   fetchMe: async () => {
     try {
-      const { user } = await getMeApi();
+      const response = await getMeApi();
+      const { user, token: newToken } = response;
       localStorage.setItem('user', JSON.stringify(user));
-      set({ user, isAuthenticated: true });
+
+      // 检查是否有新 token（Token 续签场景：后端剩余有效期不足 1 天时返回新 token）
+      if (newToken) {
+        localStorage.setItem('token', newToken);
+        set({ user, token: newToken, isAuthenticated: true });
+      } else {
+        set({ user, isAuthenticated: true });
+      }
     } catch {
       // token 失效，退出登录
       localStorage.removeItem('token');

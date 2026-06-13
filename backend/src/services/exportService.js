@@ -349,8 +349,12 @@ async function generatePDF(data) {
       }
     }
     if (!fontRegistered) {
-      // 仅警告，继续使用默认字体（中文可能显示为方块）
-      logger.warn('未找到中文字体文件，PDF 中文可能无法正常显示。请将字体放入 backend/assets/fonts/');
+      // 缺少中文字体时直接报错，避免生成无法显示中文的 PDF 文件误导用户
+      reject(Object.assign(
+        new Error('PDF 导出失败：服务器缺少中文字体文件，请联系管理员将字体放入 backend/assets/fonts/'),
+        { status: 500 }
+      ));
+      return;
     }
 
     // 封面标题
@@ -517,12 +521,24 @@ async function generateEPUB(data) {
 
   // epub-gen 需要输出文件路径，写入临时文件后读取
   const os = require('os');
+  const fs = require('fs');
   const tmpPath = path.join(os.tmpdir(), `epub_${Date.now()}_${Math.random().toString(36).substring(2, 10)}.epub`);
   const epub = new Epub(options, tmpPath);
-  await epub.promise;
-  const buf = require('fs').readFileSync(tmpPath);
-  // 清理临时文件
-  try { require('fs').unlink(tmpPath, () => {}); } catch { /* 忽略清理错误 */ }
+  let buf;
+  try {
+    await epub.promise;
+    buf = fs.readFileSync(tmpPath);
+  } finally {
+    // 同步清理临时文件，避免并发导出时的清理竞态导致磁盘泄漏
+    try {
+      fs.unlinkSync(tmpPath);
+    } catch (err) {
+      // 文件可能已被清理或不存在，仅记录不抛出
+      if (err && err.code !== 'ENOENT') {
+        logger.warn({ tmpPath, code: err.code, msg: err.message }, 'EPUB 临时文件清理失败');
+      }
+    }
+  }
   return buf;
 }
 

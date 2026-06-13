@@ -220,11 +220,22 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
-// 获取当前用户信息
+// 获取当前用户信息（支持 Token 续签：剩余有效期不足 1 天时自动签发新 token）
 router.get('/me', authenticate, async (req, res) => {
   try {
     const user = authService.sanitizeUser(req.user);
-    res.json({ user });
+    const response = { user };
+
+    const exp = req.tokenPayload && req.tokenPayload.exp;
+    if (exp) {
+      const remainingSec = exp - Math.floor(Date.now() / 1000);
+      const RENEW_THRESHOLD_SEC = 24 * 60 * 60;
+      if (remainingSec > 0 && remainingSec < RENEW_THRESHOLD_SEC) {
+        response.token = authService.generateToken(req.user);
+      }
+    }
+
+    res.json(response);
   } catch (err) {
     res.status(500).json({ error: '获取用户信息失败' });
   }

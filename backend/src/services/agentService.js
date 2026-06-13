@@ -588,6 +588,11 @@ const agentService = {
 
   clearAllCaches() {
     _agentCache.clear();
+    // 同步清理 MCP 客户端的工具列表缓存与连接，确保 MCP 配置变更立即生效
+    try {
+      const { getMcpClientManager } = require('../core/mcp/mcpClient');
+      getMcpClientManager().clearCache();
+    } catch { /* 忽略 MCP 模块异常 */ }
   },
 
   cancelTask(userId, novelId = 0, phase) {

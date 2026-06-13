@@ -41,7 +41,7 @@ export async function getRegistrationStatusApi(): Promise<{ allowRegistration: b
   return data;
 }
 
-export async function getMeApi(): Promise<{ user: UserInfo }> {
+export async function getMeApi(): Promise<{ user: UserInfo; token?: string }> {
   const { data } = await client.get('/auth/me');
   return data;
 }

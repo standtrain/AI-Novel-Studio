@@ -47,12 +47,12 @@ app.use((_req, res, next) => {
   next();
 });
 
-// 动态 CORS：从 site_config 读取，默认关闭，管理员可在后台开启（60 秒缓存）
+// 动态 CORS：从 site_config 读取，默认关闭，管理员可在后台开启（10 秒缓存，缩短延迟）
 const configDao = require('./dao/configDao');
 
 let _corsCache = null;
 let _corsCacheTime = 0;
-const CORS_CACHE_MS = 60 * 1000;
+const CORS_CACHE_MS = 10 * 1000; // 缩短为 10 秒，减少安全配置延迟
 
 async function getCorsConfig() {
   const now = Date.now();

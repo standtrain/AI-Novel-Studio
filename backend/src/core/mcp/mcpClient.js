@@ -335,6 +335,21 @@ class McpClientManager {
     this._clients.clear();
     this._endpoints.clear();
   }
+
+  // 仅清除指定服务器的工具缓存与连接，供管理员修改 MCP 配置后调用
+  clearCacheForServer(serverIdOrName) {
+    if (!serverIdOrName) return;
+    const prefix = `mcp:${serverIdOrName}:`;
+    for (const key of _toolCache.keys()) {
+      if (key.startsWith(prefix)) _toolCache.delete(key);
+    }
+    for (const key of this._clients.keys()) {
+      if (key.startsWith(prefix)) this._clients.delete(key);
+    }
+    for (const key of this._endpoints.keys()) {
+      if (key.startsWith(prefix)) this._endpoints.delete(key);
+    }
+  }
 }
 
 let _instance = null;

@@ -35,6 +35,8 @@ async function authenticate(req, res, next) {
       return res.status(403).json({ error: '账号已被禁用', banInfo });
     }
     req.user = user;
+    // 暴露 JWT payload 给后续路由使用（如 /auth/me 续签判断剩余有效期）
+    req.tokenPayload = payload;
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {

@@ -29,17 +29,25 @@ async function getMax() {
 }
 
 // 定期清理过期记录，防止内存泄漏
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, timestamps] of attempts) {
-    const filtered = timestamps.filter(ts => now - ts < WINDOW_MS);
-    if (filtered.length === 0) {
-      attempts.delete(ip);
-    } else {
-      attempts.set(ip, filtered);
+// 仅在模块首次加载时启动定时器，避免热加载或测试场景重复 require 时创建多个实例
+let _cleanupTimer = null;
+function _startCleanup() {
+  if (_cleanupTimer) return;
+  _cleanupTimer = setInterval(() => {
+    const now = Date.now();
+    for (const [ip, timestamps] of attempts) {
+      const filtered = timestamps.filter(ts => now - ts < WINDOW_MS);
+      if (filtered.length === 0) {
+        attempts.delete(ip);
+      } else {
+        attempts.set(ip, filtered);
+      }
     }
-  }
-}, 60 * 1000);
+  }, 60 * 1000);
+  // unref 避免阻塞进程退出
+  if (typeof _cleanupTimer.unref === 'function') _cleanupTimer.unref();
+}
+_startCleanup();
 
 async function loginRateLimiter(req, res, next) {
   const max = await getMax();

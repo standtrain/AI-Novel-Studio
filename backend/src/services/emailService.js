@@ -204,65 +204,80 @@ async function _sendViaSmtp(to, subject, html) {
   }
 }
 
-// ===== 发送频率控制 =====
-const COOLDOWN_SECONDS = 60;
-const _sendCooldown = new Map(); // key: "email:type" -> timestamp(ms)
-const _dailySendCount = new Map(); // key: "email:YYYY-MM-DD" -> count
+// ===== 发送频率控制（基于数据库，跨进程共享） =====
+const { db } = require('../config/database');
 
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, ts] of _sendCooldown) {
-    if (now - ts > COOLDOWN_SECONDS * 1000) _sendCooldown.delete(key);
-  }
-  const today = new Date().toISOString().slice(0, 10);
-  for (const [key] of _dailySendCount) {
-    const datePart = key.split(':').pop();
-    if (datePart !== today) _dailySendCount.delete(key);
-  }
-}, 5 * 60 * 1000);
+const COOLDOWN_SECONDS = 60;
+const THROTTLE_TABLE = 'email_send_throttle';
+
+function _todayBucket() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 /**
- * 检查发送频率限制，超出则抛出异常。
+ * 原子化检查发送频率限制并记录本次发送。
+ * 在单个事务内使用 SELECT ... FOR UPDATE 锁定行，防止 PM2 cluster 多进程下的竞态绕过。
+ * 注意：调用此函数后配额即被消费，即使后续邮件发送失败也不回滚——防止攻击者故意触发失败来绕过限制。
  * @param {string} email
- * @param {string} type - register / reset_password / change_email
+ * @param {string} type - register / reset_password / change_email / login
  */
-async function checkSendLimit(email, type) {
+async function checkAndRecordSend(email, type) {
   const emailLower = email.toLowerCase();
-
-  const cooldownKey = `${emailLower}:${type}`;
-  const lastSend = _sendCooldown.get(cooldownKey);
-  if (lastSend) {
-    const elapsed = Math.floor((Date.now() - lastSend) / 1000);
-    if (elapsed < COOLDOWN_SECONDS) {
-      const remaining = COOLDOWN_SECONDS - elapsed;
-      throw { status: 429, message: `发送过于频繁，请 ${remaining} 秒后再试` };
-    }
-  }
-
+  const today = _todayBucket();
   const dailyLimitRaw = await configService.get('email_daily_limit');
   const dailyLimit = parseInt(dailyLimitRaw || '0', 10);
-  if (dailyLimit > 0) {
-    const today = new Date().toISOString().slice(0, 10);
-    const dailyKey = `${emailLower}:${today}`;
-    const count = _dailySendCount.get(dailyKey) || 0;
-    if (count >= dailyLimit) {
-      throw { status: 429, message: '该邮箱今日发送次数已达上限，请明天再试' };
+
+  return db.transaction(async (trx) => {
+    const existing = await trx(THROTTLE_TABLE)
+      .where({ email: emailLower, type })
+      .forUpdate()
+      .first();
+
+    if (existing) {
+      const lastSent = existing.last_sent_at ? new Date(existing.last_sent_at).getTime() : 0;
+      const elapsed = Math.floor((Date.now() - lastSent) / 1000);
+      if (elapsed < COOLDOWN_SECONDS) {
+        const remaining = COOLDOWN_SECONDS - elapsed;
+        throw { status: 429, message: `发送过于频繁，请 ${remaining} 秒后再试` };
+      }
+
+      if (dailyLimit > 0 && existing.day_bucket === today) {
+        if ((existing.day_count || 0) >= dailyLimit) {
+          throw { status: 429, message: '该邮箱今日发送次数已达上限，请明天再试' };
+        }
+      }
+
+      const sameDay = existing.day_bucket === today;
+      await trx(THROTTLE_TABLE).where('id', existing.id).update({
+        last_sent_at: db.fn.now(),
+        day_bucket: today,
+        day_count: sameDay ? (existing.day_count || 0) + 1 : 1,
+        updated_at: db.fn.now(),
+      });
+    } else {
+      // 首次记录：INSERT 可能因并发唯一索引冲突失败，回退为 UPDATE
+      try {
+        await trx(THROTTLE_TABLE).insert({
+          email: emailLower,
+          type,
+          last_sent_at: db.fn.now(),
+          day_bucket: today,
+          day_count: 1,
+        });
+      } catch (err) {
+        if (err && (err.code === 'ER_DUP_ENTRY' || /duplicate/i.test(err.message || ''))) {
+          await trx(THROTTLE_TABLE).where({ email: emailLower, type }).update({
+            last_sent_at: db.fn.now(),
+            day_bucket: today,
+            day_count: db.raw('CASE WHEN day_bucket = ? THEN day_count + 1 ELSE 1 END', [today]),
+            updated_at: db.fn.now(),
+          });
+        } else {
+          throw err;
+        }
+      }
     }
-  }
-}
-
-function _recordSend(email) {
-  const emailLower = email.toLowerCase();
-  const today = new Date().toISOString().slice(0, 10);
-  const dailyKey = `${emailLower}:${today}`;
-  _dailySendCount.set(dailyKey, (_dailySendCount.get(dailyKey) || 0) + 1);
-}
-
-function _recordSendWithType(email, type) {
-  const emailLower = email.toLowerCase();
-  const cooldownKey = `${emailLower}:${type}`;
-  _sendCooldown.set(cooldownKey, Date.now());
-  _recordSend(email);
+  });
 }
 
 /**
@@ -334,8 +349,7 @@ module.exports = {
   sendEmail,
   sendVerificationCode,
   sendNotification,
-  checkSendLimit,
-  _recordSendWithType,
+  checkAndRecordSend,
   // 暴露给轻量脚本验证，业务代码不直接依赖。
   _getEmailBrand,
   _appendQuery,

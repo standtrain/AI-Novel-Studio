@@ -104,12 +104,18 @@ const authService = {
       if (!code) {
         throw { status: 400, message: '请先验证邮箱' };
       }
+      const lockRemain = await emailVerificationDao.checkLock(email, 'register');
+      if (lockRemain > 0) {
+        throw { status: 429, message: `验证失败次数过多，请 ${Math.ceil(lockRemain / 60)} 分钟后再试` };
+      }
       // 校验验证码
       const validRecord = await emailVerificationDao.verify(email, code, 'register');
       if (!validRecord) {
+        await emailVerificationDao.recordFailure(email, 'register');
         throw { status: 400, message: '验证码错误或已过期' };
       }
       await emailVerificationDao.markUsed(validRecord.id);
+      await emailVerificationDao.clearFailures(email, 'register');
     }
 
     // 检查邮箱域名白名单
@@ -160,8 +166,8 @@ const authService = {
       throw { status: 400, message: '邮箱格式不正确' };
     }
 
-    // 发送频率限制（60 秒冷却 + 每日上限）
-    await emailService.checkSendLimit(email, type);
+    // 原子化检查发送频率并记录（60 秒冷却 + 每日上限），配额立即消费防止竞态绕过
+    await emailService.checkAndRecordSend(email, type);
 
     // 注册验证：检查邮箱域名白名单和邮箱是否已被使用
     if (type === 'register') {
@@ -226,9 +232,6 @@ const authService = {
       throw { status: 500, message: `验证码发送失败：${result.error}` };
     }
 
-    // 记录发送成功（用于频率控制）
-    emailService._recordSendWithType(email, type);
-
     return { success: true, message: '验证码已发送至您的邮箱' };
   },
 
@@ -246,9 +249,15 @@ const authService = {
       throw { status: 400, message: '邮箱或验证码格式不正确' };
     }
 
+    const lockRemain = await emailVerificationDao.checkLock(email, 'reset_password');
+    if (lockRemain > 0) {
+      throw { status: 429, message: `验证失败次数过多，请 ${Math.ceil(lockRemain / 60)} 分钟后再试` };
+    }
+
     // 校验验证码
     const validRecord = await emailVerificationDao.verify(email, code, 'reset_password');
     if (!validRecord) {
+      await emailVerificationDao.recordFailure(email, 'reset_password');
       throw { status: 400, message: '验证码错误或已过期' };
     }
 
@@ -262,8 +271,9 @@ const authService = {
     const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
     await userDao.update(user.id, { password_hash: passwordHash });
 
-    // 标记验证码已使用
+    // 标记验证码已使用并清除失败计数
     await emailVerificationDao.markUsed(validRecord.id);
+    await emailVerificationDao.clearFailures(email, 'reset_password');
 
     return { success: true, message: '密码重置成功，请使用新密码登录' };
   },
@@ -273,9 +283,16 @@ const authService = {
     if (!EMAIL_PATTERN.test(String(newEmail || '')) || !VERIFY_CODE_PATTERN.test(String(code || ''))) {
       throw { status: 400, message: '邮箱或验证码格式不正确' };
     }
+
+    const lockRemain = await emailVerificationDao.checkLock(newEmail, 'change_email');
+    if (lockRemain > 0) {
+      throw { status: 429, message: `验证失败次数过多，请 ${Math.ceil(lockRemain / 60)} 分钟后再试` };
+    }
+
     // 校验验证码（发送到新邮箱的）
     const validRecord = await emailVerificationDao.verify(newEmail, code, 'change_email');
     if (!validRecord) {
+      await emailVerificationDao.recordFailure(newEmail, 'change_email');
       throw { status: 400, message: '验证码错误或已过期' };
     }
 
@@ -288,6 +305,7 @@ const authService = {
     // 更新邮箱
     await userDao.update(userId, { email: newEmail });
     await emailVerificationDao.markUsed(validRecord.id);
+    await emailVerificationDao.clearFailures(newEmail, 'change_email');
 
     // 获取更新后的用户信息
     const user = await userDao.findById(userId);
@@ -321,8 +339,14 @@ const authService = {
       throw { status: 400, message: '邮箱或验证码格式不正确' };
     }
 
+    const lockRemain = await emailVerificationDao.checkLock(normalizedEmail, 'login');
+    if (lockRemain > 0) {
+      throw { status: 429, message: `验证失败次数过多，请 ${Math.ceil(lockRemain / 60)} 分钟后再试` };
+    }
+
     const validRecord = await emailVerificationDao.verify(normalizedEmail, normalizedCode, 'login');
     if (!validRecord) {
+      await emailVerificationDao.recordFailure(normalizedEmail, 'login');
       throw { status: 400, message: '验证码错误或已过期' };
     }
 
@@ -336,6 +360,7 @@ const authService = {
     }
 
     await emailVerificationDao.markUsed(validRecord.id);
+    await emailVerificationDao.clearFailures(normalizedEmail, 'login');
     return issueLoginResult(await userDao.findByLogin(normalizedEmail));
   },
 

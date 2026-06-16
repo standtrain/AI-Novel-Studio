@@ -7,9 +7,21 @@ const path = require('path');
 
 const phaseMap = {
   plan: 'outline',
+  plan_research: 'outline',
+  plan_generate: 'outline',
+  plan_revise: 'outline',
+  import_title: 'outline',
+  import_analysis: 'outline',
   character: 'characters',
+  import_chars: 'characters',
   chapter_outline: 'chapters_outline',
+  import_chapters: 'chapters_outline',
   writing: 'write_chapter',
+  chapter_summary: 'write_chapter',
+  context_assembly: 'write_chapter',
+  polish: 'write_chapter',
+  data_extraction: 'write_chapter',
+  revise: 'write_chapter',
   review: 'review',
   ai_review: 'review',
 };
@@ -578,7 +590,15 @@ function clearProviderRuntimeState() {
 function isRetryableProviderError(err) {
   const status = err?.status || err?.response?.status;
   const code = String(err?.code || err?.error?.code || '').toLowerCase();
+  const type = String(err?.type || err?.error?.type || '').toLowerCase();
   const message = String(err?.message || err?.error?.message || '').toLowerCase();
+  const isOpenAIRateLimit = type.includes('openai_error') && (
+    status === 429 ||
+    code.includes('rate_limit') ||
+    message.includes('429') ||
+    message.includes('rate limit') ||
+    message.includes('too many requests')
+  );
   return status === 429 ||
     status === 408 ||
     status === 500 ||
@@ -587,8 +607,11 @@ function isRetryableProviderError(err) {
     status === 504 ||
     code.includes('rate_limit') ||
     code.includes('quota') ||
+    isOpenAIRateLimit ||
+    type.includes('rate_limit') ||
     message.includes('rate limit') ||
     message.includes('too many requests') ||
+    message.includes('429') ||
     message.includes('quota') ||
     message.includes('限流') ||
     message.includes('超限') ||

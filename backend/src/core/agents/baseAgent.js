@@ -1,6 +1,11 @@
 // Agent 基类 — 统一 LLM 调用、重试、模型解析、技能/MCP 注入
 const OpenAI = require('openai');
-const { pickModel } = require('../../config/openai');
+const {
+  pickModel,
+  acquireProviderSlot,
+  markProviderUnavailable,
+  isRetryableProviderError,
+} = require('../../config/openai');
 const { getMcpClientManager } = require('../mcp/mcpClient');
 const { parseToolCallResult } = require('../mcp/mcpToolAdapter');
 
@@ -85,16 +90,20 @@ class BaseAgent {
     let lastError = null;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
+      let resolved = null;
+      let releaseProviderSlot = null;
       try {
-        const resolved = await pickModel(phase, {
+        resolved = await pickModel(phase, {
           preferredModelName: this.preferredModel,
           preferredProviderName: this.preferredProvider,
           checkLimitFn: this.checkLimitFn,
           ...resolveOptions,
         });
+        releaseProviderSlot = this._acquireProviderSlotOrThrow(resolved.provider);
         return await task(resolved);
       } catch (err) {
         lastError = err;
+        this._markProviderUnavailableIfRetryable(resolved?.provider, err);
         if (this._abortSignal?.aborted) throw err;
         const limited = err?.status === 429 || (err?.message && err.message.includes('429'));
         if (limited && attempt < maxRetries - 1) {
@@ -102,10 +111,36 @@ class BaseAgent {
           continue;
         }
         break;
+      } finally {
+        if (releaseProviderSlot) releaseProviderSlot();
       }
     }
 
     throw lastError;
+  }
+
+  _acquireProviderSlotOrThrow(provider) {
+    const release = acquireProviderSlot(provider);
+    if (!release) {
+      throw {
+        status: 429,
+        code: 'PROVIDER_CONCURRENCY_FULL',
+        message: `API ${provider?.name || 'default'} concurrency is full`,
+      };
+    }
+    return release;
+  }
+
+  _formatProviderErrorReason(err) {
+    const status = err?.status || err?.response?.status || 'unknown';
+    const code = err?.code || err?.error?.code || err?.type || err?.error?.type || 'openai_error';
+    return `${status}:${code}`;
+  }
+
+  _markProviderUnavailableIfRetryable(provider, err) {
+    if (err?.code === 'PROVIDER_CONCURRENCY_FULL') return;
+    if (!provider || !isRetryableProviderError(err)) return;
+    markProviderUnavailable(provider.name, this._formatProviderErrorReason(err));
   }
 
   getMcpOpenAITools(tools = this.mcpTools) {
@@ -224,16 +259,25 @@ class BaseAgent {
     const { provider, model, skipReasons } = await this._resolve(phase);
     const client = this._getClient(provider);
     const abortSignal = signal || this._abortSignal;
+    const releaseProviderSlot = this._acquireProviderSlotOrThrow(provider);
 
-    const response = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature,
-      max_tokens: this.maxTokens,
-    }, { signal: abortSignal });
+    let response;
+    try {
+      response = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature,
+        max_tokens: this.maxTokens,
+      }, { signal: abortSignal });
+    } catch (err) {
+      this._markProviderUnavailableIfRetryable(provider, err);
+      throw err;
+    } finally {
+      releaseProviderSlot();
+    }
 
     return {
       content: response.choices[0].message.content,
@@ -254,11 +298,16 @@ class BaseAgent {
     let skipReasons = [];
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
+      let provider = null;
+      let releaseProviderSlot = null;
       try {
-        const { provider, model, skipReasons: reasons } = await this._resolve(phase);
+        const resolved = await this._resolve(phase);
+        provider = resolved.provider;
+        const { model, skipReasons: reasons } = resolved;
         skipReasons = reasons || [];
         const client = this._getClient(provider);
         const abortSignal = signal || this._abortSignal;
+        releaseProviderSlot = this._acquireProviderSlotOrThrow(provider);
 
         const stream = await client.chat.completions.create({
           model,
@@ -292,6 +341,7 @@ class BaseAgent {
       } catch (err) {
         lastError = err;
         // 429 限流自动重试
+        this._markProviderUnavailableIfRetryable(provider, err);
         if (err.status === 429 || (err.message && err.message.includes('429'))) {
           console.log(`[LLM] 429 限流，自动重试中（第 ${attempt + 1}/${maxRetries} 次）...`);
           if (attempt < maxRetries - 1) {
@@ -300,6 +350,8 @@ class BaseAgent {
           }
         }
         break;
+      } finally {
+        if (releaseProviderSlot) releaseProviderSlot();
       }
     }
 

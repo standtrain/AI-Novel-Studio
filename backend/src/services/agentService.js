@@ -16,7 +16,12 @@ const chatDao = require('../dao/chatDao');
 const configDao = require('../dao/configDao');
 const usageService = require('./usageService');
 const queueManager = require('./queueManager');
-const { pickModel } = require('../config/openai');
+const {
+  pickModel,
+  inspectModelCapacity,
+  isRetryableProviderError,
+  markProviderUnavailable,
+} = require('../config/openai');
 const { createLogger } = require('../utils/logger');
 const { countWords, stripWordCountLabel } = require('../core/utils/wordCounter');
 
@@ -277,6 +282,129 @@ function sendSSE(res, event, data) {
 
 function _safeEnd(res) {
   if (!res.writableEnded) { try { res.end(); } catch { /* 忽略 */ } }
+}
+
+const RUNTIME_REQUEUE_LIMIT = 5;
+
+function _queueNovelId(novelId) {
+  return Number.isInteger(novelId) && novelId > 0 ? novelId : 0;
+}
+
+function _buildCapacityChecker(agent, phase, options = {}) {
+  const capacityPhase = options.capacityPhase || phase;
+  return () => inspectModelCapacity(capacityPhase, {
+    preferredModelName: agent?.preferredModel,
+    preferredProviderName: agent?.preferredProvider,
+    checkLimitFn: agent?.checkLimitFn,
+    requireVision: options.requireVision === true,
+  });
+}
+
+function _isAppQuotaError(err) {
+  const code = String(err?.code || err?.error?.code || '').toUpperCase();
+  return code === 'TOKEN_QUOTA_EXCEEDED';
+}
+
+function _isRuntimeQueueableError(err) {
+  if (_isAppQuotaError(err)) return false;
+  return isRetryableProviderError(err);
+}
+
+function _providerErrorReason(err) {
+  const status = err?.status || err?.response?.status || 'unknown';
+  const code = err?.code || err?.error?.code || err?.type || err?.error?.type || 'openai_error';
+  return `${status}:${code}`;
+}
+
+function _markRuntimeProviderUnavailable(providerName, err) {
+  if (!providerName || err?.code === 'PROVIDER_CONCURRENCY_FULL') return;
+  if (!_isRuntimeQueueableError(err)) return;
+  markProviderUnavailable(providerName, _providerErrorReason(err));
+}
+
+function _sendRuntimeRequeueNotice(res, err, retryCount) {
+  sendSSE(res, 'queue', {
+    status: 'waiting',
+    position: 1,
+    priority: 10,
+    queueLength: 1,
+    waitingCount: 1,
+    runningCount: 0,
+    maxRunningTasks: queueManager.getQueueStatus().maxRunningTasks,
+    estimatedWaitText: 'calculating',
+    reason: 'openai_rate_limited',
+    reasonText: err?.message || 'OpenAI API is rate limited',
+    message: `OpenAI API returned a retryable error; waiting in queue (${retryCount}/${RUNTIME_REQUEUE_LIMIT})`,
+  });
+}
+
+async function _waitForQueueTurn(userId, novelId, phase, res, agent, options = {}) {
+  const priority = await queueManager.getUserGroupPriority(userId);
+  const task = await queueManager.enqueue(userId, _queueNovelId(novelId), phase, priority, res, {
+    capacityChecker: _buildCapacityChecker(agent, phase, options),
+  });
+  return { task, priority };
+}
+
+function _queueStatusForError(err, abortController) {
+  if (abortController.signal.aborted || err?.status === queueManager.STATUS.CANCELLED) {
+    return queueManager.STATUS.CANCELLED;
+  }
+  return queueManager.STATUS.FAILED;
+}
+
+async function _runQueuedTurn({
+  userId,
+  novelId,
+  phase,
+  res,
+  abortController,
+  agent,
+  capacityPhase,
+  requireVision,
+  getProviderName,
+  executeTurn,
+}) {
+  let requeueCount = 0;
+  const queuedNovelId = _queueNovelId(novelId);
+
+  while (!res.writableEnded && !abortController.signal.aborted) {
+    let runningRegistered = false;
+    try {
+      const { task, priority } = await _waitForQueueTurn(userId, queuedNovelId, phase, res, agent, {
+        capacityPhase,
+        requireVision,
+      });
+      queueManager.registerRunning(userId, queuedNovelId, phase, abortController, res, priority, task?.id || null);
+      runningRegistered = true;
+
+      const result = await executeTurn();
+      queueManager.unregisterRunning(userId, queuedNovelId, phase, queueManager.STATUS.COMPLETED);
+      runningRegistered = false;
+      return result;
+    } catch (err) {
+      if (runningRegistered) {
+        queueManager.unregisterRunning(userId, queuedNovelId, phase, _queueStatusForError(err, abortController));
+        runningRegistered = false;
+      }
+
+      _markRuntimeProviderUnavailable(getProviderName?.(), err);
+      if (
+        _isRuntimeQueueableError(err) &&
+        requeueCount < RUNTIME_REQUEUE_LIMIT &&
+        !res.writableEnded &&
+        !abortController.signal.aborted
+      ) {
+        requeueCount += 1;
+        logger.warn(`Runtime OpenAI error requeued: phase=${phase}, retry=${requeueCount}, reason=${err?.message || err}`);
+        _sendRuntimeRequeueNotice(res, err, requeueCount);
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw { status: 499, message: 'Task cancelled' };
 }
 
 function _isAutoMode(req) {
@@ -544,7 +672,7 @@ function _buildChapterData(chapter) {
  * @param {string} [opts.label] - 错误日志标签
  * @param {boolean} [opts.rejectIfActive] - 是否在注册前检查重复任务
  */
-function _runSSETask(req, res, novelId, phase, agent, opts) {
+function _runSSETask(req, res, userId, novelId, phase, agent, opts) {
   const { task, onDone, label, rejectIfActive } = opts;
   const logLabel = label || phase;
 
@@ -562,23 +690,46 @@ function _runSSETask(req, res, novelId, phase, agent, opts) {
   };
   _onClose(req, res, abortController, novelId, phase);
 
-  task(onProgress)
-    .then(async (result) => {
-      try {
-        await onDone(result, res);
-      } catch (innerErr) {
-        logger.error(logLabel + '成功回调失败：' + innerErr.message);
-        sendSSE(res, 'error', { message: '数据保存失败' });
+  (async () => {
+    try {
+      await _runQueuedTurn({
+        userId,
+        novelId,
+        phase,
+        res,
+        abortController,
+        agent,
+        capacityPhase: opts.capacityPhase,
+        requireVision: opts.requireVision,
+        getProviderName: () => null,
+        executeTurn: async () => {
+          const result = await task(onProgress);
+          try {
+            await onDone(result, res);
+          } catch (innerErr) {
+            logger.error(`${logLabel} onDone failed: ${innerErr.message}`);
+            sendSSE(res, 'error', { message: 'Data save failed' });
+          }
+        },
+      });
+      _safeEnd(res);
+    } catch (err) {
+      if (!res.writableEnded) {
+        logger.error(`${logLabel} failed: ${err.message}`);
+        sendSSE(res, 'error', { message: err.message });
       }
       _safeEnd(res);
+    } finally {
       _cleanupTask(novelId, phase, abortController);
-    })
-    .catch((err) => {
-      logger.error(logLabel + '失败：' + err.message);
+    }
+  })().catch((err) => {
+    if (!res.writableEnded) {
+      logger.error(`${logLabel} failed: ${err.message}`);
       sendSSE(res, 'error', { message: err.message });
-      _safeEnd(res);
-      _cleanupTask(novelId, phase, abortController);
-    });
+    }
+    _safeEnd(res);
+    _cleanupTask(novelId, phase, abortController);
+  });
 }
 
 const agentService = {
@@ -601,6 +752,15 @@ const agentService = {
     for (const key of _resolveCancellableTaskKeys(userId, normalizedNovelId, phase)) {
       cancelled = _cancelTaskByKey(key) || cancelled;
     }
+    const queuePhases = new Set([phase]);
+    if (phase === 'review' || phase === 'extract') queuePhases.add('write_chapter');
+    if (['outline', 'characters', 'chapters_outline', 'write_chapter'].includes(phase)) {
+      queuePhases.add('revise_' + phase);
+    }
+    for (const queuePhase of queuePhases) {
+      const removed = queueManager.removeFromQueue(userId, _queueNovelId(normalizedNovelId), queuePhase);
+      cancelled = !!removed || cancelled;
+    }
     if (cancelled) {
       _clearAgentCache(userId);
     }
@@ -615,7 +775,7 @@ const agentService = {
     const agent = await _createAgent(ctx, userId, 'outline');
 
     return {
-      execute: (req, res) => _runSSETask(req, res, novelId, 'outline', agent, {
+      execute: (req, res) => _runSSETask(req, res, userId, novelId, 'outline', agent, {
         label: '大纲生成',
         task: (onProgress) => agent.generateBookOutline(userInput, onProgress),
         onDone: async ({ outline, usage, model, provider, skipReasons }, res) => {
@@ -662,7 +822,7 @@ const agentService = {
     const agent = await _createAgent(ctx, userId, 'characters');
 
     return {
-      execute: (req, res) => _runSSETask(req, res, novelId, 'characters', agent, {
+      execute: (req, res) => _runSSETask(req, res, userId, novelId, 'characters', agent, {
         label: '人物设定生成',
         task: (onProgress) => agent.generateCharacterProfiles(outline, onProgress),
         onDone: async ({ characters, usage, model, provider, skipReasons }, res) => {
@@ -718,7 +878,7 @@ const agentService = {
     const agent = await _createAgent(ctx, userId, 'chapters_outline');
 
     return {
-      execute: (req, res) => _runSSETask(req, res, novelId, 'chapters_outline', agent, {
+      execute: (req, res) => _runSSETask(req, res, userId, novelId, 'chapters_outline', agent, {
         label: '章节大纲生成',
         task: (onProgress) => agent.generateChapterOutlines(outline, characters, onProgress, from, endChapter),
         onDone: async ({ chapters, usage, model, provider, skipReasons }, res) => {
@@ -822,6 +982,15 @@ const agentService = {
 
         (async () => {
           try {
+            await _runQueuedTurn({
+              userId,
+              novelId,
+              phase: 'write_chapter',
+              res,
+              abortController,
+              agent: writingAgent,
+              getProviderName: () => null,
+              executeTurn: async () => {
             // ===== Step 1: 上下文组装 → 写作任务书 =====
             sendSSE(res, 'progress', { step: 'context', message: 'Step 1/5: 正在组装写作任务书...' });
 
@@ -1054,6 +1223,8 @@ ${finalContent}
             sendSSE(res, 'done', {});
             _safeEnd(res);
             _cleanupTask(novelId, 'write_chapter', abortController);
+              },
+            });
 
           } catch (err) {
             if (res.writableEnded) return;
@@ -1106,7 +1277,7 @@ ${finalContent}
     };
 
     return {
-      execute: (req, res) => _runSSETask(req, res, novelId, 'review', agent, {
+      execute: (req, res) => _runSSETask(req, res, userId, novelId, 'review', agent, {
         label: '独立审查',
         rejectIfActive: true,
         task: (onProgress) => agent.reviewChapter(reviewInput, onProgress),
@@ -1154,7 +1325,7 @@ ${finalContent}
     };
 
     return {
-      execute: (req, res) => _runSSETask(req, res, novelId, 'extract', agent, {
+      execute: (req, res) => _runSSETask(req, res, userId, novelId, 'extract', agent, {
         label: '独立数据提取',
         rejectIfActive: true,
         task: (onProgress) => agent.extractChapterData(extractInput, onProgress),
@@ -1385,6 +1556,18 @@ ${finalContent}
             });
           }
 
+          await _runQueuedTurn({
+            userId,
+            novelId: 0,
+            phase: 'chat',
+            res,
+            abortController,
+            agent,
+            requireVision: Array.isArray(fileList) && fileList.some(file => file.isImage),
+            getProviderName: () => providerName,
+            executeTurn: async () => {
+          assistantContent = '';
+
           const historyRows = await chatDao.listMessages(convId);
           const priorMessages = historyRows
             .filter(row => !(row.role === 'user' && row.content === storedUserMessage))
@@ -1423,9 +1606,11 @@ ${finalContent}
           }
 
           const client = agent._getClient(provider);
+          const releaseProviderSlot = agent._acquireProviderSlotOrThrow(provider);
+          let usage = null;
+          try {
           const openaiTools = hasCurrentImages ? [] : agent.getMcpOpenAITools(agent.mcpTools);
           const requireToolCall = openaiTools.length > 0 && _shouldRequireChatTools(normalized);
-          let usage = null;
           let shouldStreamFinal = true;
           if (openaiTools.length > 0) {
             for (let turn = 0; turn < CHAT_MAX_TOOL_TURNS; turn++) {
@@ -1517,6 +1702,9 @@ ${finalContent}
               sendSSE(res, 'chunk', { text: delta });
             }
           }
+          } finally {
+            releaseProviderSlot();
+          }
 
           if (abortController.signal.aborted) {
             sendSSE(res, 'abort', {});
@@ -1535,6 +1723,8 @@ ${finalContent}
 
           sendSSE(res, 'done', {});
           _safeEnd(res);
+            },
+          });
         } catch (err) {
           if (!res.writableEnded) {
             logger.error('AI 对话失败：' + err.message);

@@ -1,5 +1,8 @@
 require('dotenv').config();
 
+const { checkEnvironmentVariables } = require('./utils/envValidator');
+checkEnvironmentVariables();
+
 const express = require('express');
 const cors = require('cors');
 const { db, testConnection } = require('./config/database');
@@ -148,7 +151,27 @@ const uploadsDir = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
-app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads', (req, res, next) => {
+  const normalizedPath = path.posix.normalize(req.path);
+  const fileName = path.posix.basename(normalizedPath);
+  const ext = path.posix.extname(fileName).toLowerCase();
+  const isRootFile = normalizedPath === `/${fileName}`;
+  const isPublicFavicon = fileName.toLowerCase().startsWith('favicon')
+    && ['.svg', '.png', '.ico', '.jpg', '.jpeg'].includes(ext);
+
+  if (!isRootFile || !isPublicFavicon) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  next();
+});
+app.use('/uploads', express.static(uploadsDir, {
+  dotfiles: 'deny',
+  index: false,
+  maxAge: '1h',
+  setHeaders(res, filePath) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  },
+}));
 
 // 默认 favicon SVG（内联生成，匹配站点设计风格）
 const DEFAULT_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
@@ -172,9 +195,13 @@ app.get(['/favicon.ico', '/favicon.svg'], async (_req, res) => {
     const configDao = require('./dao/configDao');
     const faviconPath = await configDao.get('favicon_path');
     if (faviconPath) {
-      const fullPath = path.join(uploadsDir, faviconPath);
+      const safeName = path.basename(String(faviconPath));
+      if (safeName !== faviconPath) {
+        return res.type('image/svg+xml').send(DEFAULT_FAVICON_SVG);
+      }
+      const fullPath = path.join(uploadsDir, safeName);
       if (fs.existsSync(fullPath)) {
-        const ext = path.extname(faviconPath).toLowerCase();
+        const ext = path.extname(safeName).toLowerCase();
         const mimeMap = { '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' };
         return res.type(mimeMap[ext] || 'image/png').sendFile(fullPath);
       }

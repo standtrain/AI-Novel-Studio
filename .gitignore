@@ -44,6 +44,10 @@ tmp/
 coverage/
 .nyc_output/
 
+# 前端/TypeScript 缓存
+*.tsbuildinfo
+.vite/
+
 # 环境特定配置
 .env.local
 .env.*.local
@@ -55,6 +59,12 @@ deploy/
 # 临时目录
 $tmpDir/
 .claude/
+
+# 运行时上传文件，仅保留目录占位
+uploads/*
+!uploads/.gitkeep
+backend/uploads/*
+!backend/uploads/.gitkeep
 
 # 测试文件
 backend/test-novel-save.js

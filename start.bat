@@ -37,6 +37,12 @@ if %errorlevel% neq 0 (
 )
 echo [OK] Node.js found:
 node -v
+for /f "tokens=1 delims=." %%a in ('node -p "process.versions.node"') do set NODE_MAJOR=%%a
+if %NODE_MAJOR% LSS 18 (
+    echo [ERROR] Current dependencies require Node.js 18 or newer.
+    pause
+    exit /b 1
+)
 echo.
 
 :: ---- Backend ----

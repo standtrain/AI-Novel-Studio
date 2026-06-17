@@ -35,13 +35,13 @@ Different creative phases have different model requirements. BookAgent lets you 
   {
     "name": "openai",
     "baseUrl": "https://api.openai.com/v1",
-    "apiKey": "sk-xxx",
+    "apiKey": "${OPENAI_API_KEY}",
     "models": [{"name": "gpt-4o", "phases": ["outline", "characters"]}]
   },
   {
     "name": "deepseek",
     "baseUrl": "https://api.deepseek.com/v1",
-    "apiKey": "sk-xxx",
+    "apiKey": "${DEEPSEEK_API_KEY}",
     "models": [{"name": "deepseek-chat", "phases": ["write_chapter"]}]
   }
 ]
@@ -206,20 +206,20 @@ Edit `backend/.env` with your database credentials, JWT secret, and AI API keys:
 # Database
 DB_HOST=127.0.0.1
 DB_PORT=3306
-DB_USER=your_user
-DB_PASSWORD=your_password
+DB_USER=${DB_USER}
+DB_PASSWORD=${DB_PWD}
 DB_NAME=novel_writing
 
 # JWT (use a strong random string)
-JWT_SECRET=your_jwt_secret
+JWT_SECRET=${JWT_SECRET}
 
 # AI Provider (single-provider simple mode)
 OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_API_KEY=sk-xxx
+OPENAI_API_KEY=${OPENAI_API_KEY}
 OPENAI_MODEL=gpt-4o
 
 # Multi-provider mode (overrides single-provider config above)
-# OPENAI_PROVIDERS=[{"name":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"sk-xxx","models":[{"name":"gpt-4o","phases":["all"]}]},{"name":"deepseek","baseUrl":"https://api.deepseek.com/v1","apiKey":"sk-xxx","models":[{"name":"deepseek-chat","phases":["outline","write_chapter"]}]}]
+# OPENAI_PROVIDERS=[{"name":"openai","baseUrl":"https://api.openai.com/v1","apiKey":"${OPENAI_API_KEY}","models":[{"name":"gpt-4o","phases":["all"]}]},{"name":"deepseek","baseUrl":"https://api.deepseek.com/v1","apiKey":"${DEEPSEEK_API_KEY}","models":[{"name":"deepseek-chat","phases":["outline","write_chapter"]}]}]
 ```
 
 ### Initialize Database

@@ -60,6 +60,11 @@ if ! command -v node &>/dev/null; then
     exit 1
 fi
 echo -e "${GREEN}[OK] Node.js $(node -v)${NC}"
+NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]")"
+if [ "$NODE_MAJOR" -lt 18 ]; then
+    echo -e "${RED}[ERROR] Current dependencies require Node.js >= 18. Detected $(node -v).${NC}"
+    exit 1
+fi
 echo ""
 
 # ---- Backend ----
